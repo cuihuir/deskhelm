@@ -138,6 +138,15 @@ Keep third-party reference files outside version control under
 - Preserve the separation between small `StateEvent` projections, rich
   `InteractionEvent` content, and targeted `ControlCommand` actions.
 - Keep `AgentEvent v1` compatible until a documented migration exists.
+- Use the single DeskHelm Unix socket for negotiated publishers, subscribers,
+  and controllers. A connection has one fixed role after
+  `client_hello` / `server_hello` negotiation.
+- Limit legacy compatibility to connections whose first frame is an
+  `AgentEvent v1`; legacy connections remain state publishers only.
+- Limit UTF-8 NDJSON frames to 1 MiB and use bounded per-connection queues.
+  Isolate slow subscribers before enabling external subscriptions.
+- Do not promise durable event history or replay. On reconnect or a sequence
+  gap, clients request a fresh snapshot before consuming live events.
 - Identify sessions with `agent_id + session_id + project_id`; treat `slot` as a
   presentation mapping only.
 - Do not focus sessions implicitly. Only active sessions may be focused;

@@ -30,3 +30,12 @@ Required fields are `agent_id`, `slot`, and `state`. Valid states are:
 - `failed`
 
 `slot` is zero-based. `progress`, when present, is a number from `0` to `1`. `updated_at` is Unix time in milliseconds. Phase 0 transports one event per line over a local Unix domain stream socket.
+
+## Rich Interaction Protocol
+
+- [`interaction-event-v1.md`](interaction-event-v1.md) defines session-scoped
+  message, tool, approval, input, completion, and failure events.
+- ADR 0005 defines the negotiated single-socket transport direction.
+
+The Python model and compatibility fixtures are implemented. The current Phase
+0 socket server does not accept rich interaction frames yet.

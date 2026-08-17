@@ -31,14 +31,15 @@ Acceptance criteria:
 
 ## Milestone 2: Interaction and Control Protocols
 
-Status: Planned
+Status: In progress
 
-- [ ] Write ADRs for local transport and message envelopes.
-- [ ] Define versioned `InteractionEvent v1`.
+- [x] Write an ADR for the negotiated local transport and message envelopes.
+- [x] Define versioned `InteractionEvent v1`.
 - [ ] Define versioned `ControlCommand v1`.
-- [ ] Add JSON fixtures and compatibility tests.
-- [ ] Define ordering, correlation, cancellation, and terminal-event semantics.
-- [ ] Define queue bounds, maximum record size, and slow-subscriber behavior.
+- [ ] Add JSON fixtures and compatibility tests. (`InteractionEvent v1` is
+  covered; `ControlCommand v1` remains.)
+- [x] Define interaction ordering, correlation, and terminal-event semantics.
+- [x] Define queue bounds, maximum record size, and slow-subscriber direction.
 - [ ] Implement targeting and validation in a `ControlRouter`.
 - [ ] Require `request_id`, target session, summary, and expiry for approvals.
 - [ ] Require idempotency keys for retryable prompt and control operations.
@@ -100,8 +101,9 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Decide the external subscription transport in an ADR.
-2. Define `InteractionEvent v1` with fixtures and validation tests.
-3. Define `ControlCommand v1`, starting with `focus`, `submit_prompt`,
+1. Replace the sequential Bridge server with bounded concurrent connection
+   handling and implement `client_hello` / `server_hello` negotiation.
+2. Define `ControlCommand v1`, starting with `focus`, `submit_prompt`,
    `interrupt`, `speak`, and `stop_speaking`.
+3. Implement snapshot-then-live subscriptions without durable replay.
 4. Build the text-only Codex gateway before adding audio dependencies.

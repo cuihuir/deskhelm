@@ -1,0 +1,19 @@
+{
+  "protocol_version": 1,
+  "message_type": "interaction_event",
+  "event_id": "event-message-2",
+  "kind": "message",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "source": "codex-exec",
+  "source_version": "1.0",
+  "sequence": 2,
+  "occurred_at": 1786935000000,
+  "correlation_id": "message-1",
+  "payload": {
+    "role": "assistant",
+    "phase": "delta",
+    "text": "任务正在执行"
+  }
+}

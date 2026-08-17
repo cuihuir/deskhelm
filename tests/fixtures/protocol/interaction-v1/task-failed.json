@@ -1,0 +1,18 @@
+{
+  "protocol_version": 1,
+  "message_type": "interaction_event",
+  "event_id": "event-task-9",
+  "kind": "task_failed",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "source": "codex-exec",
+  "source_version": "1.0",
+  "sequence": 18,
+  "occurred_at": 1786935003000,
+  "correlation_id": "",
+  "payload": {
+    "message": "Agent process exited before a final response",
+    "error_code": "process_exit"
+  }
+}

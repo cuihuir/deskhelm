@@ -1,0 +1,19 @@
+{
+  "protocol_version": 1,
+  "message_type": "interaction_event",
+  "event_id": "event-approval-1",
+  "kind": "approval_request",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "source": "codex-hook",
+  "source_version": "1.0",
+  "sequence": 13,
+  "occurred_at": 1786935002000,
+  "correlation_id": "approval-9",
+  "payload": {
+    "request_id": "approval-9",
+    "summary": "Run the project test suite",
+    "expires_at": 1786935062000
+  }
+}
