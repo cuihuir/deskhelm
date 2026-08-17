@@ -1,14 +1,14 @@
 import unittest
 
-from agent_io_bridge.event import AgentEvent, AgentState
-from agent_io_bridge.session_registry import SessionKey, SessionRegistry
+from deskhelm_bridge.event import AgentEvent, AgentState
+from deskhelm_bridge.session_registry import SessionKey, SessionRegistry
 
 
 class SessionRegistryTests(unittest.TestCase):
     def test_assigns_first_available_slot(self) -> None:
         registry = SessionRegistry(slot_count=2)
-        first = SessionKey(agent_id="codex", session_id="one", project_id="agent-io")
-        second = SessionKey(agent_id="codex", session_id="two", project_id="agent-io")
+        first = SessionKey(agent_id="codex", session_id="one", project_id="deskhelm")
+        second = SessionKey(agent_id="codex", session_id="two", project_id="deskhelm")
 
         self.assertEqual(registry.assign(first), 0)
         self.assertEqual(registry.assign(second), 1)

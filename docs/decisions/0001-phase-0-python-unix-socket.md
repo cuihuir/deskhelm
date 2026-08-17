@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-07-16
 
+Naming note: ADR 0003 replaces the `agent-io` CLI and runtime-path names with
+DeskHelm equivalents while preserving temporary compatibility commands.
+
 ## Context
 
 Phase 0 must validate the core `agent-io` experience before hardware exists: normalize agent events, accept events from a Codex hook, and display four live status slots. The prototype should run locally with minimal setup and expose protocol assumptions early.

@@ -1,6 +1,7 @@
 # Bridge
 
-Local-first service that normalizes coding-agent events and communicates with `agent-io` devices.
+Local-first service that normalizes coding-agent events for DeskHelm clients and
+future devices.
 
 ## Internal Boundaries
 
@@ -19,19 +20,19 @@ The prototype requires Python 3.11 or newer and has no runtime dependencies.
 Start the four-slot bridge:
 
 ```bash
-PYTHONPATH=bridge python3 -m agent_io_bridge bridge
+PYTHONPATH=bridge python3 -m deskhelm_bridge bridge
 ```
 
 In another terminal, run the demo sequence:
 
 ```bash
-PYTHONPATH=bridge python3 -m agent_io_bridge simulate
+PYTHONPATH=bridge python3 -m deskhelm_bridge simulate
 ```
 
 Send one event manually:
 
 ```bash
-PYTHONPATH=bridge python3 -m agent_io_bridge emit \
+PYTHONPATH=bridge python3 -m deskhelm_bridge emit \
   --agent-id project-a:codex:1 \
   --slot 0 \
   --state waiting_approval \
@@ -42,14 +43,21 @@ For an editable CLI installation:
 
 ```bash
 python3 -m pip install -e .
-agent-io bridge
+deskhelm bridge
 ```
 
-The default socket is `$XDG_RUNTIME_DIR/agent-io/bridge.sock`, or `/tmp/agent-io-<uid>/bridge.sock` when `XDG_RUNTIME_DIR` is unavailable.
+The default socket is `$XDG_RUNTIME_DIR/deskhelm/bridge.sock`, or
+`/tmp/deskhelm-<uid>/bridge.sock` when `XDG_RUNTIME_DIR` is unavailable.
+
+The pre-release `agent-io` CLI and `python -m agent_io_bridge` remain temporary
+compatibility aliases. They use the DeskHelm socket path.
 
 ## Codex Hook
 
-Install the editable CLI, start `agent-io bridge`, then adapt [`adapters/codex/hooks.example.json`](../adapters/codex/hooks.example.json) into `~/.codex/hooks.json`. Each command receives a Codex hook payload on standard input and forwards its lifecycle state to the configured slot.
+Install the editable CLI, start `deskhelm bridge`, then adapt
+[`adapters/codex/hooks.example.json`](../adapters/codex/hooks.example.json) into
+`~/.codex/hooks.json`. Each command receives a Codex hook payload on standard
+input and forwards its lifecycle state to the configured slot.
 
 ## Tests
 

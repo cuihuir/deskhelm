@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agent-io-codex-hook --slot 0 --label codex"
+            "command": "deskhelm-codex-hook --slot 0 --label codex"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agent-io-codex-hook --slot 0 --label codex"
+            "command": "deskhelm-codex-hook --slot 0 --label codex"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agent-io-codex-hook --slot 0 --label codex"
+            "command": "deskhelm-codex-hook --slot 0 --label codex"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agent-io-codex-hook --slot 0 --label codex"
+            "command": "deskhelm-codex-hook --slot 0 --label codex"
           }
         ]
       }
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agent-io-codex-hook --slot 0 --label codex"
+            "command": "deskhelm-codex-hook --slot 0 --label codex"
           }
         ]
       }

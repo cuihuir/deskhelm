@@ -1,7 +1,7 @@
 import unittest
 
-from agent_io_bridge.codex_hook import event_from_hook
-from agent_io_bridge.event import AgentState
+from deskhelm_bridge.codex_hook import event_from_hook
+from deskhelm_bridge.event import AgentState
 
 
 class CodexHookTests(unittest.TestCase):

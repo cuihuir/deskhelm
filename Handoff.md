@@ -28,6 +28,10 @@ Gateway implementation has not started.
 
 - Created and pushed the initial project baseline.
 - Selected `DeskHelm` as the product and repository name.
+- Migrated the distribution, primary Python package, CLI, Codex hook CLI, and
+  runtime socket path to DeskHelm names under ADR 0003.
+- Preserved temporary `agent-io`, `agent-io-codex-hook`, and
+  `python -m agent_io_bridge` compatibility entry points.
 - Added repository Git attributes, ignore rules, local commit identity, and an
   HTTPS `origin`.
 - Separated Bridge state storage, session projection, and terminal rendering.
@@ -57,6 +61,8 @@ Gateway implementation has not started.
   retried.
 - Bridge remains dependency-minimal; voice models and GPU runtimes stay outside
   it.
+- Canonical runtime identifiers are `deskhelm`, `deskhelm_bridge`, and
+  `deskhelm-codex-hook`; legacy names are compatibility aliases only.
 
 ## Important Files
 
@@ -69,8 +75,9 @@ Gateway implementation has not started.
 - `docs/decisions/0001-phase-0-python-unix-socket.md`: Phase 0 transport.
 - `docs/decisions/0002-separate-bridge-state-and-session-projection.md`:
   Bridge state and session boundary.
-- `bridge/agent_io_bridge/state_store.py`: state snapshots and subscriptions.
-- `bridge/agent_io_bridge/session_registry.py`: session-to-slot projection.
+- `docs/decisions/0003-adopt-deskhelm-name.md`: naming and compatibility plan.
+- `bridge/deskhelm_bridge/state_store.py`: state snapshots and subscriptions.
+- `bridge/deskhelm_bridge/session_registry.py`: session-to-slot projection.
 
 ## Validation
 
@@ -80,31 +87,31 @@ Last verified on 2026-08-17:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 17 tests passed.
+Result: 19 tests passed.
 
 Repository checks also passed:
 
 ```bash
 git diff --check
 find docs -name '*.md' -type f
+PYTHONPATH=bridge python3 -m deskhelm_bridge --help
+PYTHONPATH=bridge python3 -m agent_io_bridge --help
 ```
 
 ## Remaining Work
 
-1. Migrate legacy `agent-io`, `agent_io`, and `next_keyboard` public identifiers
-   to DeskHelm with an explicit compatibility plan.
-2. Choose and add the repository license; the GitHub repository is currently
+1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-3. Define session lifecycle and focus semantics.
-4. Decide bounded Bridge concurrency and external subscription transport in an
+2. Define session lifecycle and focus semantics.
+3. Decide bounded Bridge concurrency and external subscription transport in an
    ADR.
-5. Define the adapter capability contract and add versioned Codex fixtures.
-6. Define `InteractionEvent v1` ordering, correlation, cancellation, terminal
+4. Define the adapter capability contract and add versioned Codex fixtures.
+5. Define `InteractionEvent v1` ordering, correlation, cancellation, terminal
    events, and privacy boundaries.
-7. Define `ControlCommand v1`, including targeting, expiry, idempotency, and
+6. Define `ControlCommand v1`, including targeting, expiry, idempotency, and
    approval safety.
-8. Build the text-only Codex gateway with a deterministic fake provider.
-9. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
+7. Build the text-only Codex gateway with a deterministic fake provider.
+8. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
    providers before installing models.
 
 ## Risks and Blockers
@@ -112,9 +119,15 @@ find docs -name '*.md' -type f
 - The Bridge server still handles connections sequentially.
 - `InteractionEvent` and `ControlCommand` are architecture drafts, not accepted
   protocols.
-- Existing package, CLI, socket, and documentation identifiers still use
-  `agent-io`; renaming them without a compatibility plan would break users.
+- The default socket path changed during the pre-release rename; existing
+  Bridge and hook processes must restart together after updating.
+- Legacy CLI and module-execution aliases still exist and need a deprecation
+  review before the first stable release.
 - The public repository has no selected open-source license.
+- The renamed Python distribution has not been built as a wheel on this
+  machine because the system Python environment does not include `setuptools`;
+  source-tree imports, both module entry points, and `pyproject.toml` metadata
+  were validated directly.
 - Codex, Claude, and Gemini compatibility is not yet backed by captured,
   versioned fixture sets.
 - ASR and TTS quality, latency, recovery, resource use, and model licensing have
@@ -122,6 +135,7 @@ find docs -name '*.md' -type f
 
 ## Next Step
 
-Complete the DeskHelm naming and license decisions, then write the protocol
-envelope and adapter-capability ADR before implementing the text-only Agent
+Obtain the license decision from the user when packaging or external
+contributions require it. In parallel, define session lifecycle, protocol
+envelopes, and adapter capabilities before implementing the text-only Agent
 gateway.

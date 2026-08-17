@@ -1,5 +1,5 @@
-"""Phase 0 bridge for agent-io."""
+"""Compatibility entry point for the pre-release agent-io module name."""
 
-from .event import AgentEvent, AgentState, ProtocolError
+from deskhelm_bridge import AgentEvent, AgentState, ProtocolError
 
 __all__ = ["AgentEvent", "AgentState", "ProtocolError"]

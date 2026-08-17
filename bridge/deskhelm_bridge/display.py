@@ -32,7 +32,7 @@ class SlotPanel:
                 self.stream.flush()
             return
 
-        lines = ["agent-io · Phase 0", ""]
+        lines = ["DeskHelm · Phase 0", ""]
         lines.extend(self._slot_line(event) for event in events)
         self.stream.write("\033[2J\033[H" + "\n".join(lines) + "\n")
         self.stream.flush()

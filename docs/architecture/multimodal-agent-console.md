@@ -6,7 +6,7 @@
 
 ## 1. 目标
 
-`agent-io` 不应只是一块宏键盘，也不应只是一套语音输入法。它应成为一个本地优先的 Agent Console：
+DeskHelm 不应只是一块宏键盘，也不应只是一套语音输入法。它应成为一个本地优先的 Agent Console：
 
 - Bridge 统一不同 Agent 的状态、会话和控制语义。
 - Voice Gateway 提供本地语音输入、提示词处理、播报和通知。
@@ -192,7 +192,7 @@ Agent 请求权限
 ## 7. 推荐目录边界
 
 ```text
-next_keyboard/
+deskhelm/
 ├── bridge/       Agent Core、StateStore、SessionRegistry、ControlRouter
 ├── adapters/     Codex、Claude、Gemini、OpenCode
 ├── protocol/     状态、交互、控制和设备传输规范

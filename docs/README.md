@@ -1,4 +1,4 @@
-# agent-io 文档
+# DeskHelm 文档
 
 本目录按照“研究输入 → 架构决策 → 工程实现 → 产品化”的顺序组织。
 
@@ -29,3 +29,4 @@
 - [`architecture/phase-0.md`](architecture/phase-0.md)：第一阶段软件验证范围与成功标准。
 - [`architecture/multimodal-agent-console.md`](architecture/multimodal-agent-console.md)：Voice Gateway、Agent Bridge 和实体 Agent Console 的综合边界设计。
 - [`decisions/0001-phase-0-python-unix-socket.md`](decisions/0001-phase-0-python-unix-socket.md)：Python 与 Unix socket 原型决策。
+- [`decisions/0003-adopt-deskhelm-name.md`](decisions/0003-adopt-deskhelm-name.md)：DeskHelm 命名与兼容入口迁移决策。

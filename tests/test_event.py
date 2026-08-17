@@ -1,6 +1,6 @@
 import unittest
 
-from agent_io_bridge.event import AgentEvent, AgentState, ProtocolError
+from deskhelm_bridge.event import AgentEvent, AgentState, ProtocolError
 
 
 class AgentEventTests(unittest.TestCase):

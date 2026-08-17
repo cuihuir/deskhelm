@@ -96,9 +96,10 @@ task is complete.
 ## Project Identity and Scope
 
 DeskHelm is a local-first control surface for coding agents. The GitHub
-repository and product name are `DeskHelm` / `deskhelm`. Existing `agent-io` and
-`next_keyboard` identifiers are legacy names pending a deliberate compatibility
-migration; do not introduce new public identifiers under those names.
+repository and product name are `DeskHelm` / `deskhelm`. The pre-release
+`agent-io` commands and `agent_io_bridge` module execution entry point are
+temporary compatibility aliases under ADR 0003; do not introduce new public
+interfaces under the legacy names.
 
 The project is a monorepo with these responsibility boundaries:
 
@@ -162,8 +163,8 @@ a placeholder task runner without an ADR.
 
 Current commands:
 
-- `PYTHONPATH=bridge python3 -m agent_io_bridge bridge --plain`: run the Bridge.
-- `PYTHONPATH=bridge python3 -m agent_io_bridge simulate`: emit demo events.
+- `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --plain`: run the Bridge.
+- `PYTHONPATH=bridge python3 -m deskhelm_bridge simulate`: emit demo events.
 - `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
 - `git diff --check`: detect whitespace errors.
 - `find docs -name '*.md' -type f`: list documentation for review.

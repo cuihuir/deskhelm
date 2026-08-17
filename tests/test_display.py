@@ -1,9 +1,9 @@
 from io import StringIO
 import unittest
 
-from agent_io_bridge.display import SlotPanel
-from agent_io_bridge.event import AgentEvent, AgentState
-from agent_io_bridge.state_store import StateStore
+from deskhelm_bridge.display import SlotPanel
+from deskhelm_bridge.event import AgentEvent, AgentState
+from deskhelm_bridge.state_store import StateStore
 
 
 class SlotPanelTests(unittest.TestCase):

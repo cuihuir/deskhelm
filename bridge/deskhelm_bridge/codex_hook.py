@@ -38,7 +38,7 @@ def event_from_hook(payload: dict[str, Any], slot: int, label: str) -> AgentEven
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Forward a Codex hook event to agent-io")
+    parser = argparse.ArgumentParser(description="Forward a Codex hook event to DeskHelm")
     parser.add_argument("--slot", type=int, default=0)
     parser.add_argument("--label", default="codex")
     parser.add_argument("--socket", type=Path, default=default_socket_path())
@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("hook payload must be a JSON object")
         send_event(event_from_hook(payload, args.slot, args.label), args.socket)
     except (ValueError, json.JSONDecodeError, ConnectionError) as error:
-        print(f"agent-io-codex-hook: {error}", file=sys.stderr)
+        print(f"deskhelm-codex-hook: {error}", file=sys.stderr)
         return 1
     return 0
 

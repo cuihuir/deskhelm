@@ -3,15 +3,17 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-io"
+name = "deskhelm"
 version = "0.1.0.dev0"
-description = "Physical I/O for coding agents"
+description = "A local-first control surface for coding agents"
 requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]
-agent-io = "agent_io_bridge.cli:main"
-agent-io-codex-hook = "agent_io_bridge.codex_hook:main"
+deskhelm = "deskhelm_bridge.cli:main"
+deskhelm-codex-hook = "deskhelm_bridge.codex_hook:main"
+agent-io = "deskhelm_bridge.cli:main"
+agent-io-codex-hook = "deskhelm_bridge.codex_hook:main"
 
 [tool.setuptools]
 package-dir = {"" = "bridge"}

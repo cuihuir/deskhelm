@@ -6,7 +6,7 @@
 
 ## 1. 目标
 
-为 `agent-io` 增加一个可独立运行的 Voice Gateway，提供：
+为 DeskHelm 增加一个可独立运行的 Voice Gateway，提供：
 
 - 本地中文和中英混合语音输入。
 - 可选的口语清理和提示词优化。

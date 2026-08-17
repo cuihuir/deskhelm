@@ -1,8 +1,11 @@
-# agent-io
+# DeskHelm
 
-**Physical I/O for coding agents.**
+**A local-first control surface for coding agents.**
 
-`agent-io` is an open hardware and software platform that brings coding agents out of the terminal and onto the desk. It combines illuminated status controls, programmable inputs, device firmware, and a local bridge that works across agent runtimes.
+DeskHelm is an open hardware and software platform that brings coding agents
+out of the terminal and onto the desk. It combines live status, deliberate
+controls, voice interaction, device firmware, and a local Bridge that works
+across agent runtimes.
 
 The project is designed around a simple idea: you should be able to see what every agent is doing and respond without hunting through windows.
 
@@ -55,13 +58,13 @@ dependencies.
 Start the local Bridge:
 
 ```bash
-PYTHONPATH=bridge python3 -m agent_io_bridge bridge --plain
+PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --plain
 ```
 
 In another terminal, run the four-agent simulator:
 
 ```bash
-PYTHONPATH=bridge python3 -m agent_io_bridge simulate
+PYTHONPATH=bridge python3 -m deskhelm_bridge simulate
 ```
 
 Run the complete test suite:
@@ -69,6 +72,10 @@ Run the complete test suite:
 ```bash
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
+
+After an editable install, use the `deskhelm` command. The pre-release
+`agent-io` command and `python -m agent_io_bridge` remain temporary compatibility
+aliases; new integrations should use DeskHelm names.
 
 ## Development
 

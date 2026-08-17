@@ -20,7 +20,7 @@ class BridgeEndToEndTests(unittest.TestCase):
                 [
                     sys.executable,
                     "-m",
-                    "agent_io_bridge",
+                    "deskhelm_bridge",
                     "bridge",
                     "--plain",
                     "--max-events",
@@ -44,7 +44,7 @@ class BridgeEndToEndTests(unittest.TestCase):
                     [
                         sys.executable,
                         "-m",
-                        "agent_io_bridge",
+                        "deskhelm_bridge",
                         "emit",
                         "--socket",
                         str(socket_path),

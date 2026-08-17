@@ -16,7 +16,7 @@ def add_socket_argument(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="agent-io")
+    parser = argparse.ArgumentParser(prog="deskhelm")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     bridge = subparsers.add_parser("bridge", help="run the local status bridge")
@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
             simulate(args)
             return 0
     except (ConnectionError, ProtocolError, ValueError) as error:
-        print(f"agent-io: {error}", file=sys.stderr)
+        print(f"deskhelm: {error}", file=sys.stderr)
         return 1
     return 2
 

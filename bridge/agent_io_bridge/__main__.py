@@ -1,3 +1,3 @@
-from .cli import main
+from deskhelm_bridge.cli import main
 
 raise SystemExit(main())
