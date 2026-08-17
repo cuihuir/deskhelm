@@ -1,0 +1,18 @@
+{
+  "protocol_version": 1,
+  "message_type": "control_command",
+  "command_id": "command-speak-1",
+  "kind": "speak",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "issued_by": "desktop-client",
+  "issued_at": 1786935105000,
+  "expires_at": 1786935165000,
+  "idempotency_key": "speak-message-18",
+  "payload": {
+    "text": "任务已经完成",
+    "priority": "normal",
+    "interruptible": true
+  }
+}

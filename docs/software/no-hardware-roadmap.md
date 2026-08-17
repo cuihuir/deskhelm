@@ -35,14 +35,13 @@ Status: In progress
 
 - [x] Write an ADR for the negotiated local transport and message envelopes.
 - [x] Define versioned `InteractionEvent v1`.
-- [ ] Define versioned `ControlCommand v1`.
-- [ ] Add JSON fixtures and compatibility tests. (`InteractionEvent v1` is
-  covered; `ControlCommand v1` remains.)
+- [x] Define versioned `ControlCommand v1`.
+- [x] Add JSON fixtures and compatibility tests for both versioned models.
 - [x] Define interaction ordering, correlation, and terminal-event semantics.
 - [x] Define queue bounds, maximum record size, and slow-subscriber direction.
 - [ ] Implement targeting and validation in a `ControlRouter`.
-- [ ] Require `request_id`, target session, summary, and expiry for approvals.
-- [ ] Require idempotency keys for retryable prompt and control operations.
+- [x] Require `request_id`, target session, summary, and expiry for approvals.
+- [x] Require idempotency keys for retryable prompt and control operations.
 
 Acceptance criteria:
 
@@ -101,10 +100,10 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Define `ControlCommand v1`, starting with `focus`, `submit_prompt`,
-   `interrupt`, `speak`, and `stop_speaking`.
-2. Implement snapshot-then-live subscriptions without durable replay and
+1. Implement snapshot-then-live subscriptions without durable replay and
    enable the negotiated `subscriber` role.
-3. Add bounded interaction fan-out and enable `interaction_event_v1`
+2. Add bounded interaction fan-out and enable `interaction_event_v1`
    publishers.
+3. Implement `ControlRouter`, bounded idempotency retention, command results,
+   and the negotiated `controller` role.
 4. Build the text-only Codex gateway before adding audio dependencies.

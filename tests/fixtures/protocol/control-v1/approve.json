@@ -1,0 +1,18 @@
+{
+  "protocol_version": 1,
+  "message_type": "control_command",
+  "command_id": "command-approve-1",
+  "kind": "approve",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "issued_by": "physical-surface",
+  "issued_at": 1786935003000,
+  "expires_at": 1786935062000,
+  "idempotency_key": "approval-9-approve",
+  "payload": {
+    "request_id": "approval-9",
+    "summary": "Run the project test suite",
+    "request_expires_at": 1786935062000
+  }
+}

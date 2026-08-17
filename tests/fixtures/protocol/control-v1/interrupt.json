@@ -1,0 +1,16 @@
+{
+  "protocol_version": 1,
+  "message_type": "control_command",
+  "command_id": "command-interrupt-1",
+  "kind": "interrupt",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "issued_by": "physical-surface",
+  "issued_at": 1786935102000,
+  "expires_at": 1786935112000,
+  "idempotency_key": "interrupt-session-42-1",
+  "payload": {
+    "reason": "User pressed stop"
+  }
+}

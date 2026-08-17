@@ -38,8 +38,10 @@ Required fields are `agent_id`, `slot`, and `state`. Valid states are:
   errors.
 - [`interaction-event-v1.md`](interaction-event-v1.md) defines session-scoped
   message, tool, approval, input, completion, and failure events.
+- [`control-command-v1.md`](control-command-v1.md) defines targeted, expiring,
+  idempotent focus, prompt, interruption, approval, and speech controls.
 - ADR 0005 defines the negotiated single-socket transport direction.
 
-Publisher negotiation and the `InteractionEvent v1` Python model and fixtures
-are implemented. The socket server does not accept rich interaction frames or
-subscriber/controller connections yet.
+Publisher negotiation and the `InteractionEvent v1` and `ControlCommand v1`
+Python models and fixtures are implemented. The socket server does not accept
+rich interaction frames or subscriber/controller connections yet.

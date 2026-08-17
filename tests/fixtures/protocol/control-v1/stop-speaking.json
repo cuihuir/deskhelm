@@ -1,0 +1,16 @@
+{
+  "protocol_version": 1,
+  "message_type": "control_command",
+  "command_id": "command-stop-speech-1",
+  "kind": "stop_speaking",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "issued_by": "physical-surface",
+  "issued_at": 1786935106000,
+  "expires_at": 1786935116000,
+  "idempotency_key": "stop-speech-message-18",
+  "payload": {
+    "speech_id": "speech-message-18"
+  }
+}

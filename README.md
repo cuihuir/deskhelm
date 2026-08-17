@@ -38,7 +38,8 @@ four-slot terminal panel, normalized event protocol, simulator, and Codex hook
 adapter. The Bridge now separates state storage, session-to-slot projection, and
 terminal rendering while remaining compatible with `AgentEvent v1`.
 The local server now has bounded concurrent connection handling and negotiated
-publisher handshakes; external subscriptions and controls remain in progress.
+publisher handshakes. Rich interaction and targeted control models are defined;
+external subscriptions and control routing remain in progress.
 
 Current development focuses on the no-hardware Agent Console path:
 

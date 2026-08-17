@@ -1,0 +1,16 @@
+{
+  "protocol_version": 1,
+  "message_type": "control_command",
+  "command_id": "command-prompt-1",
+  "kind": "submit_prompt",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "issued_by": "voice-gateway",
+  "issued_at": 1786935101000,
+  "expires_at": 1786935161000,
+  "idempotency_key": "prompt-session-42-transcript-8",
+  "payload": {
+    "text": "请运行测试并总结失败原因"
+  }
+}

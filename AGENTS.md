@@ -160,8 +160,13 @@ Keep third-party reference files outside version control under
 - Bound streams, records, queues, retries, and slow-subscriber behavior.
 - Correlate tool calls, results, approvals, controls, and terminal events with
   stable identifiers.
+- Every control must name `agent_id + session_id + project_id`, `issued_by`, an
+  issue time, an expiry, and an idempotency key. Never target controls by slot.
+- Scope control idempotency by `issued_by + idempotency_key`; a retry preserves
+  the complete command identity and content.
 - Never replay approval or rejection blindly. Consequential controls must name
-  their target session, request, summary, and expiry.
+  their target session and copy the pending request ID, summary, and expiry
+  exactly. Approval and rejection are never automatically retried.
 - Do not log prompts, source code, tool arguments, raw Agent events, audio, or
   credentials by default.
 - Keep PyTorch, CUDA, model weights, and provider-specific voice dependencies

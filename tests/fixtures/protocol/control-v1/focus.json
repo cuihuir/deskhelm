@@ -1,0 +1,14 @@
+{
+  "protocol_version": 1,
+  "message_type": "control_command",
+  "command_id": "command-focus-1",
+  "kind": "focus",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "issued_by": "desktop-client",
+  "issued_at": 1786935100000,
+  "expires_at": 1786935130000,
+  "idempotency_key": "focus-session-42-1",
+  "payload": {}
+}

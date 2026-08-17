@@ -23,9 +23,10 @@ Phase 0 is working and pushed to `main`. The Bridge has a Unix socket transport,
 normalized `AgentEvent v1`, CLI simulator, Codex hook adapter, `StateStore`,
 in-process subscriptions, `SessionRegistry`, terminal projection, bounded
 concurrent connections, and negotiated state publishers. `InteractionEvent v1`
-is implemented and covered by compatibility fixtures, while interaction
-publishing, external subscriptions, and controls remain unimplemented. Voice
-Gateway implementation has not started.
+and `ControlCommand v1` are implemented and covered by compatibility fixtures,
+while interaction publishing, external subscriptions, control routing, and the
+controller role remain unimplemented. Voice Gateway implementation has not
+started.
 
 ## Completed Work
 
@@ -58,6 +59,12 @@ Gateway implementation has not started.
   user-input requests, and task terminal events.
 - Added four complete wire fixtures and validation/round-trip tests for
   `InteractionEvent v1`.
+- Accepted ADR 0006: controls require a complete session target, issuer,
+  timestamps, expiry, and idempotency key; approvals copy pending request
+  metadata and are never automatically replayed.
+- Implemented `ControlCommand v1` for focus, prompt submission, interruption,
+  approval, rejection, speech, and stopping speech.
+- Added seven complete control wire fixtures plus validation and expiry tests.
 - Added unit and end-to-end coverage for events, display, Codex hooks,
   `StateStore`, and `SessionRegistry`.
 - Recorded Phase 0 and Bridge-boundary ADRs.
@@ -101,6 +108,12 @@ Gateway implementation has not started.
   their behavior is implemented.
 - Version 1 has no durable event history or replay. Subscribers recover by
   requesting a fresh snapshot before live events.
+- Every control targets `agent_id + session_id + project_id`; slots never route
+  controls. Voice controls also retain session ownership.
+- Control idempotency is scoped by `issued_by + idempotency_key`. An allowed
+  retry preserves the complete command identity and content.
+- Approval and rejection echo the pending request ID, summary, and expiry. The
+  command expiry equals the request expiry, and automatic replay is forbidden.
 
 ## Important Files
 
@@ -118,11 +131,16 @@ Gateway implementation has not started.
   safe focus semantics.
 - `docs/decisions/0005-single-socket-negotiated-local-protocol.md`: negotiated
   local transport, roles, bounds, compatibility, and reconnect behavior.
+- `docs/decisions/0006-targeted-expiring-idempotent-controls.md`: targeting,
+  expiry, idempotency, retry, and approval safety decisions.
 - `protocol/interaction-event-v1.md`: rich session event contract.
+- `protocol/control-command-v1.md`: targeted control command contract.
 - `protocol/local-transport-v1.md`: implemented framing, handshake, publisher,
   compatibility, limits, and error contract.
 - `bridge/deskhelm_bridge/interaction.py`: `InteractionEvent v1` model and
   validation.
+- `bridge/deskhelm_bridge/control.py`: `ControlCommand v1` payload models,
+  validation, serialization, and expiry checks.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
 - `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
   connection role dispatch.
@@ -137,7 +155,7 @@ Last verified on 2026-08-17:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 49 tests passed.
+Result: 62 tests passed.
 
 Repository checks also passed:
 
@@ -151,12 +169,12 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Define `ControlCommand v1`, including targeting, expiry, idempotency, and
-   approval safety.
-3. Implement snapshot-then-live subscriptions with bounded slow-subscriber
+2. Implement snapshot-then-live subscriptions with bounded slow-subscriber
    handling.
-4. Add bounded interaction fan-out and enable `interaction_event_v1`
+3. Add bounded interaction fan-out and enable `interaction_event_v1`
    publishers.
+4. Implement `ControlRouter`, bounded idempotency retention, a command result
+   contract, and the negotiated `controller` role.
 5. Define the adapter capability contract and add versioned Codex fixtures.
 6. Build the text-only Codex gateway with a deterministic fake provider.
 7. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
@@ -168,8 +186,10 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
   delivery and bounded subscriber output queues remain unimplemented.
 - Session disconnect and restore APIs exist but are not yet driven by adapter
   connection lifecycle events.
-- `InteractionEvent v1` is accepted and modeled, but is not yet transported by
-  the Bridge server. `ControlCommand` remains undefined.
+- `InteractionEvent v1` and `ControlCommand v1` are accepted and modeled, but
+  neither is transported by the Bridge server yet.
+- Live target, pending approval, idempotency conflict, and dispatch validation
+  await `ControlRouter`; protocol parsing alone does not authorize a command.
 - The default socket path changed during the pre-release rename; existing
   Bridge and hook processes must restart together after updating.
 - Legacy CLI and module-execution aliases still exist and need a deprecation
@@ -186,7 +206,7 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
 
 ## Next Step
 
-Define `ControlCommand v1` and its targeting, expiry, idempotency, and approval
-safety rules, then implement bounded snapshot/live subscriptions. Obtain the
+Implement bounded snapshot/live subscriptions and enable the negotiated
+`subscriber` role. Then add interaction fan-out and `ControlRouter`. Obtain the
 license decision from the user when packaging or external contributions require
 it.
