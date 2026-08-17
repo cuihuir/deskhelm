@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-io"
+version = "0.1.0.dev0"
+description = "Physical I/O for coding agents"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+agent-io = "agent_io_bridge.cli:main"
+agent-io-codex-hook = "agent_io_bridge.codex_hook:main"
+
+[tool.setuptools]
+package-dir = {"" = "bridge"}
+
+[tool.setuptools.packages.find]
+where = ["bridge"]

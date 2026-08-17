@@ -1,0 +1,54 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-io-codex-hook --slot 0 --label codex"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-io-codex-hook --slot 0 --label codex"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-io-codex-hook --slot 0 --label codex"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-io-codex-hook --slot 0 --label codex"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-io-codex-hook --slot 0 --label codex"
+          }
+        ]
+      }
+    ]
+  }
+}

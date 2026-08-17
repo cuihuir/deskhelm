@@ -1,0 +1,53 @@
+# Operating systems and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Build artifacts
+build/
+dist/
+out/
+target/
+.cache/
+coverage/
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# JavaScript and Python
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+
+# Embedded tooling
+.pio/
+.qmk/
+*.uf2
+*.bin
+*.hex
+*.elf
+*.map
+
+# Third-party research material
+references/vendor/
+
+# Local AI model artifacts
+models/
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.gguf
