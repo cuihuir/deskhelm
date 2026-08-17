@@ -35,6 +35,8 @@ Gateway implementation has not started.
 - Added repository Git attributes, ignore rules, local commit identity, and an
   HTTPS `origin`.
 - Separated Bridge state storage, session projection, and terminal rendering.
+- Added explicit session lifecycle and focus semantics: register, restore,
+  focus, disconnect, release, and expiration.
 - Added unit and end-to-end coverage for events, display, Codex hooks,
   `StateStore`, and `SessionRegistry`.
 - Recorded Phase 0 and Bridge-boundary ADRs.
@@ -63,6 +65,9 @@ Gateway implementation has not started.
   it.
 - Canonical runtime identifiers are `deskhelm`, `deskhelm_bridge`, and
   `deskhelm-codex-hook`; legacy names are compatibility aliases only.
+- Registration and Agent events never change focus implicitly. Only active
+  sessions may be focused; disconnect, release, replacement, and expiration
+  clear focus, while restore requires a new explicit focus action.
 
 ## Important Files
 
@@ -76,6 +81,8 @@ Gateway implementation has not started.
 - `docs/decisions/0002-separate-bridge-state-and-session-projection.md`:
   Bridge state and session boundary.
 - `docs/decisions/0003-adopt-deskhelm-name.md`: naming and compatibility plan.
+- `docs/decisions/0004-session-lifecycle-and-focus.md`: session lifecycle and
+  safe focus semantics.
 - `bridge/deskhelm_bridge/state_store.py`: state snapshots and subscriptions.
 - `bridge/deskhelm_bridge/session_registry.py`: session-to-slot projection.
 
@@ -87,7 +94,7 @@ Last verified on 2026-08-17:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 19 tests passed.
+Result: 27 tests passed.
 
 Repository checks also passed:
 
@@ -102,21 +109,22 @@ PYTHONPATH=bridge python3 -m agent_io_bridge --help
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Define session lifecycle and focus semantics.
-3. Decide bounded Bridge concurrency and external subscription transport in an
+2. Decide bounded Bridge concurrency and external subscription transport in an
    ADR.
-4. Define the adapter capability contract and add versioned Codex fixtures.
-5. Define `InteractionEvent v1` ordering, correlation, cancellation, terminal
+3. Define the adapter capability contract and add versioned Codex fixtures.
+4. Define `InteractionEvent v1` ordering, correlation, cancellation, terminal
    events, and privacy boundaries.
-6. Define `ControlCommand v1`, including targeting, expiry, idempotency, and
+5. Define `ControlCommand v1`, including targeting, expiry, idempotency, and
    approval safety.
-7. Build the text-only Codex gateway with a deterministic fake provider.
-8. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
+6. Build the text-only Codex gateway with a deterministic fake provider.
+7. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
    providers before installing models.
 
 ## Risks and Blockers
 
 - The Bridge server still handles connections sequentially.
+- Session disconnect and restore APIs exist but are not yet driven by adapter
+  connection lifecycle events.
 - `InteractionEvent` and `ControlCommand` are architecture drafts, not accepted
   protocols.
 - The default socket path changed during the pre-release rename; existing
@@ -136,6 +144,6 @@ PYTHONPATH=bridge python3 -m agent_io_bridge --help
 ## Next Step
 
 Obtain the license decision from the user when packaging or external
-contributions require it. In parallel, define session lifecycle, protocol
-envelopes, and adapter capabilities before implementing the text-only Agent
-gateway.
+contributions require it. In parallel, decide the external subscription
+transport and define protocol envelopes and adapter capabilities before
+implementing the text-only Agent gateway.

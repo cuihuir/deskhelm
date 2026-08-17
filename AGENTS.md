@@ -140,6 +140,9 @@ Keep third-party reference files outside version control under
 - Keep `AgentEvent v1` compatible until a documented migration exists.
 - Identify sessions with `agent_id + session_id + project_id`; treat `slot` as a
   presentation mapping only.
+- Do not focus sessions implicitly. Only active sessions may be focused;
+  disconnecting, replacing, releasing, or expiring the focused session clears
+  focus, and restore does not re-focus automatically.
 - Parse vendor formats at the adapter boundary and expose declared adapter
   capabilities.
 - Bound streams, records, queues, retries, and slow-subscriber behavior.

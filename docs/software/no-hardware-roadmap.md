@@ -17,7 +17,7 @@ Status: In progress
 - [x] Move slot state out of `SlotPanel` into `StateStore`.
 - [x] Add in-process state subscriptions.
 - [x] Add `SessionRegistry` with dynamic and legacy slot mapping.
-- [ ] Define session lifecycle: register, focus, disconnect, expire, restore.
+- [x] Define session lifecycle: register, focus, disconnect, expire, restore.
 - [ ] Replace the sequential connection loop with a bounded concurrency model.
 - [ ] Expose a read-only local snapshot and subscription API.
 - [ ] Define adapter capabilities and captured-fixture version metadata.
@@ -100,9 +100,8 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Specify session lifecycle and focus semantics.
-2. Decide the external subscription transport in an ADR.
-3. Define `InteractionEvent v1` with fixtures and validation tests.
-4. Define `ControlCommand v1`, starting with `focus`, `submit_prompt`,
+1. Decide the external subscription transport in an ADR.
+2. Define `InteractionEvent v1` with fixtures and validation tests.
+3. Define `ControlCommand v1`, starting with `focus`, `submit_prompt`,
    `interrupt`, `speak`, and `stop_speaking`.
-5. Build the text-only Codex gateway before adding audio dependencies.
+4. Build the text-only Codex gateway before adding audio dependencies.

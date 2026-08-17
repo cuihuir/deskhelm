@@ -6,7 +6,8 @@ future devices.
 ## Internal Boundaries
 
 - `StateStore` owns the current state projection and publishes snapshots.
-- `SessionRegistry` maps agent, session, and project identity to display slots.
+- `SessionRegistry` maps agent, session, and project identity to display slots,
+  tracks active and disconnected lifecycle state, and owns explicit focus.
 - `SlotPanel` is a terminal subscriber and does not own Bridge state.
 
 The current wire protocol still accepts the explicit `slot` required by
