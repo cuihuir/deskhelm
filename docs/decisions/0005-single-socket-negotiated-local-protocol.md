@@ -57,8 +57,8 @@ for ordering within one session. A future Bridge implementation may add a
 process-local stream sequence for gap detection; it must not be presented as a
 durable global event offset.
 
-The current server must adopt bounded concurrent connection handling before
-subscription connections are enabled.
+The server must use bounded concurrent connection handling before subscription
+connections are enabled.
 
 ## Consequences
 
@@ -69,3 +69,12 @@ subscription connections are enabled.
   frames, enforce roles, and isolate slow subscribers.
 - Restart and reconnect recovery depends on snapshots until persistence is
   explicitly designed.
+
+## Implementation Status
+
+Bounded concurrent connection handling, frame-size enforcement, legacy
+first-frame detection, and the negotiated `publisher` role are implemented.
+Negotiated publishers currently expose only `agent_event_v1`.
+
+The `subscriber` and `controller` roles, bounded subscriber output queues,
+snapshot delivery, and `interaction_event_v1` publishing remain pending.

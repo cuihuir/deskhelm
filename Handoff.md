@@ -21,10 +21,11 @@ Bridge state and sessions
 
 Phase 0 is working and pushed to `main`. The Bridge has a Unix socket transport,
 normalized `AgentEvent v1`, CLI simulator, Codex hook adapter, `StateStore`,
-in-process subscriptions, `SessionRegistry`, and terminal projection.
-`InteractionEvent v1` is implemented and covered by compatibility fixtures,
-while negotiated transport and external subscriptions remain unimplemented.
-Voice Gateway implementation has not started.
+in-process subscriptions, `SessionRegistry`, terminal projection, bounded
+concurrent connections, and negotiated state publishers. `InteractionEvent v1`
+is implemented and covered by compatibility fixtures, while interaction
+publishing, external subscriptions, and controls remain unimplemented. Voice
+Gateway implementation has not started.
 
 ## Completed Work
 
@@ -42,6 +43,17 @@ Voice Gateway implementation has not started.
 - Accepted ADR 0005: one negotiated Unix socket with fixed connection roles,
   bounded frames and queues, legacy first-frame compatibility, and
   snapshot-based reconnect recovery.
+- Replaced the sequential accept/read loop with a 16-connection bounded worker
+  pool, configurable through `--max-connections`.
+- Added byte-accurate 1 MiB UTF-8 NDJSON frame enforcement and process-local
+  stream identifiers.
+- Implemented `client_hello` / `server_hello` for negotiated publishers using
+  the `agent_event_v1` capability and self-describing `agent_event` frames.
+- Added a validated `send_negotiated_event` Python client path for integrations.
+- Added structured protocol errors for invalid negotiation, unavailable roles
+  or capabilities, and invalid negotiated frames.
+- Preserved no-handshake `AgentEvent v1` clients, including continuing after a
+  malformed event on an established legacy connection.
 - Implemented the `InteractionEvent v1` model for messages, tools, approvals,
   user-input requests, and task terminal events.
 - Added four complete wire fixtures and validation/round-trip tests for
@@ -82,6 +94,11 @@ Voice Gateway implementation has not started.
   legacy publisher compatibility.
 - Local protocol frames are UTF-8 NDJSON limited to 1 MiB, with bounded
   per-connection queues and no automatic retry for control commands.
+- The Bridge accepts at most 16 concurrent connections by default. It never
+  places accepted connections into an unbounded application work queue.
+- Negotiated publishers currently support only `agent_event_v1`. Subscriber
+  and controller role names are reserved but return `role_unavailable` until
+  their behavior is implemented.
 - Version 1 has no durable event history or replay. Subscribers recover by
   requesting a fresh snapshot before live events.
 
@@ -102,8 +119,13 @@ Voice Gateway implementation has not started.
 - `docs/decisions/0005-single-socket-negotiated-local-protocol.md`: negotiated
   local transport, roles, bounds, compatibility, and reconnect behavior.
 - `protocol/interaction-event-v1.md`: rich session event contract.
+- `protocol/local-transport-v1.md`: implemented framing, handshake, publisher,
+  compatibility, limits, and error contract.
 - `bridge/deskhelm_bridge/interaction.py`: `InteractionEvent v1` model and
   validation.
+- `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
+- `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
+  connection role dispatch.
 - `bridge/deskhelm_bridge/state_store.py`: state snapshots and subscriptions.
 - `bridge/deskhelm_bridge/session_registry.py`: session-to-slot projection.
 
@@ -115,7 +137,7 @@ Last verified on 2026-08-17:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 39 tests passed.
+Result: 49 tests passed.
 
 Repository checks also passed:
 
@@ -129,22 +151,21 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Replace the sequential server loop with bounded concurrent connection
-   handling, then implement the ADR 0005 handshake and fixed connection roles.
-3. Define the adapter capability contract and add versioned Codex fixtures.
-4. Define `ControlCommand v1`, including targeting, expiry, idempotency, and
+2. Define `ControlCommand v1`, including targeting, expiry, idempotency, and
    approval safety.
-5. Implement snapshot-then-live subscriptions with bounded slow-subscriber
+3. Implement snapshot-then-live subscriptions with bounded slow-subscriber
    handling.
+4. Add bounded interaction fan-out and enable `interaction_event_v1`
+   publishers.
+5. Define the adapter capability contract and add versioned Codex fixtures.
 6. Build the text-only Codex gateway with a deterministic fake provider.
 7. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
    providers before installing models.
 
 ## Risks and Blockers
 
-- The Bridge server still handles connections sequentially.
-- ADR 0005 negotiation, connection roles, frame-size enforcement, and external
-  snapshot/live subscriptions are specified but not implemented.
+- Subscriber and controller roles are not enabled; external snapshot/live
+  delivery and bounded subscriber output queues remain unimplemented.
 - Session disconnect and restore APIs exist but are not yet driven by adapter
   connection lifecycle events.
 - `InteractionEvent v1` is accepted and modeled, but is not yet transported by
@@ -165,6 +186,7 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
 
 ## Next Step
 
-Implement bounded concurrent Bridge connections and the ADR 0005 handshake,
-then define `ControlCommand v1`. Obtain the license decision from the user when
-packaging or external contributions require it.
+Define `ControlCommand v1` and its targeting, expiry, idempotency, and approval
+safety rules, then implement bounded snapshot/live subscriptions. Obtain the
+license decision from the user when packaging or external contributions require
+it.

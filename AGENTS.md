@@ -141,6 +141,9 @@ Keep third-party reference files outside version control under
 - Use the single DeskHelm Unix socket for negotiated publishers, subscribers,
   and controllers. A connection has one fixed role after
   `client_hello` / `server_hello` negotiation.
+- Negotiated state publishers use the `agent_event_v1` capability and add
+  `message_type: agent_event`; the remaining payload stays compatible with
+  `AgentEvent v1`.
 - Limit legacy compatibility to connections whose first frame is an
   `AgentEvent v1`; legacy connections remain state publishers only.
 - Limit UTF-8 NDJSON frames to 1 MiB and use bounded per-connection queues.
@@ -176,6 +179,8 @@ a placeholder task runner without an ADR.
 Current commands:
 
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --plain`: run the Bridge.
+- `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --max-connections 16`:
+  run with an explicit bounded connection limit.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge simulate`: emit demo events.
 - `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
 - `git diff --check`: detect whitespace errors.

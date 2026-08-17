@@ -14,6 +14,13 @@ The current wire protocol still accepts the explicit `slot` required by
 `AgentEvent v1`. Dynamic session allocation is an internal capability until a
 new interaction protocol is accepted.
 
+The server accepts legacy first-frame `AgentEvent v1` publishers and negotiated
+`publisher` connections using `client_hello`, `server_hello`, and
+self-describing `agent_event` frames. It limits frames to 1 MiB and handles 16
+connections concurrently by default. Subscriber and controller roles are
+reserved but not enabled yet; see
+[`protocol/local-transport-v1.md`](../protocol/local-transport-v1.md).
+
 ## Phase 0 Quickstart
 
 The prototype requires Python 3.11 or newer and has no runtime dependencies.
@@ -23,6 +30,11 @@ Start the four-slot bridge:
 ```bash
 PYTHONPATH=bridge python3 -m deskhelm_bridge bridge
 ```
+
+Use `--max-connections` to lower or raise the bounded connection limit.
+Python integrations can use `deskhelm_bridge.send_negotiated_event` for a
+single negotiated state event while the CLI remains a legacy compatibility
+client.
 
 In another terminal, run the demo sequence:
 

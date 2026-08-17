@@ -18,7 +18,7 @@ Status: In progress
 - [x] Add in-process state subscriptions.
 - [x] Add `SessionRegistry` with dynamic and legacy slot mapping.
 - [x] Define session lifecycle: register, focus, disconnect, expire, restore.
-- [ ] Replace the sequential connection loop with a bounded concurrency model.
+- [x] Replace the sequential connection loop with a bounded concurrency model.
 - [ ] Expose a read-only local snapshot and subscription API.
 - [ ] Define adapter capabilities and captured-fixture version metadata.
 
@@ -101,9 +101,10 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Replace the sequential Bridge server with bounded concurrent connection
-   handling and implement `client_hello` / `server_hello` negotiation.
-2. Define `ControlCommand v1`, starting with `focus`, `submit_prompt`,
+1. Define `ControlCommand v1`, starting with `focus`, `submit_prompt`,
    `interrupt`, `speak`, and `stop_speaking`.
-3. Implement snapshot-then-live subscriptions without durable replay.
+2. Implement snapshot-then-live subscriptions without durable replay and
+   enable the negotiated `subscriber` role.
+3. Add bounded interaction fan-out and enable `interaction_event_v1`
+   publishers.
 4. Build the text-only Codex gateway before adding audio dependencies.

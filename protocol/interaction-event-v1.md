@@ -1,6 +1,6 @@
 # InteractionEvent v1
 
-Status: Accepted protocol model; negotiated socket transport is not yet enabled
+Status: Accepted protocol model; transport publishing is not yet enabled
 
 ## Purpose
 
@@ -131,7 +131,7 @@ Payload field `message` is required and non-empty. `error_code` is optional.
 ## Transport Status
 
 ADR 0005 defines one negotiated Unix socket with a 1 MiB frame limit and
-bounded queues. The current Phase 0 server still accepts only legacy
-`AgentEvent v1`; publishing and subscribing to `InteractionEvent v1` will be
-enabled after bounded concurrent connection handling and role negotiation are
-implemented.
+bounded queues. Bounded connection handling and publisher negotiation are now
+implemented for `AgentEvent v1`. Publishing and subscribing to
+`InteractionEvent v1` remain disabled until the Bridge has a bounded
+subscriber fan-out path.

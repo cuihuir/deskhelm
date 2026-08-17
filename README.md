@@ -37,6 +37,8 @@ Phase 0 software validation is implemented: a local Unix socket bridge,
 four-slot terminal panel, normalized event protocol, simulator, and Codex hook
 adapter. The Bridge now separates state storage, session-to-slot projection, and
 terminal rendering while remaining compatible with `AgentEvent v1`.
+The local server now has bounded concurrent connection handling and negotiated
+publisher handshakes; external subscriptions and controls remain in progress.
 
 Current development focuses on the no-hardware Agent Console path:
 
