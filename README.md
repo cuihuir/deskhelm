@@ -78,8 +78,8 @@ PYTHONPATH=bridge python3 -m unittest discover -s tests -v
   tracks the active software milestones.
 - [`docs/decisions/`](docs/decisions/) records decisions before implementation
   spreads across components.
-- [`handoff.md`](handoff.md) captures the research and architecture handoff that
-  established the current direction.
+- [`Handoff.md`](Handoff.md) captures the current project state, decisions,
+  validation, risks, and next steps.
 
 Before committing, run:
 

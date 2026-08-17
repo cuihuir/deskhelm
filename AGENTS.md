@@ -1,50 +1,212 @@
-# Repository Guidelines
+# Project Constitution
 
-## Project Structure & Module Organization
+These principles govern all AI-assisted and agent-driven work in this
+repository. When another instruction conflicts with this constitution, follow
+the higher-priority user or system instruction and document the conflict when
+it affects the result.
 
-`agent-io` is a monorepo connecting physical controls to coding agents.
+## 1. Use Visualizations Purposefully
 
+When explaining complex workflows, architecture, dependencies, state changes,
+or repeated comparisons, use the smallest effective visualization such as a
+table, flowchart, timeline, or tree. Do not add diagrams to simple facts or
+one-step operations merely for presentation.
+
+## 2. Be Concise and Evidence-Based
+
+Lead with conclusions and the evidence that materially supports them. Clearly
+distinguish verified facts, reasonable inferences, and unknowns. Prefer project
+source material, official documentation, and reliable primary sources. Never
+present an unverified assumption as fact.
+
+## 3. Stay Aligned With the User's Goal
+
+Every analysis, recommendation, and change must serve the user's current
+objective and respect the stated scope, constraints, and priorities. Do not
+expand the task, alter the business goal, or add unrequested functionality for
+technical completeness. When the goal conflicts with the current
+implementation, explain the conflict and propose the smallest viable
+resolution.
+
+## 4. Ask Only for Critical Decisions
+
+Do not interrupt the user when repository evidence or a reasonable low-risk
+assumption allows progress. Ask for confirmation only when missing information
+would materially change the result, expand scope, cause irreversible impact, or
+require a key business decision. Briefly disclose consequential assumptions in
+the result.
+
+## 5. Use Subagents With Restraint
+
+Use subagents only when work can be cleanly separated, parallel execution
+materially improves efficiency, or an independent review or specialist
+capability is valuable. Do not split simple work for appearance or assign
+duplicate work to multiple agents. The primary agent owns integration, conflict
+resolution, validation, and final delivery.
+
+## 6. Keep Changes Focused
+
+Limit code and documentation changes to the smallest scope required to complete
+the current objective. Do not include unrelated refactors, formatting,
+dependency upgrades, or directory changes. If broader work is necessary,
+explain why and preserve existing interfaces, behavior, and user-owned work.
+
+## 7. Validate Real Outcomes
+
+Do not declare completion because code is present, reads correctly, or appears
+finished. Run risk-appropriate builds, tests, execution checks, or output
+inspections that verify the result the user actually needs. If validation
+cannot be completed, state what remains unverified, why, and the residual risk.
+
+## 8. Protect Existing Code and Data
+
+Preserve existing code, uncommitted changes, configuration, and data. Never
+overwrite, delete, revert, or reset user work without clear authorization.
+Resolve destructive targets and impact before acting; ask when scope is
+unclear. If unexpected changes appear during work, stop and notify the user.
+
+## 9. Report Only Meaningful Progress
+
+Report progress that affects user decisions: important findings, scope changes,
+risks, validation results, and blockers. Do not stream mechanical operations,
+repeat plans, or send status messages without new information. Final delivery
+should emphasize outcomes, changed locations, validation, and necessary next
+steps.
+
+## 10. Keep AGENTS.md Current
+
+Update `AGENTS.md` whenever project structure, critical commands, test
+procedures, engineering constraints, or durable collaboration rules change.
+Record only stable, reusable information that affects future work; do not add
+temporary task history or one-off decisions. Check updates against the
+repository and related documentation.
+
+## 11. Maintain Handoff.md
+
+After each identifiable phase of work, update the root `Handoff.md` so work can
+stop and resume at any time. Record the current objective and status, completed
+work, key decisions, changed files, validation results, remaining work, next
+steps, risks, blockers, and essential context. Keep it as a concise statement
+of current state rather than an append-only activity log. Never include
+secrets, tokens, or sensitive credentials. Leave a short final state when a
+task is complete.
+
+# DeskHelm Repository Guidelines
+
+## Project Identity and Scope
+
+DeskHelm is a local-first control surface for coding agents. The GitHub
+repository and product name are `DeskHelm` / `deskhelm`. Existing `agent-io` and
+`next_keyboard` identifiers are legacy names pending a deliberate compatibility
+migration; do not introduce new public identifiers under those names.
+
+The project is a monorepo with these responsibility boundaries:
+
+```text
+Agent runtimes
+  -> adapters
+  -> Bridge: sessions, state, targeting, and control routing
+     -> Voice Gateway: PTT, ASR, TTS, playback, and voice notifications
+     -> TUI and desktop clients
+     -> Physical Surface: HID, controls, RGB, displays, and device transport
+```
+
+DeskHelm integrates existing Agent runtimes. It must not become a new general
+LLM or Agent framework, and it must not own an external Agent's canonical
+conversation history.
+
+## Project Structure
+
+- `bridge/`: dependency-minimal local core service.
+- `adapters/`: runtime-specific Codex, Claude Code, Gemini CLI, and other
+  integrations.
+- `protocol/`: versioned state, interaction, control, and transport contracts.
+- `configurator/`: device and client setup application.
 - `hardware/`: electronics, PCB, mechanical, production, and test assets.
 - `firmware/`: device firmware and bootloader integration.
-- `bridge/`: local service connecting devices to agent runtimes.
-- `adapters/`: runtime-specific integrations for Codex, Claude Code, Gemini CLI, and others.
-- `protocol/`: agent-event and device-transport specifications.
-- `configurator/`: device setup and customization application.
-- `tests/`: cross-component and hardware-in-the-loop tests.
-- `docs/`: research, architecture, product, hardware, software, and ADR documentation.
+- `tests/`: cross-component, compatibility, and hardware-in-the-loop tests.
+- `docs/`: research, architecture, product, software, hardware, and ADRs.
 - `tools/`: development and manufacturing utilities.
 
-Keep third-party reference files outside version control under `references/vendor/`.
+Keep third-party reference files outside version control under
+`references/vendor/`. Keep model weights and generated binaries outside Git.
+
+## Architecture and Protocol Rules
+
+- Keep integrations Agent-agnostic and local-first.
+- Preserve the separation between small `StateEvent` projections, rich
+  `InteractionEvent` content, and targeted `ControlCommand` actions.
+- Keep `AgentEvent v1` compatible until a documented migration exists.
+- Identify sessions with `agent_id + session_id + project_id`; treat `slot` as a
+  presentation mapping only.
+- Parse vendor formats at the adapter boundary and expose declared adapter
+  capabilities.
+- Bound streams, records, queues, retries, and slow-subscriber behavior.
+- Correlate tool calls, results, approvals, controls, and terminal events with
+  stable identifiers.
+- Never replay approval or rejection blindly. Consequential controls must name
+  their target session, request, summary, and expiry.
+- Do not log prompts, source code, tool arguments, raw Agent events, audio, or
+  credentials by default.
+- Keep PyTorch, CUDA, model weights, and provider-specific voice dependencies
+  outside the core Bridge.
+
+Record significant protocol, transport, concurrency, framework, MCU, or
+licensing decisions in an ADR before implementation spreads across components.
 
 ## Build, Test, and Development Commands
 
-The implementation stacks and unified build system have not been selected. Do not introduce placeholder commands or a task runner without an ADR. Document component commands in its `README.md` and provide a repository-level wrapper when practical.
+The Phase 0 Bridge requires Python 3.11 or newer and has no runtime
+dependencies. A repository-wide build system has not been selected; do not add
+a placeholder task runner without an ADR.
 
-Current repository checks:
+Current commands:
 
-- `git diff --check`: detects whitespace errors.
-- `find docs -name '*.md' -type f`: lists documentation for review.
-- `rg '<term>' .`: searches code and documentation quickly.
+- `PYTHONPATH=bridge python3 -m agent_io_bridge bridge --plain`: run the Bridge.
+- `PYTHONPATH=bridge python3 -m agent_io_bridge simulate`: emit demo events.
+- `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
+- `git diff --check`: detect whitespace errors.
+- `find docs -name '*.md' -type f`: list documentation for review.
+- `rg '<term>' .`: search code and documentation.
 
-## Coding Style & Naming Conventions
+Document component-specific commands in that component's `README.md`. Add a
+repository-level wrapper only when multiple implemented stacks require it.
 
-Follow `.editorconfig`: UTF-8, LF line endings, final newline, two-space indentation, and no trailing whitespace. Makefiles use tabs. Prefer descriptive names over abbreviations.
+## Coding and Naming Conventions
 
-- Directories and files: `kebab-case`, for example `agent-state-machine.md`.
+Follow `.editorconfig`: UTF-8, LF line endings, a final newline, two-space
+indentation, and no trailing whitespace. Makefiles use tabs. Prefer descriptive
+names over abbreviations.
+
+- Directories and files: `kebab-case`.
 - ADRs: `docs/decisions/NNNN-short-title.md`.
 - Dated research: `docs/research/YYYY-MM-DD-topic.md`.
-- Protocol fields and configuration keys: `snake_case` unless an adopted ecosystem requires otherwise.
+- Protocol fields and configuration keys: `snake_case` unless an adopted
+  ecosystem requires otherwise.
+- Tests: name after observable behavior.
 
-## Testing Guidelines
+## Testing and Compatibility
 
-Add tests beside their component or under `tests/` for cross-component behavior. Name tests after observable behavior. Protocol changes require compatibility fixtures; firmware changes should include hardware-in-the-loop notes when necessary. Record untested hardware assumptions explicitly.
+Add tests beside their component or under `tests/` for cross-component
+behavior. Protocol and adapter changes require captured or synthetic fixtures,
+including producing runtime versions where applicable. Test malformed input,
+unknown events, cancellation, queue limits, and terminal states, not only happy
+paths.
 
-## Commit & Pull Request Guidelines
+Firmware changes should include hardware-in-the-loop notes when necessary.
+Record every untested hardware or model assumption explicitly.
 
-The repository has no commit history yet. Use short, imperative commit subjects, optionally with a conventional prefix: `docs: define agent event model` or `firmware: add RGB status driver`.
+## Git and Review
 
-Pull requests should explain the problem, approach, validation performed, and affected components. Link relevant issues or ADRs. Include screenshots, recordings, schematics, or board renders for visible hardware and UI changes. Do not commit secrets, generated binaries, vendor archives, or files with unclear commercial licensing.
+Use focused commits with short imperative subjects, optionally with a
+conventional prefix, such as `protocol: define interaction envelope`. Do not
+mix unrelated formatting, refactors, generated artifacts, or dependency updates
+into a feature commit.
 
-## Architecture & Safety
+Before committing, run the relevant tests and `git diff --check`. Pull requests
+should explain the problem, approach, validation, affected components, risks,
+and linked ADRs. Include screenshots, recordings, schematics, or renders for
+visible changes.
 
-Keep integrations agent-agnostic and local-first. Consequential actions such as approval or command execution must clearly identify the target agent and state. Record significant protocol, MCU, transport, framework, or licensing decisions in an ADR before implementation spreads across components.
+Do not commit secrets, credentials, generated binaries, model weights, vendor
+archives, or files with unclear commercial licensing.
