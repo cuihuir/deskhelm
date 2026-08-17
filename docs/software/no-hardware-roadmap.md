@@ -20,6 +20,7 @@ Status: In progress
 - [ ] Define session lifecycle: register, focus, disconnect, expire, restore.
 - [ ] Replace the sequential connection loop with a bounded concurrency model.
 - [ ] Expose a read-only local snapshot and subscription API.
+- [ ] Define adapter capabilities and captured-fixture version metadata.
 
 Acceptance criteria:
 
@@ -36,8 +37,11 @@ Status: Planned
 - [ ] Define versioned `InteractionEvent v1`.
 - [ ] Define versioned `ControlCommand v1`.
 - [ ] Add JSON fixtures and compatibility tests.
+- [ ] Define ordering, correlation, cancellation, and terminal-event semantics.
+- [ ] Define queue bounds, maximum record size, and slow-subscriber behavior.
 - [ ] Implement targeting and validation in a `ControlRouter`.
 - [ ] Require `request_id`, target session, summary, and expiry for approvals.
+- [ ] Require idempotency keys for retryable prompt and control operations.
 
 Acceptance criteria:
 
