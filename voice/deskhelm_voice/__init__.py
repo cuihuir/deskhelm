@@ -5,6 +5,7 @@ from .fake_providers import (
     FakeTtsProvider,
     FakeVadProvider,
 )
+from .asr_manifest import AsrRunManifest, load_prepared_asr_set
 from .gateway import VoiceGateway
 from .models import (
     CapturedAudio,
@@ -18,7 +19,8 @@ from .models import (
     VoicePttState,
     VoiceTarget,
 )
-from .providers import VoiceCancelled
+from .providers import StreamingAsrProvider, StreamingAsrResult, VoiceCancelled
+from .paraformer import ParaformerStreamingAsrProvider
 from .pipewire import PipeWireCaptureProvider, PipeWirePlaybackProvider
 from .silero_onnx_vad import SileroOnnxVadProvider
 from .streaming import (
@@ -33,6 +35,7 @@ from .vad_samples import load_prepared_vad_samples
 from .webrtc_vad import WebRtcVadProvider
 
 __all__ = [
+    "AsrRunManifest",
     "CapturedAudio",
     "FakeAsrProvider",
     "FakeCaptureProvider",
@@ -42,12 +45,15 @@ __all__ = [
     "PcmSampleFormat",
     "PcmChunk",
     "PcmStreamFormat",
+    "ParaformerStreamingAsrProvider",
     "PipeWireCaptureProvider",
     "PipeWirePlaybackProvider",
     "SpeechItem",
     "SpeechPriority",
     "SpeechSegment",
     "SileroOnnxVadProvider",
+    "StreamingAsrProvider",
+    "StreamingAsrResult",
     "SynthesizedAudio",
     "Transcript",
     "VoiceCancelled",
@@ -61,4 +67,5 @@ __all__ = [
     "VadRunManifest",
     "WebRtcVadProvider",
     "load_prepared_vad_samples",
+    "load_prepared_asr_set",
 ]

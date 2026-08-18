@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+import math
 from threading import Event
 from typing import Protocol, Self
 
@@ -17,6 +19,31 @@ class CaptureProvider(Protocol):
 
 class AsrProvider(Protocol):
     def transcribe(self, audio: CapturedAudio, cancel: Event) -> Transcript: ...
+
+
+@dataclass(frozen=True, slots=True)
+class StreamingAsrResult:
+    transcript: Transcript
+    first_partial_latency_ms: float | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.transcript, Transcript):
+            raise ValueError("streaming ASR transcript is invalid")
+        if self.first_partial_latency_ms is not None and (
+            not isinstance(self.first_partial_latency_ms, (int, float))
+            or isinstance(self.first_partial_latency_ms, bool)
+            or not math.isfinite(self.first_partial_latency_ms)
+            or self.first_partial_latency_ms < 0
+        ):
+            raise ValueError("first partial latency is invalid")
+
+
+class StreamingAsrProvider(Protocol):
+    def transcribe_streaming(
+        self,
+        audio: CapturedAudio,
+        cancel: Event,
+    ) -> StreamingAsrResult: ...
 
 
 class TtsProvider(Protocol):

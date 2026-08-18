@@ -47,7 +47,11 @@ speaker was opened during implementation or validation. The streaming PCM and
 VAD benchmark boundary now has its first reproducible real-audio implementation:
 pinned FSDD sources, deterministic prepared samples, lazy WebRTC and Silero
 ONNX adapters, and privacy-safe aggregate observations. The result validates
-both paths but does not select a production VAD.
+both paths but does not select a production VAD. The first real streaming ASR
+baseline is also complete: a pinned Paraformer provider and external audio set
+produced 24/24 successful observations. It remains a Chinese candidate rather
+than DeskHelm's sole ASR because English word boundaries and short English
+commands performed poorly.
 
 ## Completed Work
 
@@ -206,6 +210,21 @@ both paths but does not select a production VAD.
   failures. WebRTC recorded F1 0.894 and replay p50/p95 0.19/0.31 ms; Silero
   recorded F1 0.859 and 2.98/4.57 ms. The quiet trimmed corpus is explicitly
   insufficient for final production selection.
+- Accepted ADR 0014: use `funasr/paraformer-zh-streaming` as the first streaming
+  ASR baseline at immutable tag `apache-2.0-20260804`, resolved commit
+  `fd2af606b37d7fb8b3b8a218c5be5b07b53ef6ba`, with a verified `model.pt`
+  SHA-256 and isolated FunASR/PyTorch runtime.
+- Added a bounded Paraformer adapter using official 600 ms chunks, one cache per
+  transcription, serialized shared-model inference, lazy imports, cancellation
+  checks, and explicit input/output limits.
+- Added a versioned external ASR manifest plus bounded preparation and runner
+  tools. The set pins one Apache-2.0 official Chinese sample, one official
+  English sample with `unverified` audio license, and six CC BY-SA 4.0 FSDD
+  samples; downloaded and prepared audio remains ignored.
+- Ran 24/24 successful Paraformer observations on Python 3.12.3 with FunASR
+  1.3.21 and CPU-only PyTorch/torchaudio 2.11.0. Mean CER was 0.438, English WER
+  0.643, keyword accuracy 0.438, mean RTF 0.121, estimated first-partial p50/p95
+  376/1,848 ms, cold load 4.97 seconds, and peak RSS 3.09 GiB.
 - Recorded ESP32-S3 wireless-audio research: BLE HID for keyboard controls,
   reliable BLE/Wi-Fi state, and Wi-Fi Opus as the preferred future voice path.
 - Selected a simpler local POC path: follow the computer's current PipeWire
@@ -279,6 +298,13 @@ both paths but does not select a production VAD.
 - Initial production candidates are WebRTC VAD and Silero VAD ONNX. Their
   optional runtimes remain lazy and external to Bridge; Silero shares the
   immutable ONNX Runtime session but resets state and context per stream.
+- Paraformer is the initial Chinese streaming ASR candidate, not the sole
+  production ASR. Its optional FunASR/PyTorch runtime and weights stay outside
+  Bridge and Git; the provider uses one cache per transcription and serializes
+  access to the shared model.
+- Paraformer first-partial results are offline pacing estimates: required audio
+  availability plus processing time for the first non-empty chunk. They are not
+  live microphone capture-to-UI measurements.
 - External VAD audio is reconstructed from a versioned manifest with pinned
   HTTPS URLs, revisions, checksums, licenses, and explicit silence recipes.
   Raw/prepared audio, models, and observation files remain ignored.
@@ -379,12 +405,16 @@ both paths but does not select a production VAD.
   chunks, VAD sessions/events, benchmark metrics, bounds, and privacy contract.
 - `docs/decisions/0013-select-webrtc-and-silero-vad-baselines.md`: initial VAD
   candidates, dependency isolation, FSDD provenance, and selection limits.
+- `docs/decisions/0014-use-paraformer-as-initial-streaming-asr-baseline.md`:
+  pinned model/runtime identity, streaming configuration, bounds, and limits.
 - `docs/research/2026-08-18-pipewire-preflight.md`: verified local PipeWire
   capabilities and provider-design implications.
 - `docs/research/2026-08-18-esp32-s3-audio-transport.md`: official ESP32-S3 and
   Opus evidence, wireless control split, parameters, risks, and local USB path.
 - `docs/research/2026-08-18-vad-candidates-and-first-benchmark.md`: verified
   candidate facts, first-run configuration, aggregate results, and gaps.
+- `docs/research/2026-08-18-paraformer-first-benchmark.md`: pinned identity,
+  external-set provenance, measurements, per-sample results, and next evidence.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -427,15 +457,25 @@ both paths but does not select a production VAD.
 - `voice/benchmarks/utterances-v1.json`: stable synthetic benchmark corpus.
 - `voice/benchmarks/vad-external-v1.json`: pinned public VAD audio provenance,
   checksums, format, speakers, and deterministic scenario recipes.
+- `voice/benchmarks/asr-external-v1.json`: pinned public ASR audio references,
+  checksums, licenses, speakers, and expected transcripts.
 - `voice/benchmarks/README.md`: measurement and artifact-handling contract.
 - `voice/deskhelm_voice/vad_manifest.py`: bounded external-audio manifest model.
 - `voice/deskhelm_voice/vad_samples.py`: checksum-validating prepared WAV loader
   and deterministic PCM chunk construction.
 - `voice/deskhelm_voice/webrtc_vad.py`: lazy WebRTC VAD streaming adapter.
 - `voice/deskhelm_voice/silero_onnx_vad.py`: lazy stateful Silero ONNX adapter.
+- `voice/deskhelm_voice/paraformer.py`: lazy bounded streaming Paraformer ASR
+  adapter and offline first-partial measurement.
+- `voice/deskhelm_voice/asr_manifest.py`: bounded external ASR manifest and
+  prepared-set checksum/duration validation.
 - `tools/prepare-vad-benchmark.py`: bounded download, verification, conversion,
   composition, and local prepared-index generation.
 - `tools/run-vad-benchmark.py`: isolated candidate runner and NDJSON writer.
+- `tools/prepare-asr-benchmark.py`: bounded ASR download, checksum verification,
+  conversion, and prepared-index generation.
+- `tools/run-asr-benchmark.py`: pinned model verification, isolated Paraformer
+  run, observations, resource metadata, and summary output.
 - `bridge/deskhelm_bridge/voice_integration.py`: transcript, interaction, and
   control composition between Bridge and Voice.
 - `adapters/codex/deskhelm_codex_adapter/provider.py`: Codex command, stdin,
@@ -450,6 +490,8 @@ both paths but does not select a production VAD.
   failure records, NDJSON, and CLI summary coverage.
 - `tests/test_vad_providers.py`: manifest, prepared checksum, WebRTC buffering,
   format, and hysteresis coverage.
+- `tests/test_asr_providers.py`: ASR manifest/prepared-set, measured streaming
+  result, lazy loading, input bounds, cancellation, and validation coverage.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
 - `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
   connection role dispatch.
@@ -464,13 +506,22 @@ Last verified on 2026-08-18:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 164 tests passed, including strict `ResourceWarning` handling, 13
-fake-subprocess PipeWire/PCM tests, 7 streaming VAD benchmark tests, and 4
-manifest/provider tests. The full unit suite opened no live audio device.
+Result: 168 tests passed under the workstation resource limiter, including
+strict `ResourceWarning` handling, 13 fake-subprocess PipeWire/PCM tests, 7
+streaming VAD benchmark tests, 4 VAD manifest/provider tests, and 4 new ASR
+manifest/provider tests. The full unit suite opened no live audio device and
+did not import the optional Paraformer runtime.
 
 The isolated real-candidate run also passed with 35/35 successful observations
 for both WebRTC and Silero. Downloaded FSDD audio, prepared WAV files, the ONNX
 model, the virtual environment, and raw NDJSON results remain ignored.
+
+The isolated Paraformer run passed with 24/24 successful observations across
+eight samples and three repetitions. It verified the pinned model checksum,
+recorded 4.97-second cold load, 3.09 GiB process peak RSS, 0.121 mean RTF, and
+the accuracy/latency results in the dated research report. The Python 3.12
+environment, weights, downloaded/prepared audio, raw NDJSON, and local summary
+remain ignored.
 
 Repository checks also passed:
 
@@ -479,17 +530,22 @@ git diff --check
 python3 -m compileall -q bridge adapters/codex voice tests tools
 ! rg -n '[[:blank:]]+$' . --glob '!.git/**'
 ! rg -n 'deskhelm_bridge|bridge\.' voice/deskhelm_voice
+git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
+  voice/benchmarks/results/paraformer-v1.ndjson
 ```
 
 ## Remaining Work
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Benchmark Paraformer, Piper, and Kokoro outside Bridge, then expand VAD to
-   noisy/conversational labeled audio and live-device threshold measurements.
-3. Add application-level audio provider/device configuration and measure live
+2. Benchmark Piper and Kokoro outside Bridge. Expand ASR to consented
+   Chinese/mixed coding commands and an alternative model before selecting a
+   production default.
+3. Expand VAD to noisy/conversational labeled audio and live-device threshold
+   measurements.
+4. Add application-level audio provider/device configuration and measure live
    default/manual target plus disconnect/reconnect recovery behavior.
-4. Add a multi-project working-directory registry before one Bridge process
+5. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.
 
 ## Risks and Blockers
@@ -503,9 +559,10 @@ python3 -m compileall -q bridge adapters/codex voice tests tools
 - PipeWire capture/playback providers exist, but the Bridge CLI does not select
   them yet. Production VAD selection, ASR/TTS, streaming PipeWire capture, device
   enumeration, and live recovery are not implemented.
-- The benchmark runner records VAD compute/detection timing plus batch ASR final
-  and TTS synthesis latency. Live capture-to-decision, first partial,
-  streaming first-audio, interruption, and recovery timing remain unmeasured.
+- The benchmark runner records VAD compute/detection timing, batch ASR final
+  latency, Paraformer offline first-partial estimates, and TTS synthesis
+  latency. Live capture-to-decision/partial, streaming first-audio,
+  interruption, and recovery timing remain unmeasured.
 - PipeWire lifecycle behavior is validated with fake subprocesses only. Live
   source/sink access, unavailable explicit targets, hot unplug, default-device
   changes, and actual audio latency remain unverified by design.
@@ -532,14 +589,19 @@ python3 -m compileall -q bridge adapters/codex voice tests tools
 - Initial WebRTC and Silero VAD replay quality/latency and licenses are measured,
   but the corpus lacks conversational speech, Chinese, noise, music, keyboard
   sounds, distant microphones, and live recovery. Production VAD is unselected.
-- Production ASR and TTS quality, latency, recovery, resource use, and model
-  licensing have not been benchmarked on the target machine.
+- Paraformer is measured only on a tiny public set. Its Chinese example was
+  exact, but English spacing and four of six isolated digits failed; about
+  3.09 GiB peak RSS and cancellation only between inference calls also remain
+  product risks. It is not selected as the sole production ASR.
+- Production TTS quality, first-audio/interruption latency, recovery, resource
+  use, and model licensing have not been benchmarked on the target machine.
 
 ## Next Step
 
-Benchmark the first streaming ASR candidate, Paraformer, through the existing
-provider-neutral corpus and observation boundary while keeping its runtime and
-weights outside Bridge and Git. Then compare Piper and Kokoro notification TTS.
-Keep broader VAD threshold/noise work plus PipeWire streaming activation and
-live-device recovery at the application composition boundary. Obtain the
-repository license decision when packaging or external contributions require it.
+Compare Piper and Kokoro notification TTS outside Bridge, including first-audio,
+interruption, resource, and licensing evidence. In parallel planning, define a
+consented Chinese/mixed coding-command ASR set and select one alternative to
+compare with Paraformer. Keep broader VAD threshold/noise work plus PipeWire
+streaming activation and live-device recovery at the application composition
+boundary. Obtain the repository license decision when packaging or external
+contributions require it.

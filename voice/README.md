@@ -35,10 +35,13 @@ playback defaults to 120 seconds and 16 MiB. Both own and terminate their
 subprocess groups, suppress private stderr, and expose fixed recoverable errors.
 The fake providers include a deterministic streaming VAD session for benchmark
 and lifecycle tests. `webrtc_vad.py` and `silero_onnx_vad.py` provide the first
-real benchmark adapters with lazy optional imports. They are not selected by
-the Voice Gateway yet. Local production ASR and TTS providers remain pending.
-Keep model weights and provider-specific heavyweight dependencies outside the
-repository and outside Bridge.
+real VAD benchmark adapters with lazy optional imports. `paraformer.py` provides
+the first real streaming ASR benchmark adapter, pinned to a verified model
+revision and the official 600 ms chunk configuration. These providers are not
+selected by the Voice Gateway yet. Paraformer remains a Chinese candidate, not
+the sole production ASR for mixed coding commands. Local production TTS remains
+pending. Keep model weights and provider-specific heavyweight dependencies
+outside the repository and outside Bridge.
 
 ## Benchmarks
 
@@ -47,8 +50,10 @@ and measurement documentation. `deskhelm_voice.benchmark` provides bounded fake
 or production provider runners, NDJSON observations, ASR accuracy scoring, VAD
 segmentation metrics, and latency/resource summaries without model dependencies.
 `vad-external-v1.json` pins six public FSDD clips and seven deterministic
-silence-composition scenarios. Downloaded audio, prepared WAV files, models, and
-raw observations remain ignored.
+silence-composition scenarios. `asr-external-v1.json` pins an official Chinese
+sample, a non-redistributable official English sample with unverified audio
+license, and six CC BY-SA 4.0 FSDD clips. Downloaded audio, prepared WAV files,
+models, and raw observations remain ignored.
 
 ```bash
 PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr \
@@ -75,12 +80,29 @@ PYTHONPATH=voice python tools/run-vad-benchmark.py \
   --observations voice/benchmarks/results/webrtc-v1.ndjson
 ```
 
+Prepare and run the pinned Paraformer set from an isolated Python 3.12
+environment containing FunASR and matched CPU-only PyTorch/torchaudio:
+
+```bash
+PYTHONPATH=voice python tools/prepare-asr-benchmark.py \
+  --manifest voice/benchmarks/asr-external-v1.json \
+  --artifact-root references/vendor/paraformer-bench/run-v1
+
+PYTHONPATH=voice python tools/run-asr-benchmark.py \
+  --manifest voice/benchmarks/asr-external-v1.json \
+  --prepared references/vendor/paraformer-bench/run-v1/prepared \
+  --model-directory /ignored/pinned/model/snapshot \
+  --observations voice/benchmarks/results/paraformer-v1.ndjson \
+  --summary voice/benchmarks/results/paraformer-v1-summary.json \
+  --repetitions 3 --cpu-threads 4
+```
+
 ## Tests
 
 ```bash
 PYTHONPATH=bridge python3 -m unittest \
   tests.test_pipewire_providers tests.test_voice_benchmark \
-  tests.test_vad_benchmark tests.test_vad_providers \
+  tests.test_vad_benchmark tests.test_vad_providers tests.test_asr_providers \
   tests.test_voice_gateway \
   tests.test_voice_integration -v
 ```

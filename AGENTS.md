@@ -239,6 +239,10 @@ Keep third-party reference files outside version control under
 - Keep WebRTC and Silero dependencies lazy and outside Bridge requirements.
   Every Silero stream resets recurrent state and context even when providers
   share an immutable ONNX Runtime session.
+- Keep Paraformer/FunASR/PyTorch dependencies lazy and outside Bridge
+  requirements. Pin benchmark model revisions and checksums, use one streaming
+  cache per transcription, serialize access to a shared model, and distinguish
+  offline first-partial estimates from live capture-to-UI latency.
 - Do not commit microphone captures, generated speech, model output, or local
   benchmark results without explicit provenance, consent, and redistribution
   terms.
@@ -298,6 +302,15 @@ Current commands:
   references/vendor/vad-bench/run-v1/prepared --observations
   voice/benchmarks/results/webrtc-v1.ndjson`: run the lightweight baseline from
   an isolated environment that provides its optional runtime.
+- `PYTHONPATH=voice python tools/prepare-asr-benchmark.py --manifest
+  voice/benchmarks/asr-external-v1.json --artifact-root
+  references/vendor/paraformer-bench/run-v1`: verify and prepare the pinned ASR
+  set under ignored storage.
+- `PYTHONPATH=voice python tools/run-asr-benchmark.py --manifest
+  voice/benchmarks/asr-external-v1.json --prepared
+  references/vendor/paraformer-bench/run-v1/prepared --model-directory
+  <ignored-model-snapshot> --observations <results.ndjson> --summary
+  <summary.json>`: run the pinned Paraformer baseline from its isolated runtime.
 - `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
 - `git diff --check`: detect whitespace errors.
 - `find docs -name '*.md' -type f`: list documentation for review.

@@ -14,7 +14,13 @@ import unicodedata
 import uuid
 
 from .models import CapturedAudio, PcmSampleFormat
-from .providers import AsrProvider, TtsProvider, VadProvider
+from .providers import (
+    AsrProvider,
+    StreamingAsrProvider,
+    StreamingAsrResult,
+    TtsProvider,
+    VadProvider,
+)
 from .streaming import (
     PcmChunk,
     PcmStreamFormat,
@@ -626,7 +632,7 @@ class VadBenchmarkObservation:
 
 
 def run_asr_benchmark(
-    provider: AsrProvider,
+    provider: AsrProvider | StreamingAsrProvider,
     identity: BenchmarkIdentity,
     samples: Sequence[BenchmarkAudioSample],
     *,
@@ -641,7 +647,16 @@ def run_asr_benchmark(
             wall_start = monotonic_ns()
             cpu_start = process_time_ns()
             try:
-                transcript = provider.transcribe(sample.audio, Event())
+                streaming_method = getattr(provider, "transcribe_streaming", None)
+                if streaming_method is None:
+                    transcript = provider.transcribe(sample.audio, Event())
+                    first_partial_latency_ms = None
+                else:
+                    result = streaming_method(sample.audio, Event())
+                    if not isinstance(result, StreamingAsrResult):
+                        raise ValueError("streaming ASR result is invalid")
+                    transcript = result.transcript
+                    first_partial_latency_ms = result.first_partial_latency_ms
                 status = BenchmarkStatus.OK
                 text = transcript.raw_text
                 error_code = ""
@@ -649,6 +664,7 @@ def run_asr_benchmark(
                 status = BenchmarkStatus.FAILED
                 text = ""
                 error_code = "provider_failed"
+                first_partial_latency_ms = None
             observations.append(
                 AsrBenchmarkObservation(
                     identity=identity,
@@ -659,6 +675,7 @@ def run_asr_benchmark(
                     final_latency_ms=_elapsed_ms(wall_start, monotonic_ns()),
                     process_cpu_ms=_elapsed_ms(cpu_start, process_time_ns()),
                     transcript=text,
+                    first_partial_latency_ms=first_partial_latency_ms,
                     error_code=error_code,
                 )
             )
@@ -834,6 +851,9 @@ def summarize_asr(
         "final_latency_ms_p95": _percentile_or_none(latencies, 95),
         "first_partial_latency_ms_p50": _percentile_or_none(
             partial_latencies, 50
+        ),
+        "first_partial_latency_ms_p95": _percentile_or_none(
+            partial_latencies, 95
         ),
         "process_cpu_ms_mean": _mean_or_none(cpu_times),
         "real_time_factor_mean": _mean_or_none(real_time_factors),

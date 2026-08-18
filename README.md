@@ -58,7 +58,10 @@ does not activate live audio yet. A frame-positioned streaming PCM/VAD session
 contract and bounded provider-neutral VAD benchmark are also implemented. The
 first pinned FSDD comparison now runs WebRTC and Silero ONNX adapters outside
 Bridge; broader noisy/live evidence is still required before selecting a
-production VAD.
+production VAD. The first pinned Paraformer streaming ASR run is also complete:
+Chinese transcription and CPU real-time performance are promising, but English
+segmentation and short English commands prevent selecting it as the sole
+production ASR.
 
 Current development focuses on the no-hardware Agent Console path:
 
@@ -69,7 +72,8 @@ Bridge state and sessions
   -> bounded Voice Gateway skeleton
   -> bounded PipeWire audio providers
   -> initial external-audio WebRTC/Silero VAD comparison
-  -> broader VAD, ASR, TTS, and recovery measurements
+  -> initial Paraformer streaming ASR baseline
+  -> broader VAD/ASR, TTS, and recovery measurements
 ```
 
 Hardware, firmware, and device transport decisions remain exploratory until

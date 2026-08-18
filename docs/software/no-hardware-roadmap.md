@@ -96,7 +96,7 @@ Status: In Progress
   audio set.
 - [ ] Expand VAD measurements to conversational/noisy audio and live devices,
   then select the production default.
-- [ ] Benchmark Paraformer for streaming ASR.
+- [x] Benchmark Paraformer for streaming ASR.
 - [ ] Benchmark Piper and Kokoro for notification TTS.
 - [x] Add fixed Chinese, English, and mixed-language test utterances.
 - [x] Define versioned latency, accuracy, resource, and licensing observations.
@@ -112,11 +112,13 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Benchmark Paraformer, Piper, and Kokoro outside Bridge, including device-loss
-   and cancellation recovery measurements.
+1. Benchmark Piper and Kokoro outside Bridge, including interruption and
+   resource measurements.
 2. Expand VAD coverage to noisy/conversational speech, threshold sweeps, and
    live PipeWire latency before selecting a default.
-3. Add explicit provider selection and stable-name device configuration at the
+3. Expand ASR coverage to consented Chinese/mixed coding commands, compare an
+   alternative ASR, and measure live capture/recovery before selecting a default.
+4. Add explicit provider selection and stable-name device configuration at the
    application composition boundary.
-4. Add a multi-project working-directory registry before one Bridge process
+5. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.

@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "name": "deskhelm-asr-external-v1",
+  "audio_format": {
+    "sample_rate_hz": 16000,
+    "channels": 1,
+    "sample_format": "s16le"
+  },
+  "sources": [
+    {
+      "utterance_id": "funasr-zh-example",
+      "language": "zh-CN",
+      "text": "欢迎大家来体验达摩院推出的语音识别模型",
+      "tags": ["chinese", "official-example"],
+      "keywords": ["达摩院", "语音识别模型"],
+      "file_name": "asr_example_zh.wav",
+      "url": "https://huggingface.co/funasr/paraformer-zh-streaming/resolve/apache-2.0-20260804/example/asr_example.wav?download=true",
+      "revision": "fd2af606b37d7fb8b3b8a218c5be5b07b53ef6ba",
+      "sha256": "a1bd32dc78493c123f9625a66deee562aed2895f53fbc39f2cca3be7e6f4f20f",
+      "license": "Apache-2.0",
+      "speaker": "official-example"
+    },
+    {
+      "utterance_id": "fsdd-george-zero",
+      "language": "en-US",
+      "text": "zero",
+      "tags": ["english", "digit", "fsdd"],
+      "keywords": ["zero"],
+      "file_name": "0_george_0.wav",
+      "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings/0_george_0.wav",
+      "revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+      "sha256": "228ab63fccdf262d2e05817b6ec918b15e7d9e4bfb6bb20183c46ae088405240",
+      "license": "CC-BY-SA-4.0",
+      "speaker": "george"
+    },
+    {
+      "utterance_id": "funasr-en-example",
+      "language": "en-US",
+      "text": "he tried to think how it could be",
+      "tags": ["english", "official-example", "license-unverified"],
+      "keywords": ["tried to think", "could be"],
+      "file_name": "asr_example_en.wav",
+      "url": "https://isv-data.oss-cn-hangzhou.aliyuncs.com/ics/MaaS/ASR/test_audio/asr_example_en.wav",
+      "revision": "bff70399427fe5a06ea5244d1410dd729efe462e",
+      "sha256": "fee8e0460ca707f108782be0d93c555bf34fb6b1cb297e5fceed70192cc65f9b",
+      "license": "unverified",
+      "speaker": "official-example"
+    },
+    {
+      "utterance_id": "fsdd-jackson-one",
+      "language": "en-US",
+      "text": "one",
+      "tags": ["english", "digit", "fsdd"],
+      "keywords": ["one"],
+      "file_name": "1_jackson_0.wav",
+      "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings/1_jackson_0.wav",
+      "revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+      "sha256": "b3739400f793620875bb7849bfd8629dc6b2966ed6bda8276aa14178a612f13a",
+      "license": "CC-BY-SA-4.0",
+      "speaker": "jackson"
+    },
+    {
+      "utterance_id": "fsdd-lucas-two",
+      "language": "en-US",
+      "text": "two",
+      "tags": ["english", "digit", "fsdd"],
+      "keywords": ["two"],
+      "file_name": "2_lucas_0.wav",
+      "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings/2_lucas_0.wav",
+      "revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+      "sha256": "1cc45214f58b07f3188a0474060cf04c600123d1bc05c9889f81a24e77edab2f",
+      "license": "CC-BY-SA-4.0",
+      "speaker": "lucas"
+    },
+    {
+      "utterance_id": "fsdd-nicolas-three",
+      "language": "en-US",
+      "text": "three",
+      "tags": ["english", "digit", "fsdd"],
+      "keywords": ["three"],
+      "file_name": "3_nicolas_0.wav",
+      "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings/3_nicolas_0.wav",
+      "revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+      "sha256": "5da068172b180b74cd8ed019d131679249387b0199cb972992adf18e21f1d82d",
+      "license": "CC-BY-SA-4.0",
+      "speaker": "nicolas"
+    },
+    {
+      "utterance_id": "fsdd-theo-four",
+      "language": "en-US",
+      "text": "four",
+      "tags": ["english", "digit", "fsdd"],
+      "keywords": ["four"],
+      "file_name": "4_theo_0.wav",
+      "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings/4_theo_0.wav",
+      "revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+      "sha256": "4b96496d35d799b61b8341ac42161907b0a4dac68564310016396d9c6cffebe4",
+      "license": "CC-BY-SA-4.0",
+      "speaker": "theo"
+    },
+    {
+      "utterance_id": "fsdd-yweweler-five",
+      "language": "en-US",
+      "text": "five",
+      "tags": ["english", "digit", "fsdd"],
+      "keywords": ["five"],
+      "file_name": "5_yweweler_0.wav",
+      "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings/5_yweweler_0.wav",
+      "revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+      "sha256": "8850c7830e4a4427c1c53c6f4dad91debc90ec08f9ac104621d66e684a7cae76",
+      "license": "CC-BY-SA-4.0",
+      "speaker": "yweweler"
+    }
+  ]
+}

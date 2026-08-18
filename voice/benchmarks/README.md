@@ -18,6 +18,13 @@ only provenance, license identity, checksums, and recipes are committed. A
 future private capture set must record speaker consent, microphone and room
 metadata, sample format, checksum, and redistribution terms.
 
+`asr-external-v1.json` is the first reproducible real-ASR manifest. It pins the
+Paraformer official Chinese example, an official English example, and six FSDD
+digits. The English example's audio license is explicitly `unverified`, so it
+must remain local and must not be redistributed. Preparation verifies source
+checksums and writes normalized 16 kHz mono S16LE WAV files plus an index under
+ignored storage.
+
 ## Observation Format
 
 VAD, ASR, and TTS runs write UTF-8 NDJSON with one versioned observation per
@@ -67,6 +74,22 @@ streaming first-audio and interruption timing enter the provider benchmark when
 that contract is implemented. VAD summaries report frame-weighted speech
 precision, recall and F1, total false-positive/false-negative duration,
 first-speech detection delay, processing latency, CPU time, and real-time factor.
+For the Paraformer offline runner, first-partial latency is an estimate: audio
+available at the first non-empty model increment plus that chunk's processing
+time. It is not live microphone capture-to-UI latency.
+
+## Streaming ASR Inputs
+
+The initial Paraformer provider accepts exact 16 kHz mono S16LE PCM, uses the
+official `[0, 10, 5]` streaming chunks, and keeps one cache per transcription.
+The provider limits input to 120 seconds and output to 4,096 characters by
+default, serializes use of the shared model, and checks cancellation between
+model calls. Optional runtimes and model weights remain outside Bridge and Git.
+
+Prepare the pinned set with `tools/prepare-asr-benchmark.py` and run it with
+`tools/run-asr-benchmark.py`. The runner verifies the exact pinned `model.pt`
+checksum before loading the provider and records model verification/load time
+and process peak RSS in the local summary.
 
 ## Streaming VAD Inputs
 

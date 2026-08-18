@@ -23,3 +23,5 @@
   — ESP32-S3 的 Wi-Fi/BLE 控制分工、Opus 参数建议和本地 USB 音频路径。
 - [`2026-08-18-vad-candidates-and-first-benchmark.md`](2026-08-18-vad-candidates-and-first-benchmark.md)
   — WebRTC 与 Silero ONNX 的候选依据、外部音频清单和首轮真实观测。
+- [`2026-08-18-paraformer-first-benchmark.md`](2026-08-18-paraformer-first-benchmark.md)
+  — Paraformer 流式中文/英文样本、首个 partial 估算、资源占用和准确率边界。
