@@ -25,8 +25,10 @@ in-process subscriptions, `SessionRegistry`, terminal projection, bounded
 concurrent connections, and negotiated state publishers. `InteractionEvent v1`
 and `ControlCommand v1` are implemented and covered by compatibility fixtures,
 and negotiated state subscribers receive atomic snapshots followed by ordered
-live updates. Interaction publishing, control routing, and the controller role
-remain unimplemented. Voice Gateway implementation has not started.
+live updates. Negotiated interaction publishers and bounded live-only
+interaction subscribers are implemented without entering state projection.
+Control routing and the controller role remain unimplemented. Voice Gateway
+implementation has not started.
 
 ## Completed Work
 
@@ -62,6 +64,14 @@ remain unimplemented. Voice Gateway implementation has not started.
   and a two-second subscriber write deadline.
 - Added terminal recovery behavior for slow, read/write-invalid, oversized, or
   capacity-exceeding subscriptions; reconnect always starts from a new snapshot.
+- Enabled negotiated `interaction_event_v1` publishers and
+  `interaction_subscription_v1` live subscribers with bounded non-blocking
+  queues and no retained history.
+- Allowed one adapter publisher connection to negotiate both state and rich
+  interaction capabilities while requiring each subscriber connection to
+  select exactly one plane.
+- Verified rich interaction events do not update `StateStore`, session
+  projection, terminal rendering, or ordinary Bridge logs.
 - Implemented the `InteractionEvent v1` model for messages, tools, approvals,
   user-input requests, and task terminal events.
 - Added four complete wire fixtures and validation/round-trip tests for
@@ -110,12 +120,16 @@ remain unimplemented. Voice Gateway implementation has not started.
   per-connection queues and no automatic retry for control commands.
 - The Bridge accepts at most 16 concurrent connections by default. It never
   places accepted connections into an unbounded application work queue.
-- Negotiated publishers support `agent_event_v1`; negotiated subscribers
-  support `state_subscription_v1`. The controller role remains unavailable.
-- Version 1 has no durable event history or replay. Subscribers recover by
-  requesting a fresh snapshot before live events.
+- Negotiated publishers support `agent_event_v1`, `interaction_event_v1`, or
+  both. Negotiated subscribers select exactly one of `state_subscription_v1`
+  and `interaction_subscription_v1`. The controller role remains unavailable.
+- Version 1 has no durable event history or replay. State subscribers recover
+  through a fresh snapshot; interaction subscribers restart live-only delivery.
 - Snapshot capture and subscriber registration are atomic. Snapshot sequence is
   zero; later sequences are monotonic within one `subscription_id`.
+- Interaction subscriptions start at sequence zero and then deliver only new
+  rich events. They have subscription-local wrapper sequences but no snapshot,
+  retained history, replay, or state-projection side effects.
 - At most half of the connection workers are subscribers by default. Queue
   overflow or a blocked write disconnects the subscriber without blocking
   publishers.
@@ -148,6 +162,8 @@ remain unimplemented. Voice Gateway implementation has not started.
 - `protocol/control-command-v1.md`: targeted control command contract.
 - `protocol/state-subscription-v1.md`: state snapshot, live update, sequencing,
   resource bounds, and reconnect contract.
+- `protocol/interaction-subscription-v1.md`: live-only rich updates, bounds,
+  sequencing, and gap behavior.
 - `protocol/local-transport-v1.md`: implemented framing, handshake, publisher,
   compatibility, limits, and error contract.
 - `bridge/deskhelm_bridge/interaction.py`: `InteractionEvent v1` model and
@@ -156,6 +172,8 @@ remain unimplemented. Voice Gateway implementation has not started.
   validation, serialization, and expiry checks.
 - `bridge/deskhelm_bridge/subscription.py`: subscription wire models and bounded
   per-subscriber update queue.
+- `bridge/deskhelm_bridge/interaction_subscription.py`: rich subscription wire
+  models, bounded queue, and in-process fan-out hub.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
 - `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
   connection role dispatch.
@@ -170,7 +188,7 @@ Last verified on 2026-08-18:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 73 tests passed.
+Result: 81 tests passed, including strict `ResourceWarning` handling.
 
 Repository checks also passed:
 
@@ -184,13 +202,11 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Add bounded interaction fan-out and enable `interaction_event_v1`
-   publishers.
-3. Implement `ControlRouter`, bounded idempotency retention, a command result
+2. Implement `ControlRouter`, bounded idempotency retention, a command result
    contract, and the negotiated `controller` role.
-4. Define the adapter capability contract and add versioned Codex fixtures.
-5. Build the text-only Codex gateway with a deterministic fake provider.
-6. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
+3. Define the adapter capability contract and add versioned Codex fixtures.
+4. Build the text-only Codex gateway with a deterministic fake provider.
+5. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
    providers before installing models.
 
 ## Risks and Blockers
@@ -199,8 +215,8 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
   unimplemented.
 - Session disconnect and restore APIs exist but are not yet driven by adapter
   connection lifecycle events.
-- `InteractionEvent v1` and `ControlCommand v1` are accepted and modeled, but
-  neither is transported by the Bridge server yet.
+- `ControlCommand v1` is accepted and modeled but is not transported by the
+  Bridge server yet.
 - Live target, pending approval, idempotency conflict, and dispatch validation
   await `ControlRouter`; protocol parsing alone does not authorize a command.
 - The default socket path changed during the pre-release rename; existing
@@ -219,7 +235,7 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
 
 ## Next Step
 
-Add bounded `InteractionEvent v1` fan-out and enable negotiated interaction
-publishers without mixing rich content into the state projection. Then build
-`ControlRouter`. Obtain the license decision from the user when packaging or
+Implement `ControlRouter`, bounded idempotency retention, command results, and
+the negotiated controller role without weakening target, expiry, approval, or
+retry rules. Obtain the license decision from the user when packaging or
 external contributions require it.

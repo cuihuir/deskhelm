@@ -42,8 +42,10 @@ Required fields are `agent_id`, `slot`, and `state`. Valid states are:
   idempotent focus, prompt, interruption, approval, and speech controls.
 - [`state-subscription-v1.md`](state-subscription-v1.md) defines atomic state
   snapshots, ordered live updates, queue bounds, and reconnect recovery.
+- [`interaction-subscription-v1.md`](interaction-subscription-v1.md) defines
+  bounded live-only rich interaction delivery and gap behavior.
 - ADR 0005 defines the negotiated single-socket transport direction.
 
-Publisher and state-subscriber negotiation and the `InteractionEvent v1` and
-`ControlCommand v1` Python models and fixtures are implemented. The socket
-server does not accept rich interaction frames or controller connections yet.
+State and interaction publisher/subscriber negotiation and the
+`InteractionEvent v1` and `ControlCommand v1` Python models and fixtures are
+implemented. The socket server does not accept controller connections yet.

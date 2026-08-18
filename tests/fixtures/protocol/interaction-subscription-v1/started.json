@@ -1,0 +1,7 @@
+{
+  "protocol_version": 1,
+  "message_type": "interaction_subscription_started",
+  "stream_id": "stream-1",
+  "subscription_id": "interaction-subscription-1",
+  "sequence": 0
+}

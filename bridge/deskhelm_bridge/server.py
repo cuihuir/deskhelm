@@ -11,6 +11,8 @@ import uuid
 
 from .display import SlotPanel
 from .event import AgentEvent, PROTOCOL_VERSION, ProtocolError
+from .interaction import INTERACTION_MESSAGE_TYPE, InteractionEvent
+from .interaction_subscription import InteractionHub, InteractionSubscriberQueue
 from .session_registry import SessionRegistry
 from .state_store import StateStore
 from .subscription import StateSubscriberQueue
@@ -18,6 +20,8 @@ from .transport import (
     AGENT_EVENT_MESSAGE_TYPE,
     AGENT_EVENT_V1_CAPABILITY,
     CLIENT_HELLO_MESSAGE_TYPE,
+    INTERACTION_EVENT_V1_CAPABILITY,
+    INTERACTION_SUBSCRIPTION_V1_CAPABILITY,
     MAX_FRAME_BYTES,
     STATE_SUBSCRIPTION_V1_CAPABILITY,
     ClientHello,
@@ -43,6 +47,7 @@ MAX_ERROR_MESSAGE_CHARS = 512
 class _BridgeRuntime:
     state_store: StateStore
     session_registry: SessionRegistry
+    interaction_hub: InteractionHub
     stream: TextIO
     max_events: int | None
     stream_id: str
@@ -62,6 +67,15 @@ class _BridgeRuntime:
             self.session_registry.observe(event)
             with self._output_lock:
                 self.state_store.update(event)
+            self.received += 1
+            if self.max_events is not None and self.received >= self.max_events:
+                self.stop.set()
+
+    def process_interaction(self, event: InteractionEvent) -> None:
+        with self._event_lock:
+            if self.max_events is not None and self.received >= self.max_events:
+                return
+            self.interaction_hub.publish(event)
             self.received += 1
             if self.max_events is not None and self.received >= self.max_events:
                 self.stop.set()
@@ -107,6 +121,7 @@ def run_bridge(
     runtime = _BridgeRuntime(
         state_store=state_store,
         session_registry=session_registry,
+        interaction_hub=InteractionHub(),
         stream=stream,
         max_events=max_events,
         stream_id=str(uuid.uuid4()),
@@ -225,17 +240,43 @@ def _handle_negotiated_connection(
         if PROTOCOL_VERSION not in hello.supported_versions:
             raise _NegotiationError("version_unavailable", "no supported version overlaps")
         if hello.role is ClientRole.PUBLISHER:
-            capability = AGENT_EVENT_V1_CAPABILITY
+            supported_capabilities = {
+                AGENT_EVENT_V1_CAPABILITY,
+                INTERACTION_EVENT_V1_CAPABILITY,
+            }
+            accepted_capabilities = tuple(
+                capability
+                for capability in hello.capabilities
+                if capability in supported_capabilities
+            )
+            if not accepted_capabilities:
+                raise _NegotiationError(
+                    "capability_unavailable",
+                    "publisher must request agent_event_v1 or interaction_event_v1",
+                )
         elif hello.role is ClientRole.SUBSCRIBER:
-            capability = STATE_SUBSCRIPTION_V1_CAPABILITY
+            supported_capabilities = {
+                STATE_SUBSCRIPTION_V1_CAPABILITY,
+                INTERACTION_SUBSCRIPTION_V1_CAPABILITY,
+            }
+            accepted_capabilities = tuple(
+                capability
+                for capability in hello.capabilities
+                if capability in supported_capabilities
+            )
+            if len(accepted_capabilities) > 1:
+                raise _NegotiationError(
+                    "capability_conflict",
+                    "subscriber must request exactly one subscription capability",
+                )
+            if not accepted_capabilities:
+                raise _NegotiationError(
+                    "capability_unavailable",
+                    "subscriber must request a supported subscription capability",
+                )
         else:
             raise _NegotiationError(
                 "role_unavailable", f"{hello.role.value} connections are not enabled yet"
-            )
-        if capability not in hello.capabilities:
-            raise _NegotiationError(
-                "capability_unavailable",
-                f"{hello.role.value} must request {capability}",
             )
         if hello.role is ClientRole.SUBSCRIBER:
             if not runtime.subscriber_permits.acquire(blocking=False):
@@ -245,7 +286,7 @@ def _handle_negotiated_connection(
             subscriber_permit = True
         response = ServerHello(
             selected_version=PROTOCOL_VERSION,
-            accepted_capabilities=(capability,),
+            accepted_capabilities=accepted_capabilities,
             stream_id=runtime.stream_id,
             max_frame_bytes=MAX_FRAME_BYTES,
             max_connections=runtime.max_connections,
@@ -270,17 +311,25 @@ def _handle_negotiated_connection(
 
     if hello.role is ClientRole.SUBSCRIBER:
         try:
-            _handle_state_subscriber(connection, runtime)
+            if accepted_capabilities == (STATE_SUBSCRIPTION_V1_CAPABILITY,):
+                _handle_state_subscriber(connection, runtime)
+            else:
+                _handle_interaction_subscriber(connection, runtime)
         finally:
             runtime.subscriber_permits.release()
         return
 
     connection.settimeout(None)
-    _handle_negotiated_publisher(connection, reader, runtime)
+    _handle_negotiated_publisher(
+        connection, reader, runtime, frozenset(accepted_capabilities)
+    )
 
 
 def _handle_negotiated_publisher(
-    connection: socket.socket, reader: BinaryIO, runtime: _BridgeRuntime
+    connection: socket.socket,
+    reader: BinaryIO,
+    runtime: _BridgeRuntime,
+    capabilities: frozenset[str],
 ) -> None:
     while not runtime.stop.is_set():
         try:
@@ -289,11 +338,18 @@ def _handle_negotiated_publisher(
                 return
             value = decode_json_object(frame)
             message_type = value.get("message_type")
-            if message_type != AGENT_EVENT_MESSAGE_TYPE:
+            if message_type == AGENT_EVENT_MESSAGE_TYPE:
+                if AGENT_EVENT_V1_CAPABILITY not in capabilities:
+                    raise ProtocolError("publisher did not negotiate agent_event_v1")
+                event_value = dict(value)
+                del event_value["message_type"]
+                runtime.process(AgentEvent.from_dict(event_value))
+            elif message_type == INTERACTION_MESSAGE_TYPE:
+                if INTERACTION_EVENT_V1_CAPABILITY not in capabilities:
+                    raise ProtocolError("publisher did not negotiate interaction_event_v1")
+                runtime.process_interaction(InteractionEvent.from_dict(value))
+            else:
                 raise ProtocolError(f"publisher cannot send message_type {message_type}")
-            event_value = dict(value)
-            del event_value["message_type"]
-            runtime.process(AgentEvent.from_dict(event_value))
         except ProtocolError as error:
             _send_protocol_error(connection, "invalid_frame", str(error))
             return
@@ -339,6 +395,56 @@ def _handle_state_subscriber(
                         connection,
                         "state_update_too_large",
                         "state update exceeds the negotiated frame limit",
+                    )
+                    return
+                except TimeoutError:
+                    return
+                continue
+
+            readable, _, _ = select.select([connection], [], [], 0)
+            if readable:
+                data = connection.recv(1, socket.MSG_PEEK)
+                if not data:
+                    return
+                _send_protocol_error(
+                    connection,
+                    "subscriber_read_only",
+                    "subscriber connections cannot send frames",
+                )
+                return
+    finally:
+        unsubscribe()
+
+
+def _handle_interaction_subscriber(
+    connection: socket.socket, runtime: _BridgeRuntime
+) -> None:
+    subscription = InteractionSubscriberQueue(
+        stream_id=runtime.stream_id,
+        max_queue_frames=runtime.subscriber_queue_frames,
+    )
+    unsubscribe = runtime.interaction_hub.subscribe(subscription.enqueue)
+    connection.settimeout(SUBSCRIBER_WRITE_TIMEOUT_SECONDS)
+    try:
+        connection.sendall(encode_frame(subscription.started().to_dict()))
+        while not runtime.stop.is_set():
+            if subscription.overflowed():
+                _send_protocol_error(
+                    connection,
+                    "slow_subscriber",
+                    "subscriber queue overflowed; reconnect for a new live stream",
+                )
+                return
+
+            update = subscription.next_update(SUBSCRIBER_POLL_SECONDS)
+            if update is not None:
+                try:
+                    connection.sendall(encode_frame(update.to_dict()))
+                except ProtocolError:
+                    _send_protocol_error(
+                        connection,
+                        "interaction_update_too_large",
+                        "interaction update exceeds the negotiated frame limit",
                     )
                     return
                 except TimeoutError:

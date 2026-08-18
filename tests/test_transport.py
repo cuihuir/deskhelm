@@ -4,6 +4,8 @@ import unittest
 from deskhelm_bridge.event import ProtocolError
 from deskhelm_bridge.transport import (
     AGENT_EVENT_V1_CAPABILITY,
+    INTERACTION_EVENT_V1_CAPABILITY,
+    INTERACTION_SUBSCRIPTION_V1_CAPABILITY,
     MAX_FRAME_BYTES,
     STATE_SUBSCRIPTION_V1_CAPABILITY,
     ClientHello,
@@ -74,8 +76,13 @@ class TransportProtocolTests(unittest.TestCase):
         )
         self.assertEqual(ServerHello.from_dict(hello.to_dict()), hello)
 
-    def test_subscriber_capability_has_stable_wire_name(self) -> None:
+    def test_capabilities_have_stable_wire_names(self) -> None:
         self.assertEqual(STATE_SUBSCRIPTION_V1_CAPABILITY, "state_subscription_v1")
+        self.assertEqual(INTERACTION_EVENT_V1_CAPABILITY, "interaction_event_v1")
+        self.assertEqual(
+            INTERACTION_SUBSCRIPTION_V1_CAPABILITY,
+            "interaction_subscription_v1",
+        )
 
     def test_server_hello_parses_earlier_v1_without_subscriber_limits(self) -> None:
         value = {

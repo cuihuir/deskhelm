@@ -39,6 +39,7 @@ Status: In progress
 - [x] Add JSON fixtures and compatibility tests for both versioned models.
 - [x] Define interaction ordering, correlation, and terminal-event semantics.
 - [x] Define queue bounds, maximum record size, and slow-subscriber direction.
+- [x] Add bounded live interaction fan-out and negotiated publishing.
 - [ ] Implement targeting and validation in a `ControlRouter`.
 - [x] Require `request_id`, target session, summary, and expiry for approvals.
 - [x] Require idempotency keys for retryable prompt and control operations.
@@ -100,9 +101,7 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Add bounded interaction fan-out and enable `interaction_event_v1`
-   publishers.
-2. Implement `ControlRouter`, bounded idempotency retention, command results,
+1. Implement `ControlRouter`, bounded idempotency retention, command results,
    and the negotiated `controller` role.
-3. Define adapter capabilities and add versioned Codex fixtures.
-4. Build the text-only Codex gateway before adding audio dependencies.
+2. Define adapter capabilities and add versioned Codex fixtures.
+3. Build the text-only Codex gateway before adding audio dependencies.

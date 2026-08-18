@@ -48,9 +48,12 @@ Use these transport constraints:
 - no implicit retries for control commands
 - local socket permissions restricted to the owning user by default
 
-Subscribers receive a requested current snapshot followed by live events.
+State subscribers receive a current snapshot followed by live events.
+Interaction subscribers receive a sequence-zero start marker followed only by
+new live events because rich interaction has no meaningful current snapshot.
 Version 1 does not persist or replay event history. After disconnect or a
-detected sequence gap, a subscriber reconnects and requests a new snapshot.
+detected state sequence gap, a state subscriber reconnects and requests a new
+snapshot; missed rich interaction remains unavailable.
 
 Adapter-provided interaction events contain a source-local monotonic `sequence`
 for ordering within one session. A future Bridge implementation may add a
@@ -67,15 +70,17 @@ connections are enabled.
 - Legacy Phase 0 emitters remain compatible.
 - The server implementation must distinguish negotiated and legacy first
   frames, enforce roles, and isolate slow subscribers.
-- Restart and reconnect recovery depends on snapshots until persistence is
-  explicitly designed.
+- State recovery depends on snapshots until persistence is explicitly designed;
+  missed rich interaction remains unavailable.
 
 ## Implementation Status
 
 Bounded concurrent connection handling, frame-size enforcement, legacy
 first-frame detection, the negotiated `publisher` role, and the negotiated
-`subscriber` role are implemented. Publishers currently expose
-`agent_event_v1`; subscribers expose `state_subscription_v1`.
+`subscriber` role are implemented. Publishers expose `agent_event_v1` and
+`interaction_event_v1`, including both on one adapter connection. Subscribers
+select exactly one of `state_subscription_v1` and
+`interaction_subscription_v1` per connection.
 
 Subscriber registration and snapshot capture are atomic. Live updates use a
 bounded non-blocking queue, and slow subscribers are disconnected and recover
@@ -85,5 +90,7 @@ The default limits are 8 subscribers, 8 queued frames per subscriber, and a
 two-second first-frame deadline plus a two-second subscriber write deadline
 within the 16-connection server limit.
 
-The `controller` role, interaction-event fan-out, and
-`interaction_event_v1` publishing remain pending.
+Interaction-event fan-out uses the same bounded subscriber capacity, queue
+size, write deadline, read-only enforcement, and slow-consumer isolation as
+state subscriptions. It retains no rich event history and never updates the
+state projection. The `controller` role remains pending.

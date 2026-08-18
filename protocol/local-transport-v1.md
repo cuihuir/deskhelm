@@ -1,6 +1,6 @@
 # Local Transport v1
 
-Status: Publisher and state-subscriber negotiation implemented; controller
+Status: State and interaction publishing/subscription implemented; controller
 role is reserved but not yet enabled
 
 ## Framing and Limits
@@ -30,9 +30,10 @@ New clients send `client_hello` as their first frame:
 }
 ```
 
-The Bridge accepts `publisher` with `agent_event_v1` and `subscriber` with
-`state_subscription_v1`. It returns a process-local stream identifier and the
-active limits:
+The Bridge accepts publishers with `agent_event_v1`, `interaction_event_v1`,
+or both. A subscriber requests exactly one of `state_subscription_v1` and
+`interaction_subscription_v1`; requesting both returns `capability_conflict`.
+The Bridge returns a process-local stream identifier and the active limits:
 
 ```json
 {
@@ -55,8 +56,9 @@ name but currently receives `role_unavailable` and is disconnected.
 
 ## Negotiated Publisher Frames
 
-After negotiation, a publisher sends self-describing `agent_event` frames.
-The remaining fields are the unchanged `AgentEvent v1` payload:
+After negotiation, a publisher sends only message types covered by its accepted
+capabilities. An `agent_event_v1` publisher sends self-describing `agent_event`
+frames. The remaining fields are the unchanged `AgentEvent v1` payload:
 
 ```json
 {
@@ -69,14 +71,21 @@ The remaining fields are the unchanged `AgentEvent v1` payload:
 }
 ```
 
-Sending another message type on that connection returns `invalid_frame` and
-closes the connection.
+An `interaction_event_v1` publisher sends complete `interaction_event` frames
+as defined by [`interaction-event-v1.md`](interaction-event-v1.md). Sending an
+unnegotiated or unsupported message type returns `invalid_frame` and closes the
+connection.
 
 ## Subscriber Frames
 
 A negotiated state subscriber receives an atomic current `state_snapshot`
 followed by ordered `state_update` frames. It is read-only and has no replay or
 resume offset. See [`state-subscription-v1.md`](state-subscription-v1.md).
+
+A negotiated interaction subscriber receives
+`interaction_subscription_started` followed only by live `interaction_update`
+frames. It has no snapshot, history, replay, or resume offset. See
+[`interaction-subscription-v1.md`](interaction-subscription-v1.md).
 
 ## Legacy Compatibility
 
@@ -102,9 +111,12 @@ socket remains writable:
 ```
 
 Current codes include `invalid_hello`, `version_unavailable`,
-`capability_unavailable`, `role_unavailable`, `subscriber_capacity`,
-`subscriber_read_only`, `slow_subscriber`, `snapshot_too_large`,
-`state_update_too_large`, and `invalid_frame`.
+`capability_unavailable`, `capability_conflict`, `role_unavailable`,
+`subscriber_capacity`, `subscriber_read_only`, `slow_subscriber`,
+`snapshot_too_large`, `state_update_too_large`,
+`interaction_update_too_large`, and `invalid_frame`.
 
-Version 1 provides no durable history or replay. Subscribers reconnect and
-request a fresh snapshot before consuming live events.
+Version 1 provides no durable history or replay. State subscribers reconnect
+and request a fresh snapshot before consuming live events. Interaction
+subscribers reconnect to a new live-only stream and accept that missed rich
+content is unavailable.

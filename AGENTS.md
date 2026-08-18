@@ -144,8 +144,16 @@ Keep third-party reference files outside version control under
 - Negotiated state publishers use the `agent_event_v1` capability and add
   `message_type: agent_event`; the remaining payload stays compatible with
   `AgentEvent v1`.
+- Negotiated publishers may also use `interaction_event_v1`; one publisher
+  connection may negotiate both state and interaction capabilities.
 - Negotiated state subscribers use `state_subscription_v1`, receive an atomic
   sequence-zero snapshot, and then subscription-local ordered live updates.
+- Negotiated interaction subscribers use `interaction_subscription_v1`,
+  receive a sequence-zero start marker, and then live-only rich updates with no
+  snapshot, history, or replay.
+- A subscriber connection selects exactly one state or interaction plane.
+  Rich interaction never updates `StateStore`, terminal projection, or hardware
+  state.
 - Limit legacy compatibility to connections whose first frame is an
   `AgentEvent v1`; legacy connections remain state publishers only.
 - Limit UTF-8 NDJSON frames to 1 MiB and use bounded per-connection queues.

@@ -1,6 +1,6 @@
 # InteractionEvent v1
 
-Status: Accepted protocol model; transport publishing is not yet enabled
+Status: Implemented model and negotiated transport publishing
 
 ## Purpose
 
@@ -37,8 +37,9 @@ Every event is one UTF-8 JSON object.
 | `payload` | object | Kind-specific payload |
 
 `sequence` is monotonic within one source session. It is not a durable global
-offset. Consumers that detect a gap reconnect and request a current snapshot;
-version 1 does not guarantee history replay.
+offset. Consumers that detect a source sequence gap may reconnect, but version
+1 does not provide an interaction snapshot or history replay. Current
+operational state comes from the separate state subscription plane.
 
 Example message delta:
 
@@ -131,7 +132,8 @@ Payload field `message` is required and non-empty. `error_code` is optional.
 ## Transport Status
 
 ADR 0005 defines one negotiated Unix socket with a 1 MiB frame limit and
-bounded queues. Bounded connection handling and publisher negotiation are now
-implemented for `AgentEvent v1`. Publishing and subscribing to
-`InteractionEvent v1` remain disabled until the Bridge has a bounded
-subscriber fan-out path.
+bounded queues. Publishers negotiate `interaction_event_v1`; one publisher
+connection may also negotiate `agent_event_v1`. Rich events are delivered only
+to `interaction_subscription_v1` subscribers and never update state projection
+or ordinary Bridge output. See
+[`interaction-subscription-v1.md`](interaction-subscription-v1.md).

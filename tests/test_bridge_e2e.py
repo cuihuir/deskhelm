@@ -318,6 +318,131 @@ class BridgeEndToEndTests(unittest.TestCase):
 
             self.assertEqual(update["event"]["agent_id"], "demo:reserved-publisher")
 
+    def test_interaction_subscriber_receives_only_rich_interaction_events(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = Path(directory) / "bridge.sock"
+            bridge, _ = self._start_bridge(socket_path)
+            subscriber = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            publisher = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            subscriber.settimeout(3)
+            publisher.settimeout(3)
+            subscriber_reader = None
+            publisher_reader = None
+            try:
+                subscriber.connect(str(socket_path))
+                subscriber_reader = subscriber.makefile("rb")
+                self._send_subscriber_hello(
+                    subscriber,
+                    "interaction-subscriber",
+                    capability="interaction_subscription_v1",
+                )
+                subscriber_hello = json.loads(subscriber_reader.readline())
+                started = json.loads(subscriber_reader.readline())
+                self.assertEqual(
+                    subscriber_hello["accepted_capabilities"],
+                    ["interaction_subscription_v1"],
+                )
+                self.assertEqual(
+                    started["message_type"], "interaction_subscription_started"
+                )
+                self.assertEqual(started["sequence"], 0)
+
+                publisher.connect(str(socket_path))
+                publisher_reader = publisher.makefile("rb")
+                self._send_json(
+                    publisher,
+                    {
+                        "protocol_version": 1,
+                        "message_type": "client_hello",
+                        "client_id": "combined-publisher",
+                        "role": "publisher",
+                        "supported_versions": [1],
+                        "capabilities": [
+                            "agent_event_v1",
+                            "interaction_event_v1",
+                        ],
+                    },
+                )
+                publisher_hello = json.loads(publisher_reader.readline())
+                self.assertEqual(
+                    publisher_hello["accepted_capabilities"],
+                    ["agent_event_v1", "interaction_event_v1"],
+                )
+
+                state_event = AgentEvent(
+                    agent_id="demo:combined",
+                    slot=2,
+                    state=AgentState.RUNNING_TOOL,
+                ).to_dict()
+                state_event["message_type"] = "agent_event"
+                self._send_json(publisher, state_event)
+
+                interaction_event = json.loads(
+                    (
+                        ROOT
+                        / "tests"
+                        / "fixtures"
+                        / "protocol"
+                        / "interaction-v1"
+                        / "message-delta.json"
+                    ).read_text(encoding="utf-8")
+                )
+                self._send_json(publisher, interaction_event)
+                update = json.loads(subscriber_reader.readline())
+
+                bridge.terminate()
+                stdout, stderr = bridge.communicate(timeout=3)
+            finally:
+                if subscriber_reader is not None:
+                    subscriber_reader.close()
+                if publisher_reader is not None:
+                    publisher_reader.close()
+                subscriber.close()
+                publisher.close()
+                self._stop_bridge(bridge)
+
+            self.assertEqual(bridge.returncode, -15, stderr)
+            self.assertEqual(update["message_type"], "interaction_update")
+            self.assertEqual(update["subscription_id"], started["subscription_id"])
+            self.assertEqual(update["sequence"], 1)
+            self.assertEqual(update["event"], interaction_event)
+            self.assertIn("agent=demo:combined", stdout)
+            self.assertNotIn("任务正在执行", stdout)
+
+    def test_subscriber_cannot_combine_state_and_interaction_planes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = Path(directory) / "bridge.sock"
+            bridge, _ = self._start_bridge(socket_path)
+            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            client.settimeout(3)
+            reader = None
+            try:
+                client.connect(str(socket_path))
+                reader = client.makefile("rb")
+                self._send_json(
+                    client,
+                    {
+                        "protocol_version": 1,
+                        "message_type": "client_hello",
+                        "client_id": "conflicting-subscriber",
+                        "role": "subscriber",
+                        "supported_versions": [1],
+                        "capabilities": [
+                            "state_subscription_v1",
+                            "interaction_subscription_v1",
+                        ],
+                    },
+                )
+                error = json.loads(reader.readline())
+            finally:
+                if reader is not None:
+                    reader.close()
+                client.close()
+                self._stop_bridge(bridge)
+
+            self.assertEqual(error["message_type"], "protocol_error")
+            self.assertEqual(error["code"], "capability_conflict")
+
     def test_legacy_connection_continues_after_invalid_event(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             socket_path = Path(directory) / "bridge.sock"
@@ -354,7 +479,12 @@ class BridgeEndToEndTests(unittest.TestCase):
         )
 
     @staticmethod
-    def _send_subscriber_hello(client: socket.socket, client_id: str) -> None:
+    def _send_subscriber_hello(
+        client: socket.socket,
+        client_id: str,
+        *,
+        capability: str = "state_subscription_v1",
+    ) -> None:
         BridgeEndToEndTests._send_json(
             client,
             {
@@ -363,7 +493,7 @@ class BridgeEndToEndTests(unittest.TestCase):
                 "client_id": client_id,
                 "role": "subscriber",
                 "supported_versions": [1],
-                "capabilities": ["state_subscription_v1"],
+                "capabilities": [capability],
             },
         )
 
