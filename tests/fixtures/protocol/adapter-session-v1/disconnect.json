@@ -1,0 +1,24 @@
+{
+  "protocol_version": 1,
+  "message_type": "adapter_session",
+  "action": "disconnect",
+  "adapter_id": "deskhelm-codex-exec",
+  "adapter_version": "0.1.0",
+  "runtime_name": "codex-cli",
+  "runtime_version": "0.147.0",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "capabilities": [
+    "state_events",
+    "interaction_events",
+    "tool_events",
+    "approval_requests",
+    "session_resume",
+    "submit_prompt",
+    "interrupt",
+    "approval_decisions"
+  ],
+  "occurred_at": 1787035005000,
+  "preferred_slot": null
+}

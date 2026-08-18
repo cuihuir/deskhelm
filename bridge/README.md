@@ -16,7 +16,9 @@ future state protocol replaces that presentation mapping.
 
 The server accepts legacy first-frame `AgentEvent v1` publishers and negotiated
 `publisher` connections using `client_hello`, `server_hello`, and
-self-describing state or interaction frames. It limits frames to 1 MiB and
+self-describing lifecycle, state, or interaction frames. Publishers using
+`adapter_session_v1` explicitly register complete sessions and declare runtime
+capabilities before publishing owned events. It limits frames to 1 MiB and
 handles 16 connections concurrently by default. Negotiated state and
 interaction subscribers and `control_command_v1` controllers are enabled. See
 [`protocol/local-transport-v1.md`](../protocol/local-transport-v1.md).

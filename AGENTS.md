@@ -146,6 +146,13 @@ Keep third-party reference files outside version control under
   `AgentEvent v1`.
 - Negotiated publishers may also use `interaction_event_v1`; one publisher
   connection may negotiate both state and interaction capabilities.
+- Modern adapter publishers negotiate `adapter_session_v1`, declare adapter
+  and runtime versions plus capabilities, and register a complete session
+  before publishing lifecycle-managed events.
+- Bind modern sessions to a server-assigned publisher owner. Closing an old
+  connection must not disconnect a session re-registered by a replacement.
+- Lifecycle-managed state events update `StateStore` without invoking the
+  legacy agent-only session observation path.
 - Negotiated state subscribers use `state_subscription_v1`, receive an atomic
   sequence-zero snapshot, and then subscription-local ordered live updates.
 - Negotiated interaction subscribers use `interaction_subscription_v1`,
@@ -171,6 +178,9 @@ Keep third-party reference files outside version control under
   focus, and restore does not re-focus automatically.
 - Parse vendor formats at the adapter boundary and expose declared adapter
   capabilities.
+- Keep runtime fixture provenance explicit: distinguish official documentation
+  examples from synthetic boundaries and never claim a fixture was locally
+  captured unless it was.
 - Bound streams, records, queues, retries, and slow-subscriber behavior.
 - Correlate tool calls, results, approvals, controls, and terminal events with
   stable identifiers.

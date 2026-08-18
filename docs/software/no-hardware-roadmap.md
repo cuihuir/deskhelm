@@ -12,7 +12,7 @@ output through local interfaces while keeping the core Bridge dependency-free.
 
 ## Milestone 1: Bridge Core Boundaries
 
-Status: In progress
+Status: Complete
 
 - [x] Move slot state out of `SlotPanel` into `StateStore`.
 - [x] Add in-process state subscriptions.
@@ -20,7 +20,7 @@ Status: In progress
 - [x] Define session lifecycle: register, focus, disconnect, expire, restore.
 - [x] Replace the sequential connection loop with a bounded concurrency model.
 - [x] Expose a read-only local snapshot and subscription API.
-- [ ] Define adapter capabilities and captured-fixture version metadata.
+- [x] Define adapter capabilities and captured-fixture version metadata.
 
 Acceptance criteria:
 
@@ -103,6 +103,7 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Define adapter capabilities and add versioned Codex fixtures.
-2. Register Agent control handlers and build the text-only Codex gateway.
+1. Register Agent control handlers and build the text-only Codex gateway.
+2. Add a fake provider for deterministic prompt, streaming, and cancellation
+   tests.
 3. Add Voice Gateway handlers before audio dependencies.

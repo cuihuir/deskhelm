@@ -6,9 +6,17 @@ from pathlib import Path
 import select
 import socket
 from threading import Event, Lock, RLock, Semaphore
+import time
 from typing import BinaryIO, TextIO
 import uuid
 
+from .adapter import (
+    ADAPTER_SESSION_MESSAGE_TYPE,
+    AdapterCapability,
+    AdapterSessionEvent,
+    AdapterSessionResult,
+)
+from .adapter_registry import AdapterRegistry
 from .control import CONTROL_COMMAND_MESSAGE_TYPE, ControlCommand
 from .control_router import ControlRouter
 from .display import SlotPanel
@@ -19,6 +27,7 @@ from .session_registry import SessionRegistry
 from .state_store import StateStore
 from .subscription import StateSubscriberQueue
 from .transport import (
+    ADAPTER_SESSION_V1_CAPABILITY,
     AGENT_EVENT_MESSAGE_TYPE,
     AGENT_EVENT_V1_CAPABILITY,
     CLIENT_HELLO_MESSAGE_TYPE,
@@ -56,6 +65,7 @@ class _BridgeRuntime:
     session_registry: SessionRegistry
     interaction_hub: InteractionHub
     control_router: ControlRouter
+    adapter_registry: AdapterRegistry
     stream: TextIO
     max_events: int | None
     stream_id: str
@@ -68,11 +78,12 @@ class _BridgeRuntime:
     _event_lock: Lock = field(default_factory=Lock, repr=False)
     _output_lock: Lock = field(default_factory=Lock, repr=False)
 
-    def process(self, event: AgentEvent) -> None:
+    def process(self, event: AgentEvent, *, observe_session: bool = True) -> None:
         with self._event_lock:
             if self.max_events is not None and self.received >= self.max_events:
                 return
-            self.session_registry.observe(event)
+            if observe_session:
+                self.session_registry.observe(event)
             with self._output_lock:
                 self.state_store.update(event)
             self.received += 1
@@ -139,6 +150,7 @@ def run_bridge(
         idempotency_retention_ms=control_idempotency_retention_ms,
         max_approval_records=control_approval_records,
     )
+    adapter_registry = AdapterRegistry(session_registry=session_registry)
     panel = SlotPanel(stream=stream, color=color, live=live)
     state_store.subscribe(panel.on_state_change)
     panel.render(state_store.snapshot())
@@ -147,6 +159,7 @@ def run_bridge(
         session_registry=session_registry,
         interaction_hub=InteractionHub(),
         control_router=control_router,
+        adapter_registry=adapter_registry,
         stream=stream,
         max_events=max_events,
         stream_id=str(uuid.uuid4()),
@@ -266,6 +279,7 @@ def _handle_negotiated_connection(
             raise _NegotiationError("version_unavailable", "no supported version overlaps")
         if hello.role is ClientRole.PUBLISHER:
             supported_capabilities = {
+                ADAPTER_SESSION_V1_CAPABILITY,
                 AGENT_EVENT_V1_CAPABILITY,
                 INTERACTION_EVENT_V1_CAPABILITY,
             }
@@ -277,7 +291,7 @@ def _handle_negotiated_connection(
             if not accepted_capabilities:
                 raise _NegotiationError(
                     "capability_unavailable",
-                    "publisher must request agent_event_v1 or interaction_event_v1",
+                    "publisher must request a supported publishing capability",
                 )
         elif hello.role is ClientRole.SUBSCRIBER:
             supported_capabilities = {
@@ -365,7 +379,11 @@ def _handle_negotiated_connection(
 
     connection.settimeout(None)
     _handle_negotiated_publisher(
-        connection, reader, runtime, frozenset(accepted_capabilities)
+        connection,
+        reader,
+        runtime,
+        frozenset(accepted_capabilities),
+        owner_id=str(uuid.uuid4()),
     )
 
 
@@ -374,29 +392,87 @@ def _handle_negotiated_publisher(
     reader: BinaryIO,
     runtime: _BridgeRuntime,
     capabilities: frozenset[str],
+    owner_id: str,
 ) -> None:
-    while not runtime.stop.is_set():
-        try:
+    try:
+        while not runtime.stop.is_set():
             frame = read_frame(reader)
             if frame is None:
                 return
             value = decode_json_object(frame)
             message_type = value.get("message_type")
-            if message_type == AGENT_EVENT_MESSAGE_TYPE:
+            if message_type == ADAPTER_SESSION_MESSAGE_TYPE:
+                if ADAPTER_SESSION_V1_CAPABILITY not in capabilities:
+                    raise ProtocolError("publisher did not negotiate adapter_session_v1")
+                session_event = AdapterSessionEvent.from_dict(value)
+                _validate_adapter_transport_capabilities(session_event, capabilities)
+                slot = runtime.adapter_registry.apply(owner_id, session_event)
+                result = AdapterSessionResult(
+                    action=session_event.action,
+                    agent_id=session_event.agent_id,
+                    session_id=session_event.session_id,
+                    project_id=session_event.project_id,
+                    occurred_at=int(time.time() * 1000),
+                    slot=slot,
+                )
+                connection.settimeout(CONTROLLER_WRITE_TIMEOUT_SECONDS)
+                try:
+                    connection.sendall(encode_frame(result.to_dict()))
+                finally:
+                    connection.settimeout(None)
+            elif message_type == AGENT_EVENT_MESSAGE_TYPE:
                 if AGENT_EVENT_V1_CAPABILITY not in capabilities:
                     raise ProtocolError("publisher did not negotiate agent_event_v1")
                 event_value = dict(value)
                 del event_value["message_type"]
-                runtime.process(AgentEvent.from_dict(event_value))
+                event = AgentEvent.from_dict(event_value)
+                if ADAPTER_SESSION_V1_CAPABILITY in capabilities:
+                    runtime.adapter_registry.validate_state_event(owner_id, event)
+                runtime.process(
+                    event,
+                    observe_session=ADAPTER_SESSION_V1_CAPABILITY not in capabilities,
+                )
             elif message_type == INTERACTION_MESSAGE_TYPE:
                 if INTERACTION_EVENT_V1_CAPABILITY not in capabilities:
                     raise ProtocolError("publisher did not negotiate interaction_event_v1")
-                runtime.process_interaction(InteractionEvent.from_dict(value))
+                event = InteractionEvent.from_dict(value)
+                if ADAPTER_SESSION_V1_CAPABILITY in capabilities:
+                    runtime.adapter_registry.validate_interaction_event(
+                        owner_id, event
+                    )
+                runtime.process_interaction(event)
             else:
                 raise ProtocolError(f"publisher cannot send message_type {message_type}")
-        except ProtocolError as error:
-            _send_protocol_error(connection, "invalid_frame", str(error))
-            return
+    except (ProtocolError, ValueError) as error:
+        _send_protocol_error(connection, "invalid_frame", str(error))
+    except TimeoutError:
+        return
+    finally:
+        if ADAPTER_SESSION_V1_CAPABILITY in capabilities:
+            runtime.adapter_registry.disconnect_owner(owner_id)
+
+
+def _validate_adapter_transport_capabilities(
+    event: AdapterSessionEvent, transport_capabilities: frozenset[str]
+) -> None:
+    declared = set(event.capabilities)
+    if (
+        AdapterCapability.STATE_EVENTS in declared
+        and AGENT_EVENT_V1_CAPABILITY not in transport_capabilities
+    ):
+        raise ProtocolError("state_events requires negotiated agent_event_v1")
+    interaction_capabilities = {
+        AdapterCapability.INTERACTION_EVENTS,
+        AdapterCapability.TOOL_EVENTS,
+        AdapterCapability.APPROVAL_REQUESTS,
+    }
+    if (
+        declared.intersection(interaction_capabilities)
+        and INTERACTION_EVENT_V1_CAPABILITY not in transport_capabilities
+    ):
+        raise ProtocolError(
+            "interaction adapter capabilities require negotiated interaction_event_v1"
+        )
 
 
 def _handle_controller(

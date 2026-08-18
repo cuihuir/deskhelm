@@ -40,8 +40,10 @@ terminal rendering while remaining compatible with `AgentEvent v1`.
 The local server now has bounded concurrent connection handling, negotiated
 state and interaction publishers, atomic state snapshot/live subscriptions,
 bounded live-only rich interaction subscriptions, and negotiated controllers
-with targeted routing and correlated results. Agent and Voice Gateway command
-handlers are the next integration boundary.
+with targeted routing and correlated results. Adapter publishers now declare
+runtime capabilities and drive complete session registration, disconnect,
+restore, and release lifecycle. Agent and Voice Gateway command handlers are
+the next integration boundary.
 
 Current development focuses on the no-hardware Agent Console path:
 

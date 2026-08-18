@@ -28,8 +28,11 @@ and negotiated state subscribers receive atomic snapshots followed by ordered
 live updates. Negotiated interaction publishers and bounded live-only
 interaction subscribers are implemented without entering state projection.
 `ControlRouter`, bounded control state, correlated results, and negotiated
-controller connections are implemented. Agent and Voice Gateway handlers are
-not registered yet. Voice Gateway implementation has not started.
+controller connections are implemented. Modern adapter publishers can now
+declare capabilities and drive complete session registration, disconnect,
+restore, and release lifecycle with connection ownership. Versioned Codex JSONL
+evidence is present. Agent and Voice Gateway handlers are not registered yet.
+Voice Gateway implementation has not started.
 
 ## Completed Work
 
@@ -99,6 +102,19 @@ not registered yet. Voice Gateway implementation has not started.
   `StateStore`, and `SessionRegistry`.
 - Recorded Phase 0 and Bridge-boundary ADRs.
 - Added local voice-stack research and a no-hardware software roadmap.
+- Accepted ADR 0007: adapter sessions declare adapter/runtime identity,
+  capabilities, full session identity, and connection-owned lifecycle.
+- Implemented `adapter_session_v1` register, disconnect, and release frames plus
+  correlated lifecycle acknowledgements.
+- Bound modern sessions to server-assigned publisher owners so an old
+  connection cannot disconnect a replacement registration.
+- Required lifecycle publishers to register active owned sessions before state
+  or interaction publishing, while preserving the full session record through
+  state updates.
+- Made complete modern sessions targetable by `ControlRouter` and verified
+  focus, disconnect rejection, restore, and release behavior end to end.
+- Added versioned Codex `exec --json` fixtures with explicit official-document
+  versus synthetic provenance and malformed/unknown/failure boundaries.
 - Reviewed two public Agent I/O projects and extracted streaming, adapter,
   fixture, observability, privacy, and idempotency lessons.
 - Added the project constitution and durable DeskHelm-specific collaboration
@@ -115,6 +131,15 @@ not registered yet. Voice Gateway implementation has not started.
 - Session identity is `agent_id + session_id + project_id`; `slot` is a display
   mapping.
 - Vendor parsing belongs inside adapters, which must declare capabilities.
+- Modern adapter lifecycle uses `adapter_session_v1`. Registration binds the
+  complete session to one publisher owner; re-registration transfers ownership
+  and restores activity without restoring focus.
+- Declared state production requires negotiated `agent_event_v1`; declared
+  interaction, tool, or approval production requires `interaction_event_v1`.
+- Lifecycle-managed state publishing bypasses legacy agent-only session
+  observation so control routing retains full identity.
+- Adapter registrations are process-local; version 1 has no durable persistence
+  and no control delivery over the publisher connection.
 - Streams and queues require explicit bounds, ordering, cancellation,
   correlation, and slow-consumer behavior.
 - Approval and rejection require precise targets and must not be blindly
@@ -133,10 +158,10 @@ not registered yet. Voice Gateway implementation has not started.
   per-connection queues and no automatic retry for control commands.
 - The Bridge accepts at most 16 concurrent connections by default. It never
   places accepted connections into an unbounded application work queue.
-- Negotiated publishers support `agent_event_v1`, `interaction_event_v1`, or
-  both. Negotiated subscribers select exactly one of `state_subscription_v1`
-  and `interaction_subscription_v1`. Negotiated controllers use
-  `control_command_v1`.
+- Negotiated publishers support `adapter_session_v1`, `agent_event_v1`,
+  `interaction_event_v1`, or a valid combination. Negotiated subscribers select
+  exactly one of `state_subscription_v1` and `interaction_subscription_v1`.
+  Negotiated controllers use `control_command_v1`.
 - Version 1 has no durable event history or replay. State subscribers recover
   through a fresh snapshot; interaction subscribers restart live-only delivery.
 - Snapshot capture and subscriber registration are atomic. Snapshot sequence is
@@ -179,6 +204,10 @@ not registered yet. Voice Gateway implementation has not started.
   local transport, roles, bounds, compatibility, and reconnect behavior.
 - `docs/decisions/0006-targeted-expiring-idempotent-controls.md`: targeting,
   expiry, idempotency, retry, and approval safety decisions.
+- `docs/decisions/0007-adapter-session-capabilities-and-ownership.md`: adapter
+  identity, capabilities, lifecycle, ownership, and restore semantics.
+- `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
+  declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
 - `protocol/control-command-v1.md`: targeted control command contract.
 - `protocol/control-result-v1.md`: correlated control outcomes and fixed result
@@ -197,6 +226,10 @@ not registered yet. Voice Gateway implementation has not started.
   status codes.
 - `bridge/deskhelm_bridge/control_router.py`: live target checks, approval
   tracking, bounded idempotency, focus, and handler dispatch.
+- `bridge/deskhelm_bridge/adapter.py`: adapter lifecycle and acknowledgement
+  protocol models.
+- `bridge/deskhelm_bridge/adapter_registry.py`: connection-owned registration,
+  lifecycle, and event validation.
 - `bridge/deskhelm_bridge/subscription.py`: subscription wire models and bounded
   per-subscriber update queue.
 - `bridge/deskhelm_bridge/interaction_subscription.py`: rich subscription wire
@@ -215,7 +248,7 @@ Last verified on 2026-08-18:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 97 tests passed, including strict `ResourceWarning` handling.
+Result: 111 tests passed, including strict `ResourceWarning` handling.
 
 Repository checks also passed:
 
@@ -229,21 +262,17 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Define the adapter capability contract and add versioned Codex fixtures.
-3. Register Agent command handlers and build the text-only Codex gateway with a
+2. Register Agent command handlers and build the text-only Codex gateway with a
    deterministic fake provider.
-4. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
+3. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
    providers before installing models.
 
 ## Risks and Blockers
 
-- Session disconnect and restore APIs exist but are not yet driven by adapter
-  connection lifecycle events.
 - The running Bridge has no Agent or Voice Gateway control handlers yet, so
   non-focus commands safely return `handler_unavailable`.
-- Full session registration is not yet driven by adapter connections. Live
-  controller commands therefore cannot target a modern full-identity session
-  until the adapter capability/lifecycle phase is implemented.
+- Adapter registrations are process-local and must be re-established after a
+  Bridge restart. No durable session history or replay is promised.
 - Approval tracking is bounded. When its capacity is exhausted, new approval
   requests remain visible to interaction subscribers but cannot be decided
   through the router and return `approval_not_found`.
@@ -256,14 +285,14 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
   machine because the system Python environment does not include `setuptools`;
   source-tree imports, both module entry points, and `pyproject.toml` metadata
   were validated directly.
-- Codex, Claude, and Gemini compatibility is not yet backed by captured,
-  versioned fixture sets.
+- Codex compatibility currently has official-document and synthetic JSONL
+  fixture evidence, but no locally captured authenticated run. Claude and
+  Gemini compatibility still lack versioned fixture sets.
 - ASR and TTS quality, latency, recovery, resource use, and model licensing have
   not been benchmarked on the target machine.
 
 ## Next Step
 
-Define the adapter capability and lifecycle contract, add versioned Codex
-fixtures, and register bounded Agent control handlers before building the
-text-only gateway. Obtain the license decision from the user when packaging or
-external contributions require it.
+Register bounded Agent provider/control handlers and build the text-only Codex
+gateway with deterministic fake-provider tests. Obtain the license decision
+from the user when packaging or external contributions require it.

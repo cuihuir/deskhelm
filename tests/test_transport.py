@@ -3,6 +3,7 @@ import unittest
 
 from deskhelm_bridge.event import ProtocolError
 from deskhelm_bridge.transport import (
+    ADAPTER_SESSION_V1_CAPABILITY,
     AGENT_EVENT_V1_CAPABILITY,
     CONTROL_COMMAND_V1_CAPABILITY,
     INTERACTION_EVENT_V1_CAPABILITY,
@@ -84,6 +85,7 @@ class TransportProtocolTests(unittest.TestCase):
         self.assertEqual(ServerHello.from_dict(hello.to_dict()), hello)
 
     def test_capabilities_have_stable_wire_names(self) -> None:
+        self.assertEqual(ADAPTER_SESSION_V1_CAPABILITY, "adapter_session_v1")
         self.assertEqual(CONTROL_COMMAND_V1_CAPABILITY, "control_command_v1")
         self.assertEqual(STATE_SUBSCRIPTION_V1_CAPABILITY, "state_subscription_v1")
         self.assertEqual(INTERACTION_EVENT_V1_CAPABILITY, "interaction_event_v1")

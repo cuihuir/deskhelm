@@ -36,6 +36,9 @@ Required fields are `agent_id`, `slot`, and `state`. Valid states are:
 - [`local-transport-v1.md`](local-transport-v1.md) defines framing,
   negotiation, negotiated publisher messages, limits, compatibility, and
   errors.
+- [`adapter-session-v1.md`](adapter-session-v1.md) defines adapter/runtime
+  identity, declared capabilities, lifecycle, acknowledgements, and connection
+  ownership.
 - [`interaction-event-v1.md`](interaction-event-v1.md) defines session-scoped
   message, tool, approval, input, completion, and failure events.
 - [`control-command-v1.md`](control-command-v1.md) defines targeted, expiring,
@@ -50,5 +53,5 @@ Required fields are `agent_id`, `slot`, and `state`. Valid states are:
 
 State and interaction publisher/subscriber negotiation and the
 `InteractionEvent v1` and `ControlCommand v1` Python models and fixtures are
-implemented. Negotiated controllers use `control_command_v1` and receive one
-correlated result per structurally valid command.
+implemented. Lifecycle-managed publishers can register complete session
+identities, making active modern sessions targetable by negotiated controllers.

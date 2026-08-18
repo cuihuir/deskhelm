@@ -1,0 +1,10 @@
+{
+  "protocol_version": 1,
+  "message_type": "adapter_session_result",
+  "action": "release",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "occurred_at": 1787035010001,
+  "slot": null
+}

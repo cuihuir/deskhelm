@@ -263,6 +263,165 @@ class BridgeEndToEndTests(unittest.TestCase):
 
             self.assertEqual(bridge.returncode, 0)
 
+    def test_adapter_lifecycle_makes_full_session_control_targetable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = Path(directory) / "bridge.sock"
+            bridge, _ = self._start_bridge(socket_path)
+            publisher = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            controller = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            publisher.settimeout(3)
+            controller.settimeout(3)
+            publisher_reader = None
+            controller_reader = None
+            try:
+                publisher.connect(str(socket_path))
+                publisher_reader = publisher.makefile("rb")
+                self._send_json(
+                    publisher,
+                    {
+                        "protocol_version": 1,
+                        "message_type": "client_hello",
+                        "client_id": "codex-adapter",
+                        "role": "publisher",
+                        "supported_versions": [1],
+                        "capabilities": [
+                            "adapter_session_v1",
+                            "agent_event_v1",
+                            "interaction_event_v1",
+                        ],
+                    },
+                )
+                publisher_hello = json.loads(publisher_reader.readline())
+                self.assertEqual(
+                    publisher_hello["accepted_capabilities"],
+                    [
+                        "adapter_session_v1",
+                        "agent_event_v1",
+                        "interaction_event_v1",
+                    ],
+                )
+
+                register = self._adapter_session("register")
+                self._send_json(publisher, register)
+                registered = json.loads(publisher_reader.readline())
+                self.assertEqual(registered["message_type"], "adapter_session_result")
+                self.assertEqual(registered["action"], "register")
+                self.assertEqual(registered["slot"], 1)
+
+                state_event = AgentEvent(
+                    agent_id="codex", slot=1, state=AgentState.THINKING
+                ).to_dict()
+                state_event["message_type"] = "agent_event"
+                self._send_json(publisher, state_event)
+
+                controller.connect(str(socket_path))
+                controller_reader = controller.makefile("rb")
+                self._send_json(
+                    controller,
+                    {
+                        "protocol_version": 1,
+                        "message_type": "client_hello",
+                        "client_id": "lifecycle-controller",
+                        "role": "controller",
+                        "supported_versions": [1],
+                        "capabilities": ["control_command_v1"],
+                    },
+                )
+                json.loads(controller_reader.readline())
+
+                self._send_json(
+                    controller,
+                    self._focus_command("focus-active", "focus-active-1"),
+                )
+                focused = json.loads(controller_reader.readline())
+                self.assertEqual(focused["code"], "focused")
+
+                self._send_json(publisher, self._adapter_session("disconnect"))
+                disconnected = json.loads(publisher_reader.readline())
+                self.assertEqual(disconnected["action"], "disconnect")
+                self.assertEqual(disconnected["slot"], 1)
+
+                self._send_json(
+                    controller,
+                    self._focus_command("focus-inactive", "focus-inactive-1"),
+                )
+                inactive = json.loads(controller_reader.readline())
+                self.assertEqual(inactive["code"], "target_inactive")
+
+                restored_register = self._adapter_session("register")
+                restored_register["occurred_at"] += 10_000
+                self._send_json(publisher, restored_register)
+                restored = json.loads(publisher_reader.readline())
+                self.assertEqual(restored["action"], "register")
+                self.assertEqual(restored["slot"], 1)
+
+                self._send_json(
+                    controller,
+                    self._focus_command("focus-restored", "focus-restored-1"),
+                )
+                refocused = json.loads(controller_reader.readline())
+                self.assertEqual(refocused["code"], "focused")
+
+                self._send_json(publisher, self._adapter_session("release"))
+                released = json.loads(publisher_reader.readline())
+                self.assertEqual(released["action"], "release")
+                self.assertIsNone(released["slot"])
+
+                self._send_json(
+                    controller,
+                    self._focus_command("focus-released", "focus-released-1"),
+                )
+                missing = json.loads(controller_reader.readline())
+                self.assertEqual(missing["code"], "target_not_found")
+            finally:
+                if publisher_reader is not None:
+                    publisher_reader.close()
+                if controller_reader is not None:
+                    controller_reader.close()
+                publisher.close()
+                controller.close()
+                self._stop_bridge(bridge)
+
+    def test_lifecycle_publisher_rejects_event_before_registration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = Path(directory) / "bridge.sock"
+            bridge, _ = self._start_bridge(socket_path)
+            publisher = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            publisher.settimeout(3)
+            reader = None
+            try:
+                publisher.connect(str(socket_path))
+                reader = publisher.makefile("rb")
+                self._send_json(
+                    publisher,
+                    {
+                        "protocol_version": 1,
+                        "message_type": "client_hello",
+                        "client_id": "unregistered-adapter",
+                        "role": "publisher",
+                        "supported_versions": [1],
+                        "capabilities": [
+                            "adapter_session_v1",
+                            "agent_event_v1",
+                        ],
+                    },
+                )
+                json.loads(reader.readline())
+                event = AgentEvent(
+                    agent_id="codex", slot=1, state=AgentState.THINKING
+                ).to_dict()
+                event["message_type"] = "agent_event"
+                self._send_json(publisher, event)
+                error = json.loads(reader.readline())
+            finally:
+                if reader is not None:
+                    reader.close()
+                publisher.close()
+                self._stop_bridge(bridge)
+
+            self.assertEqual(error["message_type"], "protocol_error")
+            self.assertEqual(error["code"], "invalid_frame")
+
     def test_subscriber_receives_snapshot_then_live_update(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             socket_path = Path(directory) / "bridge.sock"
@@ -529,6 +688,38 @@ class BridgeEndToEndTests(unittest.TestCase):
                 "capabilities": [capability],
             },
         )
+
+    @staticmethod
+    def _adapter_session(action: str) -> dict[str, object]:
+        value = json.loads(
+            (
+                ROOT
+                / "tests"
+                / "fixtures"
+                / "protocol"
+                / "adapter-session-v1"
+                / f"{action}.json"
+            ).read_text(encoding="utf-8")
+        )
+        return value
+
+    @staticmethod
+    def _focus_command(command_id: str, idempotency_key: str) -> dict[str, object]:
+        now_ms = int(time.time() * 1000)
+        return {
+            "protocol_version": 1,
+            "message_type": "control_command",
+            "command_id": command_id,
+            "kind": "focus",
+            "agent_id": "codex",
+            "session_id": "session-42",
+            "project_id": "deskhelm",
+            "issued_by": "lifecycle-controller",
+            "issued_at": now_ms,
+            "expires_at": now_ms + 30_000,
+            "idempotency_key": idempotency_key,
+            "payload": {},
+        }
 
     @staticmethod
     def _start_bridge(

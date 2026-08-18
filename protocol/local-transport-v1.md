@@ -29,9 +29,10 @@ New clients send `client_hello` as their first frame:
 }
 ```
 
-The Bridge accepts publishers with `agent_event_v1`, `interaction_event_v1`,
-or both. A subscriber requests exactly one of `state_subscription_v1` and
-`interaction_subscription_v1`; requesting both returns `capability_conflict`.
+The Bridge accepts publishers with `adapter_session_v1`, `agent_event_v1`,
+`interaction_event_v1`, or a valid combination. A subscriber requests exactly
+one of `state_subscription_v1` and `interaction_subscription_v1`; requesting
+both returns `capability_conflict`.
 The Bridge returns a process-local stream identifier and the active limits:
 
 ```json
@@ -78,6 +79,11 @@ An `interaction_event_v1` publisher sends complete `interaction_event` frames
 as defined by [`interaction-event-v1.md`](interaction-event-v1.md). Sending an
 unnegotiated or unsupported message type returns `invalid_frame` and closes the
 connection.
+
+An `adapter_session_v1` publisher sends explicit register, disconnect, and
+release frames and receives a lifecycle acknowledgement. It must register
+before publishing owned events. See
+[`adapter-session-v1.md`](adapter-session-v1.md).
 
 ## Subscriber Frames
 
