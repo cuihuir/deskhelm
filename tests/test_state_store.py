@@ -31,6 +31,20 @@ class StateStoreTests(unittest.TestCase):
 
         self.assertEqual(updates, [])
 
+    def test_subscribe_with_snapshot_registers_before_returning_state(self) -> None:
+        store = StateStore(slot_count=1)
+        updates: list[AgentEvent] = []
+
+        snapshot, unsubscribe = store.subscribe_with_snapshot(
+            lambda changed, current: updates.append(changed)
+        )
+        event = AgentEvent(agent_id="codex", slot=0, state=AgentState.THINKING)
+        store.update(event)
+        unsubscribe()
+
+        self.assertEqual(snapshot[0].state, AgentState.OFFLINE)
+        self.assertEqual(updates, [event])
+
     def test_rejects_slot_outside_configured_store(self) -> None:
         store = StateStore(slot_count=1)
 

@@ -1,0 +1,16 @@
+{
+  "protocol_version": 1,
+  "message_type": "state_update",
+  "stream_id": "stream-1",
+  "subscription_id": "subscription-1",
+  "sequence": 1,
+  "event": {
+    "agent_id": "codex:backend",
+    "slot": 1,
+    "state": "running_tool",
+    "label": "backend",
+    "progress": 0.5,
+    "updated_at": 1787011202000,
+    "protocol_version": 1
+  }
+}

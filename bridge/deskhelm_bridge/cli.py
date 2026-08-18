@@ -26,6 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
     bridge.add_argument("--no-color", action="store_true")
     bridge.add_argument("--max-events", type=int)
     bridge.add_argument("--max-connections", type=int, default=16)
+    bridge.add_argument("--max-subscribers", type=int)
+    bridge.add_argument("--subscriber-queue-frames", type=int, default=8)
 
     emit = subparsers.add_parser("emit", help="send one normalized event")
     add_socket_argument(emit)
@@ -98,6 +100,8 @@ def main(argv: list[str] | None = None) -> int:
                 live=not args.plain,
                 max_events=args.max_events,
                 max_connections=args.max_connections,
+                max_subscribers=args.max_subscribers,
+                subscriber_queue_frames=args.subscriber_queue_frames,
             )
             return 0 if return_code >= 0 else 1
         if args.command == "emit":

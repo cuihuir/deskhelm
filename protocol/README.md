@@ -40,8 +40,10 @@ Required fields are `agent_id`, `slot`, and `state`. Valid states are:
   message, tool, approval, input, completion, and failure events.
 - [`control-command-v1.md`](control-command-v1.md) defines targeted, expiring,
   idempotent focus, prompt, interruption, approval, and speech controls.
+- [`state-subscription-v1.md`](state-subscription-v1.md) defines atomic state
+  snapshots, ordered live updates, queue bounds, and reconnect recovery.
 - ADR 0005 defines the negotiated single-socket transport direction.
 
-Publisher negotiation and the `InteractionEvent v1` and `ControlCommand v1`
-Python models and fixtures are implemented. The socket server does not accept
-rich interaction frames or subscriber/controller connections yet.
+Publisher and state-subscriber negotiation and the `InteractionEvent v1` and
+`ControlCommand v1` Python models and fixtures are implemented. The socket
+server does not accept rich interaction frames or controller connections yet.

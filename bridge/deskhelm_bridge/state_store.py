@@ -47,6 +47,20 @@ class StateStore:
         with self._lock:
             self._subscribers.append(subscriber)
 
+        return self._unsubscribe_callback(subscriber)
+
+    def subscribe_with_snapshot(
+        self, subscriber: StateSubscriber
+    ) -> tuple[tuple[AgentEvent, ...], Callable[[], None]]:
+        with self._lock:
+            self._subscribers.append(subscriber)
+            snapshot = tuple(self._events)
+
+        return snapshot, self._unsubscribe_callback(subscriber)
+
+    def _unsubscribe_callback(
+        self, subscriber: StateSubscriber
+    ) -> Callable[[], None]:
         def unsubscribe() -> None:
             with self._lock:
                 if subscriber in self._subscribers:

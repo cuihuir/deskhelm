@@ -14,6 +14,7 @@ SERVER_HELLO_MESSAGE_TYPE = "server_hello"
 PROTOCOL_ERROR_MESSAGE_TYPE = "protocol_error"
 AGENT_EVENT_MESSAGE_TYPE = "agent_event"
 AGENT_EVENT_V1_CAPABILITY = "agent_event_v1"
+STATE_SUBSCRIPTION_V1_CAPABILITY = "state_subscription_v1"
 
 
 class ClientRole(StrEnum):
@@ -77,6 +78,8 @@ class ServerHello:
     stream_id: str
     max_frame_bytes: int
     max_connections: int
+    max_subscribers: int | None = None
+    subscriber_queue_frames: int | None = None
     protocol_version: int = PROTOCOL_VERSION
     message_type: str = SERVER_HELLO_MESSAGE_TYPE
 
@@ -89,18 +92,31 @@ class ServerHello:
         _validate_non_empty_string(self.stream_id, "stream_id")
         _validate_positive_integer(self.max_frame_bytes, "max_frame_bytes")
         _validate_positive_integer(self.max_connections, "max_connections")
+        if (self.max_subscribers is None) != (self.subscriber_queue_frames is None):
+            raise ProtocolError("subscriber limits must be provided together")
+        if self.max_subscribers is not None:
+            _validate_non_negative_integer(self.max_subscribers, "max_subscribers")
+            if self.max_subscribers >= self.max_connections:
+                raise ProtocolError("max_subscribers must be less than max_connections")
+            _validate_positive_integer(
+                self.subscriber_queue_frames, "subscriber_queue_frames"
+            )
 
     def to_dict(self) -> dict[str, Any]:
+        limits = {
+            "max_frame_bytes": self.max_frame_bytes,
+            "max_connections": self.max_connections,
+        }
+        if self.max_subscribers is not None:
+            limits["max_subscribers"] = self.max_subscribers
+            limits["subscriber_queue_frames"] = self.subscriber_queue_frames
         return {
             "protocol_version": self.protocol_version,
             "message_type": self.message_type,
             "selected_version": self.selected_version,
             "accepted_capabilities": list(self.accepted_capabilities),
             "stream_id": self.stream_id,
-            "limits": {
-                "max_frame_bytes": self.max_frame_bytes,
-                "max_connections": self.max_connections,
-            },
+            "limits": limits,
         }
 
     @classmethod
@@ -115,6 +131,10 @@ class ServerHello:
             stream_id=_required_string(value, "stream_id"),
             max_frame_bytes=_required_integer(limits, "max_frame_bytes"),
             max_connections=_required_integer(limits, "max_connections"),
+            max_subscribers=_optional_integer(limits, "max_subscribers"),
+            subscriber_queue_frames=_optional_integer(
+                limits, "subscriber_queue_frames"
+            ),
         )
 
 
@@ -249,6 +269,14 @@ def _required_integer(value: dict[str, Any], field_name: str) -> int:
     return field_value
 
 
+def _optional_integer(value: dict[str, Any], field_name: str) -> int | None:
+    field_value = value.get(field_name)
+    if field_value is None:
+        return None
+    _validate_integer(field_value, field_name)
+    return field_value
+
+
 def _validate_non_empty_string(value: object, field_name: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ProtocolError(f"{field_name} must not be empty")
@@ -263,3 +291,9 @@ def _validate_positive_integer(value: object, field_name: str) -> None:
     _validate_integer(value, field_name)
     if value <= 0:
         raise ProtocolError(f"{field_name} must be greater than zero")
+
+
+def _validate_non_negative_integer(value: object, field_name: str) -> None:
+    _validate_integer(value, field_name)
+    if value < 0:
+        raise ProtocolError(f"{field_name} must be zero or greater")

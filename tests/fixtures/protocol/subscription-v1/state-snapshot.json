@@ -1,0 +1,27 @@
+{
+  "protocol_version": 1,
+  "message_type": "state_snapshot",
+  "stream_id": "stream-1",
+  "subscription_id": "subscription-1",
+  "sequence": 0,
+  "events": [
+    {
+      "agent_id": "slot-1",
+      "slot": 0,
+      "state": "offline",
+      "label": "",
+      "progress": null,
+      "updated_at": 1787011200000,
+      "protocol_version": 1
+    },
+    {
+      "agent_id": "codex:backend",
+      "slot": 1,
+      "state": "thinking",
+      "label": "backend",
+      "progress": 0.25,
+      "updated_at": 1787011201000,
+      "protocol_version": 1
+    }
+  ]
+}

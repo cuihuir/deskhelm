@@ -1,6 +1,6 @@
 # No-Hardware Software Roadmap
 
-Date: 2026-08-17
+Date: 2026-08-18
 
 Status: Active
 
@@ -19,7 +19,7 @@ Status: In progress
 - [x] Add `SessionRegistry` with dynamic and legacy slot mapping.
 - [x] Define session lifecycle: register, focus, disconnect, expire, restore.
 - [x] Replace the sequential connection loop with a bounded concurrency model.
-- [ ] Expose a read-only local snapshot and subscription API.
+- [x] Expose a read-only local snapshot and subscription API.
 - [ ] Define adapter capabilities and captured-fixture version metadata.
 
 Acceptance criteria:
@@ -100,10 +100,9 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Implement snapshot-then-live subscriptions without durable replay and
-   enable the negotiated `subscriber` role.
-2. Add bounded interaction fan-out and enable `interaction_event_v1`
+1. Add bounded interaction fan-out and enable `interaction_event_v1`
    publishers.
-3. Implement `ControlRouter`, bounded idempotency retention, command results,
+2. Implement `ControlRouter`, bounded idempotency retention, command results,
    and the negotiated `controller` role.
+3. Define adapter capabilities and add versioned Codex fixtures.
 4. Build the text-only Codex gateway before adding audio dependencies.

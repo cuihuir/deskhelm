@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
+import select
 import socket
 from threading import Event, Lock, RLock, Semaphore
 from typing import BinaryIO, TextIO
@@ -12,11 +13,13 @@ from .display import SlotPanel
 from .event import AgentEvent, PROTOCOL_VERSION, ProtocolError
 from .session_registry import SessionRegistry
 from .state_store import StateStore
+from .subscription import StateSubscriberQueue
 from .transport import (
     AGENT_EVENT_MESSAGE_TYPE,
     AGENT_EVENT_V1_CAPABILITY,
     CLIENT_HELLO_MESSAGE_TYPE,
     MAX_FRAME_BYTES,
+    STATE_SUBSCRIPTION_V1_CAPABILITY,
     ClientHello,
     ClientRole,
     ProtocolErrorFrame,
@@ -28,7 +31,11 @@ from .transport import (
 
 
 DEFAULT_MAX_CONNECTIONS = 16
+DEFAULT_SUBSCRIBER_QUEUE_FRAMES = 8
 ACCEPT_POLL_SECONDS = 0.1
+HANDSHAKE_TIMEOUT_SECONDS = 2.0
+SUBSCRIBER_POLL_SECONDS = 0.1
+SUBSCRIBER_WRITE_TIMEOUT_SECONDS = 2.0
 MAX_ERROR_MESSAGE_CHARS = 512
 
 
@@ -40,6 +47,9 @@ class _BridgeRuntime:
     max_events: int | None
     stream_id: str
     max_connections: int
+    max_subscribers: int
+    subscriber_queue_frames: int
+    subscriber_permits: Semaphore
     stop: Event = field(default_factory=Event)
     received: int = 0
     _event_lock: Lock = field(default_factory=Lock, repr=False)
@@ -71,11 +81,21 @@ def run_bridge(
     live: bool = True,
     max_events: int | None = None,
     max_connections: int = DEFAULT_MAX_CONNECTIONS,
+    max_subscribers: int | None = None,
+    subscriber_queue_frames: int = DEFAULT_SUBSCRIBER_QUEUE_FRAMES,
 ) -> int:
     if max_connections < 1:
         raise ValueError("max_connections must be at least 1")
     if max_events is not None and max_events < 1:
         raise ValueError("max_events must be at least 1")
+    if max_subscribers is None:
+        max_subscribers = max_connections // 2
+    if max_subscribers < 0 or max_subscribers >= max_connections:
+        raise ValueError(
+            "max_subscribers must be zero or greater and less than max_connections"
+        )
+    if subscriber_queue_frames < 1:
+        raise ValueError("subscriber_queue_frames must be at least 1")
 
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     socket_path.unlink(missing_ok=True)
@@ -91,6 +111,9 @@ def run_bridge(
         max_events=max_events,
         stream_id=str(uuid.uuid4()),
         max_connections=max_connections,
+        max_subscribers=max_subscribers,
+        subscriber_queue_frames=subscriber_queue_frames,
+        subscriber_permits=Semaphore(max_subscribers),
     )
     permits = Semaphore(max_connections)
     active_connections: set[socket.socket] = set()
@@ -154,6 +177,7 @@ def _handle_connection(
     active_lock: RLock,
 ) -> None:
     try:
+        connection.settimeout(HANDSHAKE_TIMEOUT_SECONDS)
         with connection, connection.makefile("rb") as reader:
             first_frame = read_frame(reader)
             if first_frame is None:
@@ -162,6 +186,7 @@ def _handle_connection(
             if first_value.get("message_type") == CLIENT_HELLO_MESSAGE_TYPE:
                 _handle_negotiated_connection(connection, reader, first_value, runtime)
             elif "message_type" not in first_value:
+                connection.settimeout(None)
                 _handle_legacy_connection(reader, first_value, runtime)
             else:
                 raise ProtocolError("first frame must be client_hello or AgentEvent v1")
@@ -194,34 +219,69 @@ def _handle_negotiated_connection(
     first_value: dict[str, object],
     runtime: _BridgeRuntime,
 ) -> None:
+    subscriber_permit = False
     try:
         hello = ClientHello.from_dict(first_value)
         if PROTOCOL_VERSION not in hello.supported_versions:
             raise _NegotiationError("version_unavailable", "no supported version overlaps")
-        if hello.role is not ClientRole.PUBLISHER:
+        if hello.role is ClientRole.PUBLISHER:
+            capability = AGENT_EVENT_V1_CAPABILITY
+        elif hello.role is ClientRole.SUBSCRIBER:
+            capability = STATE_SUBSCRIPTION_V1_CAPABILITY
+        else:
             raise _NegotiationError(
                 "role_unavailable", f"{hello.role.value} connections are not enabled yet"
             )
-        if AGENT_EVENT_V1_CAPABILITY not in hello.capabilities:
+        if capability not in hello.capabilities:
             raise _NegotiationError(
                 "capability_unavailable",
-                f"publisher must request {AGENT_EVENT_V1_CAPABILITY}",
+                f"{hello.role.value} must request {capability}",
             )
+        if hello.role is ClientRole.SUBSCRIBER:
+            if not runtime.subscriber_permits.acquire(blocking=False):
+                raise _NegotiationError(
+                    "subscriber_capacity", "subscriber capacity is exhausted"
+                )
+            subscriber_permit = True
         response = ServerHello(
             selected_version=PROTOCOL_VERSION,
-            accepted_capabilities=(AGENT_EVENT_V1_CAPABILITY,),
+            accepted_capabilities=(capability,),
             stream_id=runtime.stream_id,
             max_frame_bytes=MAX_FRAME_BYTES,
             max_connections=runtime.max_connections,
+            max_subscribers=runtime.max_subscribers,
+            subscriber_queue_frames=runtime.subscriber_queue_frames,
         )
         connection.sendall(encode_frame(response.to_dict()))
     except _NegotiationError as error:
+        if subscriber_permit:
+            runtime.subscriber_permits.release()
         _send_protocol_error(connection, error.code, str(error))
         return
     except ProtocolError as error:
+        if subscriber_permit:
+            runtime.subscriber_permits.release()
         _send_protocol_error(connection, "invalid_hello", str(error))
         return
+    except OSError:
+        if subscriber_permit:
+            runtime.subscriber_permits.release()
+        raise
 
+    if hello.role is ClientRole.SUBSCRIBER:
+        try:
+            _handle_state_subscriber(connection, runtime)
+        finally:
+            runtime.subscriber_permits.release()
+        return
+
+    connection.settimeout(None)
+    _handle_negotiated_publisher(connection, reader, runtime)
+
+
+def _handle_negotiated_publisher(
+    connection: socket.socket, reader: BinaryIO, runtime: _BridgeRuntime
+) -> None:
     while not runtime.stop.is_set():
         try:
             frame = read_frame(reader)
@@ -237,6 +297,67 @@ def _handle_negotiated_connection(
         except ProtocolError as error:
             _send_protocol_error(connection, "invalid_frame", str(error))
             return
+
+
+def _handle_state_subscriber(
+    connection: socket.socket, runtime: _BridgeRuntime
+) -> None:
+    subscription = StateSubscriberQueue(
+        stream_id=runtime.stream_id,
+        max_queue_frames=runtime.subscriber_queue_frames,
+    )
+    snapshot, unsubscribe = runtime.state_store.subscribe_with_snapshot(
+        subscription.enqueue
+    )
+    connection.settimeout(SUBSCRIBER_WRITE_TIMEOUT_SECONDS)
+    try:
+        try:
+            snapshot_frame = encode_frame(subscription.snapshot(snapshot).to_dict())
+        except ProtocolError:
+            _send_protocol_error(
+                connection,
+                "snapshot_too_large",
+                "state snapshot exceeds the negotiated frame limit",
+            )
+            return
+        connection.sendall(snapshot_frame)
+        while not runtime.stop.is_set():
+            if subscription.overflowed():
+                _send_protocol_error(
+                    connection,
+                    "slow_subscriber",
+                    "subscriber queue overflowed; reconnect for a fresh snapshot",
+                )
+                return
+
+            update = subscription.next_update(SUBSCRIBER_POLL_SECONDS)
+            if update is not None:
+                try:
+                    connection.sendall(encode_frame(update.to_dict()))
+                except ProtocolError:
+                    _send_protocol_error(
+                        connection,
+                        "state_update_too_large",
+                        "state update exceeds the negotiated frame limit",
+                    )
+                    return
+                except TimeoutError:
+                    return
+                continue
+
+            readable, _, _ = select.select([connection], [], [], 0)
+            if readable:
+                data = connection.recv(1, socket.MSG_PEEK)
+                if not data:
+                    return
+                _send_protocol_error(
+                    connection,
+                    "subscriber_read_only",
+                    "subscriber connections cannot send frames",
+                )
+                return
+    finally:
+        unsubscribe()
 
 
 def _send_protocol_error(connection: socket.socket, code: str, message: str) -> None:

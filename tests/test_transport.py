@@ -5,6 +5,7 @@ from deskhelm_bridge.event import ProtocolError
 from deskhelm_bridge.transport import (
     AGENT_EVENT_V1_CAPABILITY,
     MAX_FRAME_BYTES,
+    STATE_SUBSCRIPTION_V1_CAPABILITY,
     ClientHello,
     ClientRole,
     ProtocolErrorFrame,
@@ -58,13 +59,41 @@ class TransportProtocolTests(unittest.TestCase):
             stream_id="stream-1",
             max_frame_bytes=MAX_FRAME_BYTES,
             max_connections=8,
+            max_subscribers=4,
+            subscriber_queue_frames=8,
         )
 
         self.assertEqual(
             hello.to_dict()["limits"],
-            {"max_frame_bytes": MAX_FRAME_BYTES, "max_connections": 8},
+            {
+                "max_frame_bytes": MAX_FRAME_BYTES,
+                "max_connections": 8,
+                "max_subscribers": 4,
+                "subscriber_queue_frames": 8,
+            },
         )
         self.assertEqual(ServerHello.from_dict(hello.to_dict()), hello)
+
+    def test_subscriber_capability_has_stable_wire_name(self) -> None:
+        self.assertEqual(STATE_SUBSCRIPTION_V1_CAPABILITY, "state_subscription_v1")
+
+    def test_server_hello_parses_earlier_v1_without_subscriber_limits(self) -> None:
+        value = {
+            "protocol_version": 1,
+            "message_type": "server_hello",
+            "selected_version": 1,
+            "accepted_capabilities": [AGENT_EVENT_V1_CAPABILITY],
+            "stream_id": "stream-legacy-v1",
+            "limits": {
+                "max_frame_bytes": MAX_FRAME_BYTES,
+                "max_connections": 8,
+            },
+        }
+
+        hello = ServerHello.from_dict(value)
+
+        self.assertIsNone(hello.max_subscribers)
+        self.assertEqual(hello.to_dict(), value)
 
     def test_frame_encoding_is_utf8_ndjson_and_bounded(self) -> None:
         encoded = encode_frame({"message": "你好"})

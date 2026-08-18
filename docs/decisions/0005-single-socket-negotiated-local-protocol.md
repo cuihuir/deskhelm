@@ -73,8 +73,17 @@ connections are enabled.
 ## Implementation Status
 
 Bounded concurrent connection handling, frame-size enforcement, legacy
-first-frame detection, and the negotiated `publisher` role are implemented.
-Negotiated publishers currently expose only `agent_event_v1`.
+first-frame detection, the negotiated `publisher` role, and the negotiated
+`subscriber` role are implemented. Publishers currently expose
+`agent_event_v1`; subscribers expose `state_subscription_v1`.
 
-The `subscriber` and `controller` roles, bounded subscriber output queues,
-snapshot delivery, and `interaction_event_v1` publishing remain pending.
+Subscriber registration and snapshot capture are atomic. Live updates use a
+bounded non-blocking queue, and slow subscribers are disconnected and recover
+through a new snapshot. Subscriber capacity is separately bounded below the
+total connection limit so long-lived readers cannot consume every worker.
+The default limits are 8 subscribers, 8 queued frames per subscriber, and a
+two-second first-frame deadline plus a two-second subscriber write deadline
+within the 16-connection server limit.
+
+The `controller` role, interaction-event fan-out, and
+`interaction_event_v1` publishing remain pending.

@@ -1,6 +1,6 @@
 # Handoff
 
-Date: 2026-08-17
+Date: 2026-08-18
 
 Project: DeskHelm
 
@@ -24,9 +24,9 @@ normalized `AgentEvent v1`, CLI simulator, Codex hook adapter, `StateStore`,
 in-process subscriptions, `SessionRegistry`, terminal projection, bounded
 concurrent connections, and negotiated state publishers. `InteractionEvent v1`
 and `ControlCommand v1` are implemented and covered by compatibility fixtures,
-while interaction publishing, external subscriptions, control routing, and the
-controller role remain unimplemented. Voice Gateway implementation has not
-started.
+and negotiated state subscribers receive atomic snapshots followed by ordered
+live updates. Interaction publishing, control routing, and the controller role
+remain unimplemented. Voice Gateway implementation has not started.
 
 ## Completed Work
 
@@ -55,6 +55,13 @@ started.
   or capabilities, and invalid negotiated frames.
 - Preserved no-handshake `AgentEvent v1` clients, including continuing after a
   malformed event on an established legacy connection.
+- Enabled negotiated `state_subscription_v1` clients with an atomic current
+  snapshot followed by subscription-local ordered state updates.
+- Added a separate subscriber limit below the total connection limit, an
+  8-frame non-blocking queue per subscriber, a two-second first-frame deadline,
+  and a two-second subscriber write deadline.
+- Added terminal recovery behavior for slow, read/write-invalid, oversized, or
+  capacity-exceeding subscriptions; reconnect always starts from a new snapshot.
 - Implemented the `InteractionEvent v1` model for messages, tools, approvals,
   user-input requests, and task terminal events.
 - Added four complete wire fixtures and validation/round-trip tests for
@@ -103,11 +110,15 @@ started.
   per-connection queues and no automatic retry for control commands.
 - The Bridge accepts at most 16 concurrent connections by default. It never
   places accepted connections into an unbounded application work queue.
-- Negotiated publishers currently support only `agent_event_v1`. Subscriber
-  and controller role names are reserved but return `role_unavailable` until
-  their behavior is implemented.
+- Negotiated publishers support `agent_event_v1`; negotiated subscribers
+  support `state_subscription_v1`. The controller role remains unavailable.
 - Version 1 has no durable event history or replay. Subscribers recover by
   requesting a fresh snapshot before live events.
+- Snapshot capture and subscriber registration are atomic. Snapshot sequence is
+  zero; later sequences are monotonic within one `subscription_id`.
+- At most half of the connection workers are subscribers by default. Queue
+  overflow or a blocked write disconnects the subscriber without blocking
+  publishers.
 - Every control targets `agent_id + session_id + project_id`; slots never route
   controls. Voice controls also retain session ownership.
 - Control idempotency is scoped by `issued_by + idempotency_key`. An allowed
@@ -135,12 +146,16 @@ started.
   expiry, idempotency, retry, and approval safety decisions.
 - `protocol/interaction-event-v1.md`: rich session event contract.
 - `protocol/control-command-v1.md`: targeted control command contract.
+- `protocol/state-subscription-v1.md`: state snapshot, live update, sequencing,
+  resource bounds, and reconnect contract.
 - `protocol/local-transport-v1.md`: implemented framing, handshake, publisher,
   compatibility, limits, and error contract.
 - `bridge/deskhelm_bridge/interaction.py`: `InteractionEvent v1` model and
   validation.
 - `bridge/deskhelm_bridge/control.py`: `ControlCommand v1` payload models,
   validation, serialization, and expiry checks.
+- `bridge/deskhelm_bridge/subscription.py`: subscription wire models and bounded
+  per-subscriber update queue.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
 - `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
   connection role dispatch.
@@ -149,13 +164,13 @@ started.
 
 ## Validation
 
-Last verified on 2026-08-17:
+Last verified on 2026-08-18:
 
 ```bash
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 62 tests passed.
+Result: 73 tests passed.
 
 Repository checks also passed:
 
@@ -169,21 +184,19 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Implement snapshot-then-live subscriptions with bounded slow-subscriber
-   handling.
-3. Add bounded interaction fan-out and enable `interaction_event_v1`
+2. Add bounded interaction fan-out and enable `interaction_event_v1`
    publishers.
-4. Implement `ControlRouter`, bounded idempotency retention, a command result
+3. Implement `ControlRouter`, bounded idempotency retention, a command result
    contract, and the negotiated `controller` role.
-5. Define the adapter capability contract and add versioned Codex fixtures.
-6. Build the text-only Codex gateway with a deterministic fake provider.
-7. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
+4. Define the adapter capability contract and add versioned Codex fixtures.
+5. Build the text-only Codex gateway with a deterministic fake provider.
+6. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
    providers before installing models.
 
 ## Risks and Blockers
 
-- Subscriber and controller roles are not enabled; external snapshot/live
-  delivery and bounded subscriber output queues remain unimplemented.
+- The controller role is not enabled; command routing and results remain
+  unimplemented.
 - Session disconnect and restore APIs exist but are not yet driven by adapter
   connection lifecycle events.
 - `InteractionEvent v1` and `ControlCommand v1` are accepted and modeled, but
@@ -206,7 +219,7 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
 
 ## Next Step
 
-Implement bounded snapshot/live subscriptions and enable the negotiated
-`subscriber` role. Then add interaction fan-out and `ControlRouter`. Obtain the
-license decision from the user when packaging or external contributions require
-it.
+Add bounded `InteractionEvent v1` fan-out and enable negotiated interaction
+publishers without mixing rich content into the state projection. Then build
+`ControlRouter`. Obtain the license decision from the user when packaging or
+external contributions require it.

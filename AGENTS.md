@@ -144,10 +144,16 @@ Keep third-party reference files outside version control under
 - Negotiated state publishers use the `agent_event_v1` capability and add
   `message_type: agent_event`; the remaining payload stays compatible with
   `AgentEvent v1`.
+- Negotiated state subscribers use `state_subscription_v1`, receive an atomic
+  sequence-zero snapshot, and then subscription-local ordered live updates.
 - Limit legacy compatibility to connections whose first frame is an
   `AgentEvent v1`; legacy connections remain state publishers only.
 - Limit UTF-8 NDJSON frames to 1 MiB and use bounded per-connection queues.
-  Isolate slow subscribers before enabling external subscriptions.
+  A full subscriber queue is terminal; disconnect and require a fresh snapshot.
+- Keep the subscriber limit below the total connection limit so long-lived
+  readers cannot consume every publisher worker.
+- Bound first-frame negotiation time so incomplete connections cannot retain
+  workers indefinitely.
 - Do not promise durable event history or replay. On reconnect or a sequence
   gap, clients request a fresh snapshot before consuming live events.
 - Identify sessions with `agent_id + session_id + project_id`; treat `slot` as a
@@ -186,6 +192,8 @@ Current commands:
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --plain`: run the Bridge.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --max-connections 16`:
   run with an explicit bounded connection limit.
+- `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --max-subscribers 8
+  --subscriber-queue-frames 8`: run with explicit subscription bounds.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge simulate`: emit demo events.
 - `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
 - `git diff --check`: detect whitespace errors.
