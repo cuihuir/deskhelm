@@ -164,6 +164,11 @@ the next implementation boundary.
   audio, microphone recordings, and local results remain outside Git by default.
 - Verified PipeWire 1.6.8 tools, one default source and sink, raw record/playback
   options, and stable node names without capturing audio or changing settings.
+- Recorded ESP32-S3 wireless-audio research: BLE HID for keyboard controls,
+  reliable BLE/Wi-Fi state, and Wi-Fi Opus as the preferred future voice path.
+- Selected a simpler local POC path: explicitly configured USB microphone
+  capture through PipeWire and playback through the computer's
+  configured/default sink, without Opus.
 - Reviewed two public Agent I/O projects and extracted streaming, adapter,
   fixture, observability, privacy, and idempotency lessons.
 - Added the project constitution and durable DeskHelm-specific collaboration
@@ -226,6 +231,13 @@ the next implementation boundary.
   into paths, symbols, versions, names, numbers, and negation.
 - Numeric PipeWire object IDs are not durable. Providers must resolve configured
   defaults or stable node names and must not assume an undeclared PCM format.
+- The local POC uses an explicitly configured USB microphone and the computer's
+  configured/default sink. A missing microphone fails recoverably instead of
+  falling back silently to another input. Opus is reserved for a constrained
+  future wireless link, with an initial research profile of 16 kHz mono, 20 ms
+  frames, and 24 kbps VoIP mode.
+- ESP32-S3 and its wireless framing remain research directions, not frozen
+  hardware or protocol decisions; implementation requires later ADRs.
 - Canonical runtime identifiers are `deskhelm`, `deskhelm_bridge`, and
   `deskhelm-codex-hook`; legacy names are compatibility aliases only.
 - Registration and Agent events never change focus implicitly. Only active
@@ -294,6 +306,8 @@ the next implementation boundary.
   observation format, scoring, bounds, privacy, resources, and licensing.
 - `docs/research/2026-08-18-pipewire-preflight.md`: verified local PipeWire
   capabilities and provider-design implications.
+- `docs/research/2026-08-18-esp32-s3-audio-transport.md`: official ESP32-S3 and
+  Opus evidence, wireless control split, parameters, risks, and local USB path.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -367,8 +381,8 @@ python3 -m compileall -q bridge adapters/codex voice tests
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Define the PCM/container, capture byte/time bounds, process ownership,
-   device targeting, and recovery contract for PipeWire providers.
+2. Define PCM format, capture byte/time bounds, process ownership, explicit USB
+   microphone and default computer-sink targeting, and recovery.
 3. Add PipeWire capture/playback and recovery providers, then benchmark VAD,
    Paraformer, Piper, and Kokoro outside Bridge.
 4. Add a multi-project working-directory registry before one Bridge process
@@ -389,6 +403,9 @@ python3 -m compileall -q bridge adapters/codex voice tests
   streaming provider contract.
 - The current audio models do not declare PCM sample format or container, so a
   real `pw-cat` provider would otherwise rely on an unsafe hidden assumption.
+- The intended USB microphone was not present in the recorded PipeWire
+  preflight; the current default source was built-in analog. USB discovery and
+  stable-name configuration remain unverified until the device is connected.
 - Adapter registrations are process-local and must be re-established after a
   Bridge restart. No durable session history or replay is promised.
 - Approval tracking is bounded. When its capacity is exhausted, new approval
@@ -414,7 +431,8 @@ python3 -m compileall -q bridge adapters/codex voice tests
 
 ## Next Step
 
-Define and accept the PipeWire PCM/container, capture bounds, process ownership,
-device targeting, and recovery contract, then implement deterministic fake
-subprocess tests before touching live microphone audio. Obtain the repository
-license decision when packaging or external contributions require it.
+Define and accept the PipeWire PCM, capture bounds, process ownership, explicit
+USB microphone and default computer-sink targeting, and recovery contract. Then
+implement deterministic fake subprocess tests before recording live microphone
+audio. Obtain the repository license decision when packaging or external
+contributions require it.

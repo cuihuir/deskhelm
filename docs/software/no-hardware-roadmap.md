@@ -89,7 +89,8 @@ Acceptance criteria:
 
 Status: In Progress
 
-- [ ] Add PipeWire capture and playback adapters.
+- [ ] Add PipeWire capture for an explicitly configured USB microphone.
+- [ ] Add PipeWire playback through the computer's configured/default sink.
 - [ ] Define and benchmark VAD at the selected streaming capture boundary.
 - [ ] Benchmark Paraformer for streaming ASR.
 - [ ] Benchmark Piper and Kokoro for notification TTS.
@@ -107,9 +108,9 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Define the PCM/container, capture bound, process ownership, device targeting,
-   and recovery contract for PipeWire providers.
-2. Add PipeWire device enumeration, capture, playback, and recovery adapters.
+1. Define PCM format, capture bounds, process ownership, explicit USB-source
+   targeting, default computer-sink targeting, and recovery.
+2. Add PipeWire USB microphone capture, computer playback, and recovery adapters.
 3. Benchmark VAD, Paraformer, Piper, and Kokoro outside Bridge.
 4. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.

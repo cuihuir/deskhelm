@@ -17,3 +17,7 @@
   本地语音栈与 Voice Gateway 调研。
 - [`2026-08-17-agent-io-design-lessons.md`](2026-08-17-agent-io-design-lessons.md)
   — 公开 Agent I/O 项目的流式协议、adapter、fixture、可观测性和可靠性经验。
+- [`2026-08-18-pipewire-preflight.md`](2026-08-18-pipewire-preflight.md) — 本机
+  PipeWire 工具、默认设备和 Provider 实现前置约束。
+- [`2026-08-18-esp32-s3-audio-transport.md`](2026-08-18-esp32-s3-audio-transport.md)
+  — ESP32-S3 的 Wi-Fi/BLE 控制分工、Opus 参数建议和本地 USB 音频路径。

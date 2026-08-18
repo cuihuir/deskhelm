@@ -229,6 +229,12 @@ Keep third-party reference files outside version control under
 - Do not commit microphone captures, generated speech, model output, or local
   benchmark results without explicit provenance, consent, and redistribution
   terms.
+- The initial local audio path uses an explicitly configured USB microphone
+  through PipeWire and the computer's configured/default sink. Do not fall back
+  silently to an unrelated input, persist numeric PipeWire object IDs, or add
+  Opus to this unconstrained local path.
+- Treat ESP32-S3 plus Opus as a researched future direction, not a selected MCU
+  or frozen transport. Record an ADR before hardware or wire implementation.
 
 Record significant protocol, transport, concurrency, framework, MCU, or
 licensing decisions in an ADR before implementation spreads across components.
