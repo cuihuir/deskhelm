@@ -17,3 +17,8 @@ and cancellation without external runtimes. `tests/helpers/fake_codex_cli.py`
 verifies subprocess startup, stdin prompt delivery, JSONL parsing, timeout,
 termination, malformed output, and nonzero exit without a Codex login or model
 request.
+
+Voice tests use fake capture, ASR, TTS, and playback providers to verify PTT
+state, raw/normalized transcript separation, recoverable provider failure,
+bounded speech, playback interruption, targeted controls, and the complete
+fake Voice-to-Agent-to-speech pipeline without audio hardware or model weights.

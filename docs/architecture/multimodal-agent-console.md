@@ -2,7 +2,7 @@
 
 日期：2026-08-14
 
-状态：架构草案，待拆分为正式 ADR。
+状态：核心边界已由 ADR 0005 至 0009 固化，本地音频 provider 待选型。
 
 ## 1. 目标
 
@@ -61,6 +61,11 @@ Codex / Claude / Gemini / OpenCode
 - PTT、VAD、实时 ASR 和最终转写。
 - 原文、规范化文本和优化提示词的生命周期。
 - Agent 输出分句、TTS、播放、取消和通知。
+
+当前实现将 provider-neutral 的 PTT、ASR、TTS 和播放核心隔离在
+`voice/`，由 Bridge composition 将最终规范化转写转换为定向
+`submit_prompt`，并将完整 assistant 消息排入有界语音队列。VAD 留到
+流式 PipeWire capture 边界确定后定义，避免先固化错误的批处理接口。
 
 不负责：
 
@@ -210,8 +215,8 @@ deskhelm/
 1. 固化当前 Phase 0 的 `AgentEvent v1` 和 Codex hook 行为。
 2. 将 Bridge 的显示逻辑拆成 `StateStore` 和订阅机制。
 3. 定义 `InteractionEvent` 和 `ControlCommand` 的最小版本。
-4. 在没有硬件的情况下完成 Voice Gateway PTT、ASR、TTS 和 `codex exec --json` POC。
-5. 将 Voice Gateway 接入 Bridge，并验证状态、播报和中断行为。
+4. 在没有硬件的情况下完成 Voice Gateway PTT、ASR、TTS 和 `codex exec --json` POC。（已完成 fake provider 路径）
+5. 将 Voice Gateway 接入 Bridge，并验证状态、播报和中断行为。（已完成 composition 与定向控制）
 6. 再接入实体语音键、停止键、Agent 选择键和批准/拒绝控制。
 
 当前不应优先做：
@@ -223,10 +228,9 @@ deskhelm/
 
 ## 9. 待决策事项
 
-- `InteractionEvent` 是否与 `ControlCommand` 共用 Unix socket，还是使用独立 socket。
-- Voice Gateway 使用 Python 作为首版实现，还是 Bridge 与 Voice 分别使用 Python/Rust。
-- `session_id`、`project_id` 的来源和生命周期。
 - 硬件设备如何发现、认证和协商协议版本。
 - 审批命令的 UI、长按时长和过期策略。
+- PipeWire capture 的流式分块、VAD 和设备恢复 provider 契约。
+- 首个本地 ASR/TTS 组合及其资源、延迟和许可证门槛。
 
 这些事项进入实现前应分别记录 ADR。

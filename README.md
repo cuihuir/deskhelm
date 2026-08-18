@@ -26,6 +26,7 @@ The project is designed around a simple idea: you should be able to see what eve
 | [`firmware/`](firmware/) | Device firmware and bootloader integration |
 | [`bridge/`](bridge/) | Local service connecting agents to physical devices |
 | [`adapters/`](adapters/) | Integrations for individual coding-agent runtimes |
+| [`voice/`](voice/) | Isolated PTT, ASR, TTS, and playback gateway |
 | [`protocol/`](protocol/) | Device and agent event protocol specifications |
 | [`configurator/`](configurator/) | Device setup and customization application |
 | [`tools/`](tools/) | Development, manufacturing, and validation utilities |
@@ -46,7 +47,9 @@ restore, and release lifecycle. Agent prompt and interruption handlers are
 available through an explicitly enabled bounded text gateway. The Codex
 provider streams normalized JSONL results and supports interruption, timeout,
 and process-local session resume without placing prompts in process arguments.
-Voice Gateway handlers remain the next integration boundary.
+An isolated bounded Voice Gateway now completes the fake PTT, transcript, Agent,
+TTS, and playback pipeline, with targeted speech controls and no audio/model
+dependencies in Bridge.
 
 Current development focuses on the no-hardware Agent Console path:
 
@@ -54,7 +57,8 @@ Current development focuses on the no-hardware Agent Console path:
 Bridge state and sessions
   -> interaction and control protocols
   -> text-only Agent gateway
-  -> PTT, ASR, interruptible TTS
+  -> bounded Voice Gateway skeleton
+  -> local audio providers and benchmarks
 ```
 
 Hardware, firmware, and device transport decisions remain exploratory until
@@ -101,6 +105,8 @@ aliases; new integrations should use DeskHelm names.
 ## Development
 
 - [`bridge/README.md`](bridge/README.md) contains Bridge and Codex hook usage.
+- [`voice/README.md`](voice/README.md) documents Voice Gateway boundaries and
+  fake-provider tests.
 - [`protocol/README.md`](protocol/README.md) documents the current wire event.
 - [`docs/software/no-hardware-roadmap.md`](docs/software/no-hardware-roadmap.md)
   tracks the active software milestones.

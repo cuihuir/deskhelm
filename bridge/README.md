@@ -48,6 +48,12 @@ non-blocking handler. Enabling `--agent-provider codex` installs bounded
 accepted by the fixed-capacity gateway; completion arrives separately as an
 interaction terminal event.
 
+Python composition can pass an isolated `VoiceGateway` to `run_bridge`. The
+Bridge then registers targeted `speak` and `stop_speaking` handlers, converts
+normalized final transcripts into `submit_prompt` commands, and queues complete
+assistant messages for speech. No production audio or model provider is enabled
+by the CLI yet; the current full pipeline uses deterministic fake providers.
+
 Run the Bridge with the text-only Codex provider:
 
 ```bash

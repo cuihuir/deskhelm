@@ -69,13 +69,15 @@ Acceptance criteria:
 
 ## Milestone 4: Voice Gateway Skeleton
 
-Status: Planned
+Status: Complete
 
-- [ ] Create an isolated `voice/` package with no import dependency from Bridge.
-- [ ] Define audio capture, VAD, ASR, TTS, and playback provider interfaces.
-- [ ] Implement PTT state handling and an interruptible speech queue.
-- [ ] Preserve raw and normalized transcripts separately.
-- [ ] Use fake providers to test the full pipeline before installing models.
+- [x] Create an isolated `voice/` package with no import dependency from Bridge.
+- [x] Define audio capture, ASR, TTS, and playback provider interfaces.
+- [x] Implement PTT state handling and an interruptible speech queue.
+- [x] Preserve raw and normalized transcripts separately.
+- [x] Use fake providers to test the full pipeline before installing models.
+- [x] Connect targeted prompt, speech, and stop-speech handling at the Bridge
+  composition boundary.
 
 Acceptance criteria:
 
@@ -88,6 +90,7 @@ Acceptance criteria:
 Status: Planned
 
 - [ ] Add PipeWire capture and playback adapters.
+- [ ] Define and benchmark VAD at the selected streaming capture boundary.
 - [ ] Benchmark Paraformer for streaming ASR.
 - [ ] Benchmark Piper and Kokoro for notification TTS.
 - [ ] Add fixed Chinese and mixed-language test utterances.
@@ -103,7 +106,8 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Build the Voice Gateway skeleton with fake capture, ASR, TTS, and playback.
-2. Connect Voice Gateway prompt and speech handlers before audio dependencies.
-3. Add a multi-project working-directory registry before one Bridge process
+1. Define the local audio provider benchmark harness and fixed utterance set.
+2. Add PipeWire device enumeration, capture, playback, and recovery adapters.
+3. Benchmark VAD, Paraformer, Piper, and Kokoro outside Bridge.
+4. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.

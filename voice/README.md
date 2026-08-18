@@ -1,0 +1,34 @@
+# Voice Gateway
+
+Provider-neutral push-to-talk and speech-output core for DeskHelm. This package
+has no import dependency on Bridge and no runtime audio or model dependency.
+
+## Boundaries
+
+- `VoiceGateway` owns one capture/transcription flow and one playback worker.
+- `CaptureProvider`, `AsrProvider`, `TtsProvider`, and `PlaybackProvider` isolate
+  device and model implementations.
+- `VoiceTarget` always names `agent_id + session_id + project_id`.
+- `Transcript` keeps raw and normalized text separate.
+- The speech queue is fixed-capacity, priority-aware, and interruptible.
+- Lifecycle events contain identifiers and fixed error codes, not audio or
+  private text.
+
+The Bridge composition is in
+[`bridge/deskhelm_bridge/voice_integration.py`](../bridge/deskhelm_bridge/voice_integration.py).
+It converts final normalized transcripts into targeted controls and complete
+assistant messages into speech items.
+
+## Current Providers
+
+`fake_providers.py` provides deterministic capture, ASR, TTS, and playback for
+tests. PipeWire, local ASR/VAD, and production TTS providers are not selected
+yet. Keep model weights and provider-specific heavyweight dependencies outside
+the repository and outside Bridge.
+
+## Tests
+
+```bash
+PYTHONPATH=bridge python3 -m unittest \
+  tests.test_voice_gateway tests.test_voice_integration -v
+```

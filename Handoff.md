@@ -33,8 +33,11 @@ declare capabilities and drive complete session registration, disconnect,
 restore, and release lifecycle with connection ownership. Versioned Codex JSONL
 evidence is present. The opt-in bounded text Agent Gateway now handles targeted
 prompt submission and interruption, streams normalized Codex JSONL interactions,
-and supports timeout, cancellation, and process-local resume. Voice Gateway
-implementation has not started.
+and supports timeout, cancellation, and process-local resume. The isolated,
+bounded Voice Gateway skeleton is now implemented with fake capture, ASR, TTS,
+and playback providers. Bridge composition completes the no-hardware
+`PTT -> transcript -> Agent -> speech` path and routes targeted speech controls.
+Local audio providers and model benchmarking are the next phase.
 
 ## Completed Work
 
@@ -132,6 +135,19 @@ implementation has not started.
   command-line arguments, and suppressed Codex stderr from ordinary logs.
 - Added socket-level coverage proving a targeted controller prompt produces an
   assistant message and task terminal event for interaction subscribers.
+- Accepted ADR 0009: keep Voice provider-neutral and Bridge-independent, bound
+  capture and speech work, target every operation by complete session identity,
+  and defer VAD until the streaming capture boundary is selected.
+- Added `voice/deskhelm_voice` with validated models, capture/ASR/TTS/playback
+  provider contracts, one-at-a-time PTT, and a bounded priority speech queue.
+- Preserved raw and normalized transcripts separately and added content-free,
+  recoverable lifecycle and provider-failure events.
+- Added deterministic fake providers and full no-hardware coverage for
+  `PTT -> transcript -> Agent -> TTS -> playback`, playback interruption, queue
+  capacity, and targeted speech controls.
+- Added Bridge composition for targeted prompt submission, `speak`,
+  `stop_speaking`, and complete assistant-message speech routing. Voice queue
+  exhaustion remains isolated from interaction publishers.
 - Reviewed two public Agent I/O projects and extracted streaming, adapter,
   fixture, observability, privacy, and idempotency lessons.
 - Added the project constitution and durable DeskHelm-specific collaboration
@@ -175,6 +191,16 @@ implementation has not started.
   retried.
 - Bridge remains dependency-minimal; voice models and GPU runtimes stay outside
   it.
+- The Voice core has no Bridge imports. `VoiceBridgeIntegration` is the only
+  composition layer translating transcripts, interactions, and controls.
+- Voice input allows one capture/transcription flow. Speech uses a bounded
+  priority queue and one playback worker; new PTT cancels current interruptible
+  playback and queued playback waits until PTT returns to idle.
+- Voice lifecycle events expose identifiers and fixed error codes, not audio,
+  transcripts, prompts, or speech text. Raw and normalized transcripts remain
+  separate in memory.
+- VAD is deferred until PipeWire streaming capture is designed; the skeleton
+  does not impose a speculative batch VAD interface.
 - Canonical runtime identifiers are `deskhelm`, `deskhelm_bridge`, and
   `deskhelm-codex-hook`; legacy names are compatibility aliases only.
 - Registration and Agent events never change focus implicitly. Only active
@@ -237,6 +263,8 @@ implementation has not started.
   identity, capabilities, lifecycle, ownership, and restore semantics.
 - `docs/decisions/0008-bounded-text-agent-gateway.md`: provider boundary,
   capacity, process safety, privacy, cancellation, and terminal semantics.
+- `docs/decisions/0009-isolated-bounded-voice-gateway.md`: Voice isolation,
+  provider contracts, bounds, targeting, privacy, and cancellation.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -265,6 +293,13 @@ implementation has not started.
   scheduling, provider-session resume, sequence ownership, and normalization.
 - `bridge/deskhelm_bridge/fake_agent_provider.py`: deterministic provider used
   by gateway tests without external services.
+- `voice/deskhelm_voice/gateway.py`: PTT lifecycle, bounded speech queue,
+  playback ownership, interruption, and Voice events.
+- `voice/deskhelm_voice/providers.py`: provider-neutral capture, ASR, TTS, and
+  playback contracts.
+- `voice/deskhelm_voice/fake_providers.py`: deterministic no-hardware providers.
+- `bridge/deskhelm_bridge/voice_integration.py`: transcript, interaction, and
+  control composition between Bridge and Voice.
 - `adapters/codex/deskhelm_codex_adapter/provider.py`: Codex command, stdin,
   JSONL parsing, timeout, cancellation, and process-exit handling.
 - `bridge/deskhelm_bridge/subscription.py`: subscription wire models and bounded
@@ -285,13 +320,13 @@ Last verified on 2026-08-18:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 123 tests passed, including strict `ResourceWarning` handling.
+Result: 130 tests passed, including strict `ResourceWarning` handling.
 
 Repository checks also passed:
 
 ```bash
 git diff --check
-python3 -m compileall -q bridge adapters/codex tests
+python3 -m compileall -q bridge adapters/codex voice tests
 ! rg -n '[[:blank:]]+$' . --glob '!.git/**'
 ```
 
@@ -299,18 +334,23 @@ python3 -m compileall -q bridge adapters/codex tests
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
-   providers before installing models.
-3. Add a multi-project working-directory registry before one Bridge process
+2. Define a reproducible local audio benchmark harness and fixed Chinese and
+   mixed-language utterance set.
+3. Add PipeWire capture/playback and recovery providers, then benchmark VAD,
+   Paraformer, Piper, and Kokoro outside Bridge.
+4. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.
 
 ## Risks and Blockers
 
 - The text Agent Gateway is disabled by default. Without
-  `--agent-provider codex`, Agent and Voice commands other than focus still
-  return `handler_unavailable`.
-- The current text gateway handles prompt submission and interruption only.
-  Approval, rejection, speech, and stop-speech handlers remain unavailable.
+  `--agent-provider codex`, Agent commands other than focus still return
+  `handler_unavailable`.
+- The current text gateway handles prompt submission and interruption.
+  Approval and rejection remain unavailable; speech handlers exist only when a
+  Voice Gateway is explicitly composed into the Bridge.
+- Production audio devices, VAD, ASR, and TTS are not implemented. The current
+  Voice path is deterministic and no-hardware only.
 - Adapter registrations are process-local and must be re-established after a
   Bridge restart. No durable session history or replay is promised.
 - Approval tracking is bounded. When its capacity is exhausted, new approval
@@ -336,7 +376,7 @@ python3 -m compileall -q bridge adapters/codex tests
 
 ## Next Step
 
-Build the isolated Voice Gateway skeleton with fake capture, ASR, TTS, and
-playback providers, then connect its bounded prompt and speech handlers. Obtain
-the license decision from the user when packaging or external contributions
-require it.
+Define the local audio provider benchmark harness, fixed utterance corpus, and
+measurement format before selecting PipeWire, VAD, ASR, or TTS implementations.
+Obtain the license decision from the user when packaging or external
+contributions require it.

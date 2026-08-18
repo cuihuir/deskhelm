@@ -45,6 +45,15 @@ from .transport import (
     encode_frame,
     read_frame,
 )
+from .voice_integration import VoiceBridgeIntegration
+
+
+try:
+    from deskhelm_voice import VoiceGateway
+except ModuleNotFoundError as error:
+    if error.name != "deskhelm_voice":
+        raise
+    from voice.deskhelm_voice import VoiceGateway
 
 
 DEFAULT_MAX_CONNECTIONS = 16
@@ -75,6 +84,8 @@ class _BridgeRuntime:
     subscriber_queue_frames: int
     subscriber_permits: Semaphore
     agent_gateway: AgentGateway | None = None
+    voice_gateway: VoiceGateway | None = None
+    voice_integration: VoiceBridgeIntegration | None = None
     stop: Event = field(default_factory=Event)
     received: int = 0
     _event_lock: Lock = field(default_factory=Lock, repr=False)
@@ -126,6 +137,7 @@ def run_bridge(
     agent_working_directory: Path | None = None,
     agent_max_active_runs: int = 4,
     agent_session_records: int = 64,
+    voice_gateway: VoiceGateway | None = None,
 ) -> int:
     if max_connections < 1:
         raise ValueError("max_connections must be at least 1")
@@ -180,15 +192,32 @@ def run_bridge(
         subscriber_queue_frames=subscriber_queue_frames,
         subscriber_permits=Semaphore(max_subscribers),
     )
-    if agent_provider is not None:
-        runtime.agent_gateway = AgentGateway(
-            provider=agent_provider,
-            publish_interaction=runtime.process_interaction,
-            working_directory=(agent_working_directory or Path.cwd()),
-            max_active_runs=agent_max_active_runs,
-            max_session_records=agent_session_records,
-        )
-        runtime.agent_gateway.register_handlers(control_router)
+    try:
+        if agent_provider is not None:
+            runtime.agent_gateway = AgentGateway(
+                provider=agent_provider,
+                publish_interaction=runtime.process_interaction,
+                working_directory=(agent_working_directory or Path.cwd()),
+                max_active_runs=agent_max_active_runs,
+                max_session_records=agent_session_records,
+            )
+            runtime.agent_gateway.register_handlers(control_router)
+        if voice_gateway is not None:
+            runtime.voice_gateway = voice_gateway
+            runtime.voice_integration = VoiceBridgeIntegration(
+                voice_gateway=voice_gateway,
+                control_router=control_router,
+                interaction_hub=runtime.interaction_hub,
+            )
+            runtime.voice_integration.register()
+    except BaseException:
+        if runtime.voice_integration is not None:
+            runtime.voice_integration.close()
+        if runtime.voice_gateway is not None:
+            runtime.voice_gateway.close()
+        if runtime.agent_gateway is not None:
+            runtime.agent_gateway.close()
+        raise
     permits = Semaphore(max_connections)
     active_connections: set[socket.socket] = set()
     active_lock = RLock()
@@ -237,6 +266,10 @@ def run_bridge(
                         connection.shutdown(socket.SHUT_RDWR)
                     except OSError:
                         pass
+                if runtime.voice_integration is not None:
+                    runtime.voice_integration.close()
+                if runtime.voice_gateway is not None:
+                    runtime.voice_gateway.close()
                 if runtime.agent_gateway is not None:
                     runtime.agent_gateway.close()
                 executor.shutdown(wait=True, cancel_futures=True)

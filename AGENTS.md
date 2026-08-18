@@ -121,6 +121,7 @@ conversation history.
 - `bridge/`: dependency-minimal local core service.
 - `adapters/`: runtime-specific Codex, Claude Code, Gemini CLI, and other
   integrations.
+- `voice/`: provider-neutral PTT, ASR, TTS, playback, and voice lifecycle core.
 - `protocol/`: versioned state, interaction, control, and transport contracts.
 - `configurator/`: device and client setup application.
 - `hardware/`: electronics, PCB, mechanical, production, and test assets.
@@ -214,6 +215,13 @@ Keep third-party reference files outside version control under
   credentials by default.
 - Keep PyTorch, CUDA, model weights, and provider-specific voice dependencies
   outside the core Bridge.
+- Keep `voice/` independent of Bridge. Convert transcripts and speech controls
+  only at the Bridge composition boundary.
+- Allow one active PTT capture/transcription flow, bound speech queues, and
+  require providers to honor cancellation. Starting PTT cancels only current
+  interruptible playback; queued or active speech remains session-targeted.
+- Preserve raw and normalized transcripts separately. Ordinary lifecycle and
+  failure events must not contain audio, transcript, prompt, or speech text.
 
 Record significant protocol, transport, concurrency, framework, MCU, or
 licensing decisions in an ADR before implementation spreads across components.
@@ -238,6 +246,8 @@ Current commands:
 - `PYTHONPATH=bridge:adapters/codex python3 -m deskhelm_bridge bridge
   --agent-provider codex --agent-workdir "$PWD"`: run the opt-in text-only Codex
   gateway with its default read-only sandbox.
+- `PYTHONPATH=bridge python3 -m unittest tests.test_voice_gateway
+  tests.test_voice_integration -v`: run the no-hardware Voice Gateway tests.
 - `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
 - `git diff --check`: detect whitespace errors.
 - `find docs -name '*.md' -type f`: list documentation for review.
