@@ -7,6 +7,7 @@ from .fake_providers import (
 from .gateway import VoiceGateway
 from .models import (
     CapturedAudio,
+    PcmSampleFormat,
     SpeechItem,
     SpeechPriority,
     SynthesizedAudio,
@@ -17,6 +18,7 @@ from .models import (
     VoiceTarget,
 )
 from .providers import VoiceCancelled
+from .pipewire import PipeWireCaptureProvider, PipeWirePlaybackProvider
 
 __all__ = [
     "CapturedAudio",
@@ -24,6 +26,9 @@ __all__ = [
     "FakeCaptureProvider",
     "FakePlaybackProvider",
     "FakeTtsProvider",
+    "PcmSampleFormat",
+    "PipeWireCaptureProvider",
+    "PipeWirePlaybackProvider",
     "SpeechItem",
     "SpeechPriority",
     "SynthesizedAudio",

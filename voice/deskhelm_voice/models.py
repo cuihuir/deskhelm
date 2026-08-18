@@ -5,6 +5,14 @@ from enum import StrEnum
 import uuid
 
 
+class PcmSampleFormat(StrEnum):
+    S16LE = "s16le"
+
+    @property
+    def bytes_per_sample(self) -> int:
+        return {PcmSampleFormat.S16LE: 2}[self]
+
+
 @dataclass(frozen=True, slots=True)
 class VoiceTarget:
     agent_id: str
@@ -25,12 +33,27 @@ class CapturedAudio:
     data: bytes = field(repr=False)
     sample_rate_hz: int
     channels: int = 1
+    sample_format: PcmSampleFormat = PcmSampleFormat.S16LE
 
     def __post_init__(self) -> None:
         if not isinstance(self.data, bytes) or not self.data:
             raise ValueError("captured audio data must not be empty")
         _validate_positive_integer(self.sample_rate_hz, "sample_rate_hz")
         _validate_positive_integer(self.channels, "channels")
+        _validate_pcm_data(
+            self.data,
+            self.channels,
+            self.sample_format,
+            "captured audio",
+        )
+
+    @property
+    def duration_seconds(self) -> float:
+        return len(self.data) / (
+            self.sample_rate_hz
+            * self.channels
+            * self.sample_format.bytes_per_sample
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,12 +73,27 @@ class SynthesizedAudio:
     data: bytes = field(repr=False)
     sample_rate_hz: int
     channels: int = 1
+    sample_format: PcmSampleFormat = PcmSampleFormat.S16LE
 
     def __post_init__(self) -> None:
         if not isinstance(self.data, bytes) or not self.data:
             raise ValueError("synthesized audio data must not be empty")
         _validate_positive_integer(self.sample_rate_hz, "sample_rate_hz")
         _validate_positive_integer(self.channels, "channels")
+        _validate_pcm_data(
+            self.data,
+            self.channels,
+            self.sample_format,
+            "synthesized audio",
+        )
+
+    @property
+    def duration_seconds(self) -> float:
+        return len(self.data) / (
+            self.sample_rate_hz
+            * self.channels
+            * self.sample_format.bytes_per_sample
+        )
 
 
 class SpeechPriority(StrEnum):
@@ -145,3 +183,16 @@ def _validate_positive_integer(value: object, name: str) -> None:
         or value <= 0
     ):
         raise ValueError(f"{name} must be a positive integer")
+
+
+def _validate_pcm_data(
+    data: bytes,
+    channels: int,
+    sample_format: object,
+    name: str,
+) -> None:
+    if not isinstance(sample_format, PcmSampleFormat):
+        raise ValueError(f"{name} sample format is invalid")
+    frame_bytes = channels * sample_format.bytes_per_sample
+    if len(data) % frame_bytes != 0:
+        raise ValueError(f"{name} must contain complete PCM frames")

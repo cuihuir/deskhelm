@@ -39,9 +39,11 @@ and playback providers. Bridge composition completes the no-hardware
 `PTT -> transcript -> Agent -> speech` path and routes targeted speech controls.
 The local voice benchmark foundation now has a versioned synthetic corpus,
 bounded provider-neutral runners and NDJSON observations, accuracy/latency/
-resource summaries, and explicit licensing identity. PipeWire capability is
-verified on the development machine; the PCM and process/recovery contract is
-the next implementation boundary.
+resource summaries, and explicit licensing identity. The first real local audio
+boundary is implemented: explicit raw PCM models plus bounded PipeWire capture
+and playback providers support the current default devices or stable-name
+overrides. They are not activated by the Bridge CLI, and no live microphone or
+speaker was opened during implementation or validation.
 
 ## Completed Work
 
@@ -164,6 +166,15 @@ the next implementation boundary.
   audio, microphone recordings, and local results remain outside Git by default.
 - Verified PipeWire 1.6.8 tools, one default source and sink, raw record/playback
   options, and stable node names without capturing audio or changing settings.
+- Accepted ADR 0011: local audio uses complete-frame raw S16LE PCM with explicit
+  rate/channels, default or stable-name PipeWire targets, and bounded provider
+  lifecycle semantics.
+- Added dependency-free `pw-cat` capture and playback providers with byte/time
+  limits, cancellation, fixed private-content-safe errors, and owned process
+  groups that escalate from SIGTERM to SIGKILL.
+- Added deterministic fake-`pw-cat` coverage for default/manual targets, PCM
+  alignment, bounds, startup/nonzero failures, cancellation, and forced cleanup
+  without opening live audio devices.
 - Recorded ESP32-S3 wireless-audio research: BLE HID for keyboard controls,
   reliable BLE/Wi-Fi state, and Wi-Fi Opus as the preferred future voice path.
 - Selected a simpler local POC path: follow the computer's current PipeWire
@@ -233,6 +244,12 @@ the next implementation boundary.
   into paths, symbols, versions, names, numbers, and negation.
 - Numeric PipeWire object IDs are not durable. Providers must resolve configured
   defaults or stable node names and must not assume an undeclared PCM format.
+- Local capture/playback audio is complete-frame raw S16LE PCM with explicit
+  sample rate and channels. Capture defaults to 16 kHz mono, 30 seconds, and
+  1 MiB; playback defaults to 120 seconds and 16 MiB.
+- PipeWire providers use raw `pw-cat`, own a process session, suppress stderr,
+  poll stop/cancel, and terminate then kill their process group within a bounded
+  grace period. They remain composition-layer options and are not CLI defaults.
 - The local POC follows the computer's current PipeWire default source and sink.
   Users may override either with a stable node name; a missing explicit override
   fails recoverably instead of silently falling back. Opus is reserved for a
@@ -309,6 +326,8 @@ the next implementation boundary.
   provider contracts, bounds, targeting, privacy, and cancellation.
 - `docs/decisions/0010-versioned-voice-benchmark-contract.md`: corpus stability,
   observation format, scoring, bounds, privacy, resources, and licensing.
+- `docs/decisions/0011-bounded-pipewire-pcm-providers.md`: local PCM format,
+  PipeWire targets, provider bounds, process ownership, and privacy contract.
 - `docs/research/2026-08-18-pipewire-preflight.md`: verified local PipeWire
   capabilities and provider-design implications.
 - `docs/research/2026-08-18-esp32-s3-audio-transport.md`: official ESP32-S3 and
@@ -346,6 +365,8 @@ the next implementation boundary.
 - `voice/deskhelm_voice/providers.py`: provider-neutral capture, ASR, TTS, and
   playback contracts.
 - `voice/deskhelm_voice/fake_providers.py`: deterministic no-hardware providers.
+- `voice/deskhelm_voice/pipewire.py`: bounded raw-PCM `pw-cat` capture and
+  playback providers.
 - `voice/deskhelm_voice/benchmark.py`: bounded runners, observation models,
   NDJSON CLI, accuracy metrics, and summaries.
 - `voice/benchmarks/utterances-v1.json`: stable synthetic benchmark corpus.
@@ -358,6 +379,8 @@ the next implementation boundary.
   per-subscriber update queue.
 - `bridge/deskhelm_bridge/interaction_subscription.py`: rich subscription wire
   models, bounded queue, and in-process fan-out hub.
+- `tests/test_pipewire_providers.py`: fake-subprocess PCM, targeting, bounds,
+  failure, cancellation, and process-cleanup coverage.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
 - `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
   connection role dispatch.
@@ -372,7 +395,8 @@ Last verified on 2026-08-18:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 140 tests passed, including strict `ResourceWarning` handling.
+Result: 153 tests passed, including strict `ResourceWarning` handling and 13
+fake-subprocess PipeWire/PCM tests. No live audio device was opened.
 
 Repository checks also passed:
 
@@ -380,16 +404,17 @@ Repository checks also passed:
 git diff --check
 python3 -m compileall -q bridge adapters/codex voice tests
 ! rg -n '[[:blank:]]+$' . --glob '!.git/**'
+! rg -n 'deskhelm_bridge|bridge\.' voice/deskhelm_voice
 ```
 
 ## Remaining Work
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Define PCM format, capture byte/time bounds, process ownership, default/manual
-   PipeWire targeting, DeskHelm microphone preference, and recovery.
-3. Add PipeWire capture/playback and recovery providers, then benchmark VAD,
-   Paraformer, Piper, and Kokoro outside Bridge.
+2. Define the streaming capture/VAD boundary, then benchmark VAD, Paraformer,
+   Piper, and Kokoro outside Bridge.
+3. Add application-level audio provider/device configuration and measure live
+   default/manual target plus disconnect/reconnect recovery behavior.
 4. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.
 
@@ -401,15 +426,15 @@ python3 -m compileall -q bridge adapters/codex voice tests
 - The current text gateway handles prompt submission and interruption.
   Approval and rejection remain unavailable; speech handlers exist only when a
   Voice Gateway is explicitly composed into the Bridge.
-- Production audio devices, VAD, ASR, and TTS are not implemented. The current
-  Voice path is deterministic and no-hardware only.
+- PipeWire capture/playback providers exist, but the Bridge CLI does not select
+  them yet. VAD, production ASR/TTS, device enumeration, and live recovery are
+  not implemented.
 - The benchmark runner records batch ASR final and TTS synthesis latency. First
   partial, streaming first-audio, interruption, and recovery timing await the
   streaming provider contract.
-- The current audio models do not declare PCM sample format or container, so a
-  real `pw-cat` provider would otherwise rely on an unsafe hidden assumption.
-- Manual PipeWire source/sink selection is not implemented yet. Until it is,
-  only the current default-device discovery behavior has been preflighted.
+- PipeWire lifecycle behavior is validated with fake subprocesses only. Live
+  source/sink access, unavailable explicit targets, hot unplug, default-device
+  changes, and actual audio latency remain unverified by design.
 - Adapter registrations are process-local and must be re-established after a
   Bridge restart. No durable session history or replay is promised.
 - Approval tracking is bounded. When its capacity is exhausted, new approval
@@ -435,8 +460,8 @@ python3 -m compileall -q bridge adapters/codex voice tests
 
 ## Next Step
 
-Define and accept the PipeWire PCM, capture bounds, process ownership,
-default/manual source and sink targeting, future DeskHelm microphone preference,
-and recovery contract. Then implement deterministic fake subprocess tests before
-recording live microphone audio. Obtain the repository license decision when
-packaging or external contributions require it.
+Define the streaming capture and VAD boundary, then implement a provider-neutral
+VAD benchmark before selecting a model. Keep PipeWire provider activation and
+live-device recovery measurements at the application composition boundary.
+Obtain the repository license decision when packaging or external contributions
+require it.

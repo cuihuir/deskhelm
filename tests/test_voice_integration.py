@@ -102,7 +102,8 @@ class VoiceIntegrationTests(unittest.TestCase):
         self.assertEqual(agent.requests[0].prompt, "请帮我总结")
         self.assertEqual(transcript.raw_text, "请 帮我 总结")
         self.assertEqual(tts.requests, ["这是总结结果"])
-        self.assertEqual(playback.requests[0].data.decode("utf-8"), "这是总结结果")
+        self.assertGreater(len(playback.requests[0].data), 0)
+        self.assertEqual(playback.requests[0].sample_rate_hz, 24000)
 
     def test_speak_and_stop_controls_route_to_owned_playback(self) -> None:
         playback = FakePlaybackProvider(block_until_cancel=True)

@@ -2,7 +2,7 @@
 
 Date: 2026-08-18
 
-Status: Verified local capability; provider implementation not started.
+Status: Verified local capability; bounded provider boundary implemented.
 
 ## Verified Environment
 
@@ -20,26 +20,27 @@ Status: Verified local capability; provider implementation not started.
 No microphone audio was captured and no desktop audio configuration was
 changed during this preflight.
 
-## Implementation Implications
+## Implemented Boundary
 
 - Do not persist numeric PipeWire object IDs; they are process-local and can
   change. Resolve the configured default or a stable node name for each run.
-- The current DeskHelm audio models carry bytes, rate, and channels but do not
-  declare PCM sample format or container. A real PipeWire provider must first
-  add an explicit audio-format contract; assuming every provider emits raw
-  signed 16-bit PCM would create a hidden compatibility bug.
-- A subprocess provider can initially use `pw-cat` without adding Python
-  bindings, but it must own process groups, bound captured bytes, suppress
-  private stderr, honor stop/cancel promptly, and handle default-device changes.
-- Capture and playback recovery must be tested with stable fake subprocesses
-  before exercising actual device disconnects.
+- DeskHelm audio models now declare raw S16LE PCM, sample rate, channels,
+  complete-frame alignment, and duration.
+- `PipeWireCaptureProvider` and `PipeWirePlaybackProvider` use `pw-cat` without
+  Python bindings, own process groups, enforce byte/time limits, suppress
+  private stderr, and honor stop/cancel through bounded terminate/kill cleanup.
+- Omitting `--target` resolves the current PipeWire default for each new stream;
+  manual overrides accept stable names and fail rather than falling back.
+- Deterministic fake-subprocess tests cover failures and lifecycle cleanup
+  without exercising the microphone or speaker.
 - System Python is 3.14.6 while DeskHelm supports Python 3.11 and newer. Model
   environments should remain separate because many ASR/TTS stacks may lag the
   system interpreter.
 
-## Next Decision
+## Remaining Validation
 
-Before implementing PipeWire providers, record an ADR for the PCM/container
-model, maximum capture duration and byte count, process termination semantics,
-device targeting, and recovery behavior. This is independent of choosing an
-ASR or TTS model.
+ADR 0011 records the PCM, bounds, process, and device-targeting contract. Live
+device enumeration, explicit application configuration, disconnect/reconnect
+behavior, and latency measurements remain unverified. Those checks should be
+performed only when the composition layer is ready to expose device selection;
+this phase intentionally captured no microphone audio.

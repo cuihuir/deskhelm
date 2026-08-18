@@ -64,8 +64,9 @@ class FakeTtsProvider:
         if cancel.is_set():
             raise VoiceCancelled()
         self.requests.append(text)
+        frame_count = max(1, len(text.encode("utf-8")))
         return SynthesizedAudio(
-            data=text.encode("utf-8"),
+            data=b"\x00\x00" * frame_count,
             sample_rate_hz=self.sample_rate_hz,
         )
 

@@ -233,6 +233,10 @@ Keep third-party reference files outside version control under
   source and sink. Allow an optional stable source/sink name override; if an
   override is set but missing, fail explicitly instead of falling back. Do not
   persist numeric PipeWire object IDs or add Opus to this local path.
+- Represent the local PipeWire path as complete-frame raw S16LE PCM with an
+  explicit rate and channel count. Keep `pw-cat` providers bounded by bytes and
+  duration, own their process group, suppress private stderr, and terminate then
+  kill within a bounded grace period.
 - Once DeskHelm hardware audio exists, prefer the connected DeskHelm keyboard
   microphone over the computer default unless the user selected another source.
   Keep manual selection highest priority and document disconnect fallback in an
@@ -265,6 +269,8 @@ Current commands:
   gateway with its default read-only sandbox.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_voice_gateway
   tests.test_voice_integration -v`: run the no-hardware Voice Gateway tests.
+- `PYTHONPATH=bridge python3 -m unittest tests.test_pipewire_providers -v`: run
+  deterministic PipeWire provider tests without opening audio devices.
 - `PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr --corpus
   voice/benchmarks/utterances-v1.json --observations <results.ndjson>`: score a
   bounded ASR benchmark run.

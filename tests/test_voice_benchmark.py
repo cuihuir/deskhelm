@@ -97,7 +97,7 @@ class VoiceBenchmarkTests(unittest.TestCase):
         samples = (
             BenchmarkAudioSample(
                 utterance_id=utterance.utterance_id,
-                audio=CapturedAudio(b"pcm", sample_rate_hz=16000),
+                audio=CapturedAudio(b"\x00\x00", sample_rate_hz=16000),
                 audio_duration_ms=1000,
             ),
         )
@@ -122,7 +122,7 @@ class VoiceBenchmarkTests(unittest.TestCase):
             (
                 BenchmarkAudioSample(
                     utterance.utterance_id,
-                    CapturedAudio(b"pcm", sample_rate_hz=16000),
+                    CapturedAudio(b"\x00\x00", sample_rate_hz=16000),
                     100,
                 ),
             ),
