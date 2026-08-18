@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "name": "deskhelm-vad-external-v1",
+  "source_dataset": "Free Spoken Digit Dataset",
+  "dataset_url": "https://github.com/Jakobovski/free-spoken-digit-dataset",
+  "dataset_revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+  "dataset_license": "CC-BY-SA-4.0",
+  "audio_format": {
+    "sample_rate_hz": 16000,
+    "channels": 1,
+    "sample_format": "s16le"
+  },
+  "chunk_ms": 20,
+  "sources": [
+    {
+      "source_id": "george-zero",
+      "file_name": "0_george_0.wav",
+      "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings/0_george_0.wav",
+      "revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+      "sha256": "228ab63fccdf262d2e05817b6ec918b15e7d9e4bfb6bb20183c46ae088405240",
+      "license": "CC-BY-SA-4.0",
+      "speaker": "george"
+    },
+    {
+      "source_id": "jackson-one",
+      "file_name": "1_jackson_0.wav",
+      "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings/1_jackson_0.wav",
+      "revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+      "sha256": "b3739400f793620875bb7849bfd8629dc6b2966ed6bda8276aa14178a612f13a",
+      "license": "CC-BY-SA-4.0",
+      "speaker": "jackson"
+    },
+    {
+      "source_id": "lucas-two",
+      "file_name": "2_lucas_0.wav",
+      "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings/2_lucas_0.wav",
+      "revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+      "sha256": "1cc45214f58b07f3188a0474060cf04c600123d1bc05c9889f81a24e77edab2f",
+      "license": "CC-BY-SA-4.0",
+      "speaker": "lucas"
+    },
+    {
+      "source_id": "nicolas-three",
+      "file_name": "3_nicolas_0.wav",
+      "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings/3_nicolas_0.wav",
+      "revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+      "sha256": "5da068172b180b74cd8ed019d131679249387b0199cb972992adf18e21f1d82d",
+      "license": "CC-BY-SA-4.0",
+      "speaker": "nicolas"
+    },
+    {
+      "source_id": "theo-four",
+      "file_name": "4_theo_0.wav",
+      "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings/4_theo_0.wav",
+      "revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+      "sha256": "4b96496d35d799b61b8341ac42161907b0a4dac68564310016396d9c6cffebe4",
+      "license": "CC-BY-SA-4.0",
+      "speaker": "theo"
+    },
+    {
+      "source_id": "yweweler-five",
+      "file_name": "5_yweweler_0.wav",
+      "url": "https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/26eb9aaf76e81b692f806f9140c2d2777410d7a1/recordings/5_yweweler_0.wav",
+      "revision": "26eb9aaf76e81b692f806f9140c2d2777410d7a1",
+      "sha256": "8850c7830e4a4427c1c53c6f4dad91debc90ec08f9ac104621d66e684a7cae76",
+      "license": "CC-BY-SA-4.0",
+      "speaker": "yweweler"
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario_id": "single-george-zero",
+      "parts": [{"silence_ms": 300}, {"source_id": "george-zero"}, {"silence_ms": 600}]
+    },
+    {
+      "scenario_id": "single-jackson-one",
+      "parts": [{"silence_ms": 300}, {"source_id": "jackson-one"}, {"silence_ms": 600}]
+    },
+    {
+      "scenario_id": "single-lucas-two",
+      "parts": [{"silence_ms": 300}, {"source_id": "lucas-two"}, {"silence_ms": 600}]
+    },
+    {
+      "scenario_id": "single-nicolas-three",
+      "parts": [{"silence_ms": 300}, {"source_id": "nicolas-three"}, {"silence_ms": 600}]
+    },
+    {
+      "scenario_id": "single-theo-four",
+      "parts": [{"silence_ms": 300}, {"source_id": "theo-four"}, {"silence_ms": 600}]
+    },
+    {
+      "scenario_id": "single-yweweler-five",
+      "parts": [{"silence_ms": 300}, {"source_id": "yweweler-five"}, {"silence_ms": 600}]
+    },
+    {
+      "scenario_id": "two-speakers-short-gap",
+      "parts": [
+        {"silence_ms": 300},
+        {"source_id": "george-zero"},
+        {"silence_ms": 240},
+        {"source_id": "jackson-one"},
+        {"silence_ms": 600}
+      ]
+    }
+  ]
+}

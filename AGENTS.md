@@ -233,6 +233,12 @@ Keep third-party reference files outside version control under
 - Keep VAD samples bounded to 100,000 chunks, 256 segments, and 64 MiB PCM.
   Persist only derived segmentation/timing/resource observations, never raw PCM
   or provider exception text, unless separately approved under corpus rules.
+- Keep external VAD audio reproducible through a versioned manifest containing
+  pinned revisions, HTTPS source URLs, SHA-256 checksums, licenses, and explicit
+  composition recipes. Keep downloaded/prepared audio and model files ignored.
+- Keep WebRTC and Silero dependencies lazy and outside Bridge requirements.
+  Every Silero stream resets recurrent state and context even when providers
+  share an immutable ONNX Runtime session.
 - Do not commit microphone captures, generated speech, model output, or local
   benchmark results without explicit provenance, consent, and redistribution
   terms.
@@ -283,6 +289,15 @@ Current commands:
   bounded ASR benchmark run.
 - `PYTHONPATH=voice python3 -m deskhelm_voice.benchmark summarize-vad
   --observations <results.ndjson>`: summarize bounded VAD observations.
+- `PYTHONPATH=voice python tools/prepare-vad-benchmark.py --manifest
+  voice/benchmarks/vad-external-v1.json --artifact-root
+  references/vendor/vad-bench/run-v1`: verify and prepare the pinned external
+  VAD set under ignored storage.
+- `PYTHONPATH=voice python tools/run-vad-benchmark.py --provider webrtc
+  --manifest voice/benchmarks/vad-external-v1.json --prepared
+  references/vendor/vad-bench/run-v1/prepared --observations
+  voice/benchmarks/results/webrtc-v1.ndjson`: run the lightweight baseline from
+  an isolated environment that provides its optional runtime.
 - `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
 - `git diff --check`: detect whitespace errors.
 - `find docs -name '*.md' -type f`: list documentation for review.

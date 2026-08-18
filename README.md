@@ -55,8 +55,10 @@ latency, resource, and licensing observations. The first real local audio
 boundary is now available as bounded PipeWire capture/playback providers using
 explicit raw PCM, the current default devices or stable-name overrides. The CLI
 does not activate live audio yet. A frame-positioned streaming PCM/VAD session
-contract and bounded provider-neutral VAD benchmark are also implemented;
-production model measurements remain pending.
+contract and bounded provider-neutral VAD benchmark are also implemented. The
+first pinned FSDD comparison now runs WebRTC and Silero ONNX adapters outside
+Bridge; broader noisy/live evidence is still required before selecting a
+production VAD.
 
 Current development focuses on the no-hardware Agent Console path:
 
@@ -66,8 +68,8 @@ Bridge state and sessions
   -> text-only Agent gateway
   -> bounded Voice Gateway skeleton
   -> bounded PipeWire audio providers
-  -> streaming VAD benchmark contract
-  -> VAD, ASR, TTS, and recovery measurements
+  -> initial external-audio WebRTC/Silero VAD comparison
+  -> broader VAD, ASR, TTS, and recovery measurements
 ```
 
 Hardware, firmware, and device transport decisions remain exploratory until

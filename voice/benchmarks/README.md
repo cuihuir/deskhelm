@@ -11,9 +11,12 @@ URLs, version numbers, symbols, negation, repetition, and longer recovery
 instructions. `utterance_id` is stable within version 1. Change reference text
 or keyword expectations only by creating a new corpus version.
 
-Audio recordings are intentionally not committed yet. A future capture set must
-record speaker consent, microphone and room metadata, sample format, checksum,
-and redistribution license before entering version control.
+`vad-external-v1.json` is the first public-audio manifest. It pins six FSDD
+source recordings by commit and SHA-256 and defines seven deterministic
+speech/silence scenarios. The source and prepared audio remain outside Git;
+only provenance, license identity, checksums, and recipes are committed. A
+future private capture set must record speaker consent, microphone and room
+metadata, sample format, checksum, and redistribution terms.
 
 ## Observation Format
 
@@ -74,3 +77,9 @@ in-memory sample is limited to 100,000 chunks, 256 speech segments, and 64 MiB
 PCM. Offline replay feeds chunks without sleeping, so processing latency and
 frame-relative detection delay are reported separately from future live
 end-to-end measurements.
+
+Prepare the external set with `tools/prepare-vad-benchmark.py`. It verifies
+source checksums, converts to 16 kHz mono S16LE, pads to complete 20 ms chunks,
+and writes a local checksum/index file. Run candidates with
+`tools/run-vad-benchmark.py`; both tools require an explicit ignored artifact
+directory and do not add optional runtimes to Bridge.

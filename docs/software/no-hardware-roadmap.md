@@ -92,7 +92,10 @@ Status: In Progress
 - [x] Add PipeWire capture from the default or manually selected input source.
 - [x] Add PipeWire playback through the computer's configured/default sink.
 - [x] Define the streaming PCM and provider-neutral VAD benchmark boundary.
-- [ ] Benchmark production VAD candidates on labeled audio.
+- [x] Benchmark initial WebRTC and Silero ONNX VAD candidates on a pinned public
+  audio set.
+- [ ] Expand VAD measurements to conversational/noisy audio and live devices,
+  then select the production default.
 - [ ] Benchmark Paraformer for streaming ASR.
 - [ ] Benchmark Piper and Kokoro for notification TTS.
 - [x] Add fixed Chinese, English, and mixed-language test utterances.
@@ -109,10 +112,10 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Benchmark VAD candidates on labeled external audio and record exact provider,
-   model, threshold, resource, latency, and licensing identity.
-2. Benchmark Paraformer, Piper, and Kokoro outside Bridge, including device-loss
+1. Benchmark Paraformer, Piper, and Kokoro outside Bridge, including device-loss
    and cancellation recovery measurements.
+2. Expand VAD coverage to noisy/conversational speech, threshold sweeps, and
+   live PipeWire latency before selecting a default.
 3. Add explicit provider selection and stable-name device configuration at the
    application composition boundary.
 4. Add a multi-project working-directory registry before one Bridge process

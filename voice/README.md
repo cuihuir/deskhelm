@@ -34,7 +34,9 @@ Bridge CLI yet. Capture defaults to 16 kHz mono S16LE, 30 seconds, and 1 MiB;
 playback defaults to 120 seconds and 16 MiB. Both own and terminate their
 subprocess groups, suppress private stderr, and expose fixed recoverable errors.
 The fake providers include a deterministic streaming VAD session for benchmark
-and lifecycle tests. Local production VAD/ASR and TTS providers remain pending.
+and lifecycle tests. `webrtc_vad.py` and `silero_onnx_vad.py` provide the first
+real benchmark adapters with lazy optional imports. They are not selected by
+the Voice Gateway yet. Local production ASR and TTS providers remain pending.
 Keep model weights and provider-specific heavyweight dependencies outside the
 repository and outside Bridge.
 
@@ -44,6 +46,9 @@ repository and outside Bridge.
 and measurement documentation. `deskhelm_voice.benchmark` provides bounded fake
 or production provider runners, NDJSON observations, ASR accuracy scoring, VAD
 segmentation metrics, and latency/resource summaries without model dependencies.
+`vad-external-v1.json` pins six public FSDD clips and seven deterministic
+silence-composition scenarios. Downloaded audio, prepared WAV files, models, and
+raw observations remain ignored.
 
 ```bash
 PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr \
@@ -56,12 +61,26 @@ PYTHONPATH=voice python3 -m deskhelm_voice.benchmark summarize-vad \
   --observations /path/to/vad-observations.ndjson
 ```
 
+Prepare and run the external VAD set from an isolated environment:
+
+```bash
+PYTHONPATH=voice python tools/prepare-vad-benchmark.py \
+  --manifest voice/benchmarks/vad-external-v1.json \
+  --artifact-root references/vendor/vad-bench/run-v1
+
+PYTHONPATH=voice python tools/run-vad-benchmark.py \
+  --provider webrtc \
+  --manifest voice/benchmarks/vad-external-v1.json \
+  --prepared references/vendor/vad-bench/run-v1/prepared \
+  --observations voice/benchmarks/results/webrtc-v1.ndjson
+```
+
 ## Tests
 
 ```bash
 PYTHONPATH=bridge python3 -m unittest \
   tests.test_pipewire_providers tests.test_voice_benchmark \
-  tests.test_vad_benchmark \
+  tests.test_vad_benchmark tests.test_vad_providers \
   tests.test_voice_gateway \
   tests.test_voice_integration -v
 ```

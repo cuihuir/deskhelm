@@ -44,9 +44,10 @@ boundary is implemented: explicit raw PCM models plus bounded PipeWire capture
 and playback providers support the current default devices or stable-name
 overrides. They are not activated by the Bridge CLI, and no live microphone or
 speaker was opened during implementation or validation. The streaming PCM and
-VAD benchmark boundary is now implemented with contiguous absolute frame
-positions, independent provider sessions, bounded speech events, derived
-segmentation metrics, and no selected production VAD model.
+VAD benchmark boundary now has its first reproducible real-audio implementation:
+pinned FSDD sources, deterministic prepared samples, lazy WebRTC and Silero
+ONNX adapters, and privacy-safe aggregate observations. The result validates
+both paths but does not select a production VAD.
 
 ## Completed Work
 
@@ -189,6 +190,22 @@ segmentation metrics, and no selected production VAD model.
 - Added deterministic fake VAD sessions and coverage for chunk continuity,
   event ordering, precision/recall/F1, failure isolation, NDJSON, and CLI output
   without audio devices or model dependencies.
+- Accepted ADR 0013: compare WebRTC VAD 2.0.14 and Silero VAD 6.2.1 ONNX as the
+  first classical and neural baselines without adding optional runtimes to
+  Bridge or committing third-party audio/model files.
+- Added a versioned external VAD manifest with six FSDD speakers, pinned source
+  revision and SHA-256 values, CC BY-SA 4.0 identity, and seven deterministic
+  speech/silence composition scenarios.
+- Added bounded preparation and run tools that verify downloads, convert to
+  16 kHz mono S16LE, checksum prepared WAV files, load exact reference frame
+  intervals, and keep raw observations under ignored storage.
+- Implemented WebRTC and Silero ONNX streaming adapters with arbitrary-chunk
+  buffering, cancellation, explicit flushing, bounded endpointing state, and
+  lazy optional runtimes. Silero resets recurrent state/context per stream.
+- Ran 35 observations per candidate on Linux x86-64/Python 3.14.6 with no
+  failures. WebRTC recorded F1 0.894 and replay p50/p95 0.19/0.31 ms; Silero
+  recorded F1 0.859 and 2.98/4.57 ms. The quiet trimmed corpus is explicitly
+  insufficient for final production selection.
 - Recorded ESP32-S3 wireless-audio research: BLE HID for keyboard controls,
   reliable BLE/Wi-Fi state, and Wi-Fi Opus as the preferred future voice path.
 - Selected a simpler local POC path: follow the computer's current PipeWire
@@ -259,6 +276,12 @@ segmentation metrics, and no selected production VAD model.
   resources rather than PCM or provider exception text.
 - Offline VAD replay measures compute time and frame-relative detection delay
   separately; it is not reported as live microphone end-to-end latency.
+- Initial production candidates are WebRTC VAD and Silero VAD ONNX. Their
+  optional runtimes remain lazy and external to Bridge; Silero shares the
+  immutable ONNX Runtime session but resets state and context per stream.
+- External VAD audio is reconstructed from a versioned manifest with pinned
+  HTTPS URLs, revisions, checksums, licenses, and explicit silence recipes.
+  Raw/prepared audio, models, and observation files remain ignored.
 - Voice benchmark v1 fixes corpus IDs and reference text, limits records to
   1 MiB, files to 64 MiB, and runs to 10,000 observations, and requires
   provider/model versions, licenses, anonymous system profile, and device
@@ -354,10 +377,14 @@ segmentation metrics, and no selected production VAD model.
   PipeWire targets, provider bounds, process ownership, and privacy contract.
 - `docs/decisions/0012-streaming-pcm-vad-benchmark-boundary.md`: streaming PCM
   chunks, VAD sessions/events, benchmark metrics, bounds, and privacy contract.
+- `docs/decisions/0013-select-webrtc-and-silero-vad-baselines.md`: initial VAD
+  candidates, dependency isolation, FSDD provenance, and selection limits.
 - `docs/research/2026-08-18-pipewire-preflight.md`: verified local PipeWire
   capabilities and provider-design implications.
 - `docs/research/2026-08-18-esp32-s3-audio-transport.md`: official ESP32-S3 and
   Opus evidence, wireless control split, parameters, risks, and local USB path.
+- `docs/research/2026-08-18-vad-candidates-and-first-benchmark.md`: verified
+  candidate facts, first-run configuration, aggregate results, and gaps.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -398,7 +425,17 @@ segmentation metrics, and no selected production VAD model.
 - `voice/deskhelm_voice/benchmark.py`: bounded runners, observation models,
   NDJSON CLI, accuracy metrics, and summaries.
 - `voice/benchmarks/utterances-v1.json`: stable synthetic benchmark corpus.
+- `voice/benchmarks/vad-external-v1.json`: pinned public VAD audio provenance,
+  checksums, format, speakers, and deterministic scenario recipes.
 - `voice/benchmarks/README.md`: measurement and artifact-handling contract.
+- `voice/deskhelm_voice/vad_manifest.py`: bounded external-audio manifest model.
+- `voice/deskhelm_voice/vad_samples.py`: checksum-validating prepared WAV loader
+  and deterministic PCM chunk construction.
+- `voice/deskhelm_voice/webrtc_vad.py`: lazy WebRTC VAD streaming adapter.
+- `voice/deskhelm_voice/silero_onnx_vad.py`: lazy stateful Silero ONNX adapter.
+- `tools/prepare-vad-benchmark.py`: bounded download, verification, conversion,
+  composition, and local prepared-index generation.
+- `tools/run-vad-benchmark.py`: isolated candidate runner and NDJSON writer.
 - `bridge/deskhelm_bridge/voice_integration.py`: transcript, interaction, and
   control composition between Bridge and Voice.
 - `adapters/codex/deskhelm_codex_adapter/provider.py`: Codex command, stdin,
@@ -411,6 +448,8 @@ segmentation metrics, and no selected production VAD model.
   failure, cancellation, and process-cleanup coverage.
 - `tests/test_vad_benchmark.py`: streaming chunk/session validation, VAD metrics,
   failure records, NDJSON, and CLI summary coverage.
+- `tests/test_vad_providers.py`: manifest, prepared checksum, WebRTC buffering,
+  format, and hysteresis coverage.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
 - `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
   connection role dispatch.
@@ -425,15 +464,19 @@ Last verified on 2026-08-18:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 160 tests passed, including strict `ResourceWarning` handling, 13
-fake-subprocess PipeWire/PCM tests, and 7 streaming VAD benchmark tests. No live
-audio device or model runtime was opened.
+Result: 164 tests passed, including strict `ResourceWarning` handling, 13
+fake-subprocess PipeWire/PCM tests, 7 streaming VAD benchmark tests, and 4
+manifest/provider tests. The full unit suite opened no live audio device.
+
+The isolated real-candidate run also passed with 35/35 successful observations
+for both WebRTC and Silero. Downloaded FSDD audio, prepared WAV files, the ONNX
+model, the virtual environment, and raw NDJSON results remain ignored.
 
 Repository checks also passed:
 
 ```bash
 git diff --check
-python3 -m compileall -q bridge adapters/codex voice tests
+python3 -m compileall -q bridge adapters/codex voice tests tools
 ! rg -n '[[:blank:]]+$' . --glob '!.git/**'
 ! rg -n 'deskhelm_bridge|bridge\.' voice/deskhelm_voice
 ```
@@ -442,8 +485,8 @@ python3 -m compileall -q bridge adapters/codex voice tests
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Benchmark production VAD candidates on labeled external audio, then benchmark
-   Paraformer, Piper, and Kokoro outside Bridge.
+2. Benchmark Paraformer, Piper, and Kokoro outside Bridge, then expand VAD to
+   noisy/conversational labeled audio and live-device threshold measurements.
 3. Add application-level audio provider/device configuration and measure live
    default/manual target plus disconnect/reconnect recovery behavior.
 4. Add a multi-project working-directory registry before one Bridge process
@@ -458,7 +501,7 @@ python3 -m compileall -q bridge adapters/codex voice tests
   Approval and rejection remain unavailable; speech handlers exist only when a
   Voice Gateway is explicitly composed into the Bridge.
 - PipeWire capture/playback providers exist, but the Bridge CLI does not select
-  them yet. Production VAD/ASR/TTS, streaming PipeWire capture, device
+  them yet. Production VAD selection, ASR/TTS, streaming PipeWire capture, device
   enumeration, and live recovery are not implemented.
 - The benchmark runner records VAD compute/detection timing plus batch ASR final
   and TTS synthesis latency. Live capture-to-decision, first partial,
@@ -486,14 +529,17 @@ python3 -m compileall -q bridge adapters/codex voice tests
   versioned fixture sets.
 - One configured Agent working directory currently applies to every gateway
   session. Multi-project path ownership is not yet modeled.
-- Production VAD, ASR, and TTS quality, latency, recovery, resource use, and
-  model licensing have not been benchmarked on the target machine.
+- Initial WebRTC and Silero VAD replay quality/latency and licenses are measured,
+  but the corpus lacks conversational speech, Chinese, noise, music, keyboard
+  sounds, distant microphones, and live recovery. Production VAD is unselected.
+- Production ASR and TTS quality, latency, recovery, resource use, and model
+  licensing have not been benchmarked on the target machine.
 
 ## Next Step
 
-Select the first VAD candidates and build a labeled external audio run set with
-threshold and licensing metadata, then record comparable observations through
-the provider-neutral benchmark. Keep PipeWire streaming activation and
-live-device recovery measurements at the application composition boundary.
-Obtain the repository license decision when packaging or external contributions
-require it.
+Benchmark the first streaming ASR candidate, Paraformer, through the existing
+provider-neutral corpus and observation boundary while keeping its runtime and
+weights outside Bridge and Git. Then compare Piper and Kokoro notification TTS.
+Keep broader VAD threshold/noise work plus PipeWire streaming activation and
+live-device recovery at the application composition boundary. Obtain the
+repository license decision when packaging or external contributions require it.

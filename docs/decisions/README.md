@@ -1,3 +1,8 @@
 # Architecture Decision Records
 
 文件命名格式为 `NNNN-short-title.md`。每条 ADR 至少记录背景、候选方案、决定、影响和状态。
+
+Current voice decisions include
+[`0013-select-webrtc-and-silero-vad-baselines.md`](0013-select-webrtc-and-silero-vad-baselines.md),
+which fixes the first reproducible external-audio VAD candidates without making
+a final production selection.
