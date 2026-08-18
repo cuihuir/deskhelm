@@ -66,9 +66,11 @@ Codex / Claude / Gemini / OpenCode
 `voice/`，由 Bridge composition 将最终规范化转写转换为定向
 `submit_prompt`，并将完整 assistant 消息排入有界语音队列。VAD 留到
 流式 PipeWire capture 边界确定后定义，避免先固化错误的批处理接口。
-本机 POC 使用 USB 麦克风作为 PipeWire 输入，并通过电脑当前配置的默认
-sink 播放 TTS；此路径不引入 Opus。Opus 保留给未来 ESP32-S3 Wi-Fi 或
-自定义 BLE 音频传输。
+本机 POC 默认跟随电脑当前的 PipeWire 收音设备和播放 sink，也允许按稳定
+node name 手工指定输入或输出；显式指定的设备缺失时直接报错，不静默回退。
+此路径不引入 Opus。Opus 保留给未来 ESP32-S3 Wi-Fi 或自定义 BLE 音频传输。
+硬件完成后，未手工指定输入时应优先使用已连接的 DeskHelm 键盘麦克风，
+电脑默认收音设备退为无硬件开发和备用路径。
 
 不负责：
 

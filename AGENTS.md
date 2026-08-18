@@ -229,10 +229,14 @@ Keep third-party reference files outside version control under
 - Do not commit microphone captures, generated speech, model output, or local
   benchmark results without explicit provenance, consent, and redistribution
   terms.
-- The initial local audio path uses an explicitly configured USB microphone
-  through PipeWire and the computer's configured/default sink. Do not fall back
-  silently to an unrelated input, persist numeric PipeWire object IDs, or add
-  Opus to this unconstrained local path.
+- The initial local audio path follows the computer's current PipeWire default
+  source and sink. Allow an optional stable source/sink name override; if an
+  override is set but missing, fail explicitly instead of falling back. Do not
+  persist numeric PipeWire object IDs or add Opus to this local path.
+- Once DeskHelm hardware audio exists, prefer the connected DeskHelm keyboard
+  microphone over the computer default unless the user selected another source.
+  Keep manual selection highest priority and document disconnect fallback in an
+  ADR before implementing it.
 - Treat ESP32-S3 plus Opus as a researched future direction, not a selected MCU
   or frozen transport. Record an ADR before hardware or wire implementation.
 

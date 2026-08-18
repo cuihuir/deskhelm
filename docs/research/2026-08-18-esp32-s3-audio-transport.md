@@ -13,9 +13,9 @@ Evaluate a future DeskHelm keyboard built around ESP32-S3 that carries:
 - device, RGB, display, and Agent state;
 - push-to-talk microphone audio over Wi-Fi or Bluetooth LE.
 
-The immediate local proof of concept remains simpler: a USB microphone provides
-input through PipeWire, and the computer's configured default speakers provide
-playback. It does not need a wireless audio codec.
+The immediate local proof of concept remains simpler: PipeWire follows the
+computer's current default capture device and default speakers, with optional
+manual source or sink selection. It does not need a wireless audio codec.
 
 ## Verified ESP32-S3 Capabilities
 
@@ -116,27 +116,40 @@ controller, host-stack, operating-system, and interoperability verification.
 The first production-like software provider will use:
 
 ```text
-USB microphone
-  -> PipeWire configured USB input
+computer capture device
+  -> PipeWire default or manually selected input
   -> bounded PCM capture
   -> local VAD / ASR
 
 local TTS
   -> bounded PCM playback
-  -> PipeWire configured/default computer speakers
+  -> PipeWire default or manually selected computer speakers
 ```
 
 This path deliberately avoids Opus. Capture and ASR already require PCM, and
-there is no constrained link between the USB microphone, Voice Gateway, and
-computer speakers. The implementation should select the configured USB source
-by stable PipeWire node name and fail recoverably when it is absent, rather than
-silently capture from an unrelated default source. Playback may follow the
-configured default sink. Numeric PipeWire object IDs must not be persisted.
+there is no constrained link between the computer's audio devices and Voice
+Gateway. With no override, the provider should resolve PipeWire's current
+default source and sink for each new stream. A manual override uses a stable
+PipeWire node name; if that node is absent, the operation fails recoverably
+instead of silently switching devices. Numeric PipeWire object IDs must not be
+persisted.
 
 The 2026-08-18 PipeWire preflight observed the built-in analog source as the
-current default, not a USB microphone. USB source discovery and stable-name
-selection therefore remain unverified until the intended microphone is
-connected.
+current default. A USB microphone will work automatically when selected as the
+computer default, or it can be selected explicitly by stable node name.
+
+Planned source preference after DeskHelm hardware exists:
+
+```text
+manual user selection
+  -> connected DeskHelm keyboard microphone
+  -> computer default capture device
+```
+
+The keyboard microphone is therefore the product default, while the computer
+default remains the no-hardware development path and potential fallback. Exact
+disconnect and automatic-fallback behavior requires an audio-device ADR so a
+microphone change is never surprising or invisible to the user.
 
 ## Validation Required Before Hardware Freeze
 

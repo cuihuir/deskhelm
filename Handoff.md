@@ -166,9 +166,11 @@ the next implementation boundary.
   options, and stable node names without capturing audio or changing settings.
 - Recorded ESP32-S3 wireless-audio research: BLE HID for keyboard controls,
   reliable BLE/Wi-Fi state, and Wi-Fi Opus as the preferred future voice path.
-- Selected a simpler local POC path: explicitly configured USB microphone
-  capture through PipeWire and playback through the computer's
-  configured/default sink, without Opus.
+- Selected a simpler local POC path: follow the computer's current PipeWire
+  default capture and playback devices, with optional stable-name overrides and
+  no Opus.
+- Set the future product preference: manual source selection first, then a
+  connected DeskHelm keyboard microphone, then the computer default source.
 - Reviewed two public Agent I/O projects and extracted streaming, adapter,
   fixture, observability, privacy, and idempotency lessons.
 - Added the project constitution and durable DeskHelm-specific collaboration
@@ -231,11 +233,14 @@ the next implementation boundary.
   into paths, symbols, versions, names, numbers, and negation.
 - Numeric PipeWire object IDs are not durable. Providers must resolve configured
   defaults or stable node names and must not assume an undeclared PCM format.
-- The local POC uses an explicitly configured USB microphone and the computer's
-  configured/default sink. A missing microphone fails recoverably instead of
-  falling back silently to another input. Opus is reserved for a constrained
-  future wireless link, with an initial research profile of 16 kHz mono, 20 ms
-  frames, and 24 kbps VoIP mode.
+- The local POC follows the computer's current PipeWire default source and sink.
+  Users may override either with a stable node name; a missing explicit override
+  fails recoverably instead of silently falling back. Opus is reserved for a
+  constrained future wireless link, with an initial research profile of 16 kHz
+  mono, 20 ms frames, and 24 kbps VoIP mode.
+- After hardware integration, the DeskHelm keyboard microphone becomes the
+  default input when connected, unless the user manually chose another source.
+  Disconnect fallback and user notification remain an ADR decision.
 - ESP32-S3 and its wireless framing remain research directions, not frozen
   hardware or protocol decisions; implementation requires later ADRs.
 - Canonical runtime identifiers are `deskhelm`, `deskhelm_bridge`, and
@@ -381,8 +386,8 @@ python3 -m compileall -q bridge adapters/codex voice tests
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Define PCM format, capture byte/time bounds, process ownership, explicit USB
-   microphone and default computer-sink targeting, and recovery.
+2. Define PCM format, capture byte/time bounds, process ownership, default/manual
+   PipeWire targeting, DeskHelm microphone preference, and recovery.
 3. Add PipeWire capture/playback and recovery providers, then benchmark VAD,
    Paraformer, Piper, and Kokoro outside Bridge.
 4. Add a multi-project working-directory registry before one Bridge process
@@ -403,9 +408,8 @@ python3 -m compileall -q bridge adapters/codex voice tests
   streaming provider contract.
 - The current audio models do not declare PCM sample format or container, so a
   real `pw-cat` provider would otherwise rely on an unsafe hidden assumption.
-- The intended USB microphone was not present in the recorded PipeWire
-  preflight; the current default source was built-in analog. USB discovery and
-  stable-name configuration remain unverified until the device is connected.
+- Manual PipeWire source/sink selection is not implemented yet. Until it is,
+  only the current default-device discovery behavior has been preflighted.
 - Adapter registrations are process-local and must be re-established after a
   Bridge restart. No durable session history or replay is promised.
 - Approval tracking is bounded. When its capacity is exhausted, new approval
@@ -431,8 +435,8 @@ python3 -m compileall -q bridge adapters/codex voice tests
 
 ## Next Step
 
-Define and accept the PipeWire PCM, capture bounds, process ownership, explicit
-USB microphone and default computer-sink targeting, and recovery contract. Then
-implement deterministic fake subprocess tests before recording live microphone
-audio. Obtain the repository license decision when packaging or external
-contributions require it.
+Define and accept the PipeWire PCM, capture bounds, process ownership,
+default/manual source and sink targeting, future DeskHelm microphone preference,
+and recovery contract. Then implement deterministic fake subprocess tests before
+recording live microphone audio. Obtain the repository license decision when
+packaging or external contributions require it.

@@ -89,7 +89,7 @@ Acceptance criteria:
 
 Status: In Progress
 
-- [ ] Add PipeWire capture for an explicitly configured USB microphone.
+- [ ] Add PipeWire capture from the default or manually selected input source.
 - [ ] Add PipeWire playback through the computer's configured/default sink.
 - [ ] Define and benchmark VAD at the selected streaming capture boundary.
 - [ ] Benchmark Paraformer for streaming ASR.
@@ -108,9 +108,10 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Define PCM format, capture bounds, process ownership, explicit USB-source
-   targeting, default computer-sink targeting, and recovery.
-2. Add PipeWire USB microphone capture, computer playback, and recovery adapters.
+1. Define PCM format, capture bounds, process ownership, default/manual source
+   and sink targeting, future DeskHelm-microphone preference, and recovery.
+2. Add PipeWire capture, computer playback, manual device selection, and
+   recovery adapters.
 3. Benchmark VAD, Paraformer, Piper, and Kokoro outside Bridge.
 4. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.
