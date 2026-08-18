@@ -9,6 +9,8 @@ from threading import Event, Lock, RLock, Semaphore
 from typing import BinaryIO, TextIO
 import uuid
 
+from .control import CONTROL_COMMAND_MESSAGE_TYPE, ControlCommand
+from .control_router import ControlRouter
 from .display import SlotPanel
 from .event import AgentEvent, PROTOCOL_VERSION, ProtocolError
 from .interaction import INTERACTION_MESSAGE_TYPE, InteractionEvent
@@ -20,6 +22,7 @@ from .transport import (
     AGENT_EVENT_MESSAGE_TYPE,
     AGENT_EVENT_V1_CAPABILITY,
     CLIENT_HELLO_MESSAGE_TYPE,
+    CONTROL_COMMAND_V1_CAPABILITY,
     INTERACTION_EVENT_V1_CAPABILITY,
     INTERACTION_SUBSCRIPTION_V1_CAPABILITY,
     MAX_FRAME_BYTES,
@@ -36,10 +39,14 @@ from .transport import (
 
 DEFAULT_MAX_CONNECTIONS = 16
 DEFAULT_SUBSCRIBER_QUEUE_FRAMES = 8
+DEFAULT_CONTROL_IDEMPOTENCY_ENTRIES = 1024
+DEFAULT_CONTROL_IDEMPOTENCY_RETENTION_MS = 300_000
+DEFAULT_CONTROL_APPROVAL_RECORDS = 1024
 ACCEPT_POLL_SECONDS = 0.1
 HANDSHAKE_TIMEOUT_SECONDS = 2.0
 SUBSCRIBER_POLL_SECONDS = 0.1
 SUBSCRIBER_WRITE_TIMEOUT_SECONDS = 2.0
+CONTROLLER_WRITE_TIMEOUT_SECONDS = 2.0
 MAX_ERROR_MESSAGE_CHARS = 512
 
 
@@ -48,6 +55,7 @@ class _BridgeRuntime:
     state_store: StateStore
     session_registry: SessionRegistry
     interaction_hub: InteractionHub
+    control_router: ControlRouter
     stream: TextIO
     max_events: int | None
     stream_id: str
@@ -75,6 +83,7 @@ class _BridgeRuntime:
         with self._event_lock:
             if self.max_events is not None and self.received >= self.max_events:
                 return
+            self.control_router.observe_interaction(event)
             self.interaction_hub.publish(event)
             self.received += 1
             if self.max_events is not None and self.received >= self.max_events:
@@ -97,6 +106,9 @@ def run_bridge(
     max_connections: int = DEFAULT_MAX_CONNECTIONS,
     max_subscribers: int | None = None,
     subscriber_queue_frames: int = DEFAULT_SUBSCRIBER_QUEUE_FRAMES,
+    control_idempotency_entries: int = DEFAULT_CONTROL_IDEMPOTENCY_ENTRIES,
+    control_idempotency_retention_ms: int = DEFAULT_CONTROL_IDEMPOTENCY_RETENTION_MS,
+    control_approval_records: int = DEFAULT_CONTROL_APPROVAL_RECORDS,
 ) -> int:
     if max_connections < 1:
         raise ValueError("max_connections must be at least 1")
@@ -110,11 +122,23 @@ def run_bridge(
         )
     if subscriber_queue_frames < 1:
         raise ValueError("subscriber_queue_frames must be at least 1")
+    if control_idempotency_entries < 1:
+        raise ValueError("control_idempotency_entries must be at least 1")
+    if control_idempotency_retention_ms < 1:
+        raise ValueError("control_idempotency_retention_ms must be at least 1")
+    if control_approval_records < 1:
+        raise ValueError("control_approval_records must be at least 1")
 
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     socket_path.unlink(missing_ok=True)
     state_store = StateStore(slot_count=slot_count)
     session_registry = SessionRegistry(slot_count=slot_count)
+    control_router = ControlRouter(
+        session_registry=session_registry,
+        max_idempotency_entries=control_idempotency_entries,
+        idempotency_retention_ms=control_idempotency_retention_ms,
+        max_approval_records=control_approval_records,
+    )
     panel = SlotPanel(stream=stream, color=color, live=live)
     state_store.subscribe(panel.on_state_change)
     panel.render(state_store.snapshot())
@@ -122,6 +146,7 @@ def run_bridge(
         state_store=state_store,
         session_registry=session_registry,
         interaction_hub=InteractionHub(),
+        control_router=control_router,
         stream=stream,
         max_events=max_events,
         stream_id=str(uuid.uuid4()),
@@ -274,6 +299,13 @@ def _handle_negotiated_connection(
                     "capability_unavailable",
                     "subscriber must request a supported subscription capability",
                 )
+        elif hello.role is ClientRole.CONTROLLER:
+            if CONTROL_COMMAND_V1_CAPABILITY not in hello.capabilities:
+                raise _NegotiationError(
+                    "capability_unavailable",
+                    "controller must request control_command_v1",
+                )
+            accepted_capabilities = (CONTROL_COMMAND_V1_CAPABILITY,)
         else:
             raise _NegotiationError(
                 "role_unavailable", f"{hello.role.value} connections are not enabled yet"
@@ -292,6 +324,13 @@ def _handle_negotiated_connection(
             max_connections=runtime.max_connections,
             max_subscribers=runtime.max_subscribers,
             subscriber_queue_frames=runtime.subscriber_queue_frames,
+            control_idempotency_entries=(
+                runtime.control_router.max_idempotency_entries
+            ),
+            control_idempotency_retention_ms=(
+                runtime.control_router.idempotency_retention_ms
+            ),
+            control_approval_records=runtime.control_router.max_approval_records,
         )
         connection.sendall(encode_frame(response.to_dict()))
     except _NegotiationError as error:
@@ -317,6 +356,11 @@ def _handle_negotiated_connection(
                 _handle_interaction_subscriber(connection, runtime)
         finally:
             runtime.subscriber_permits.release()
+        return
+
+    if hello.role is ClientRole.CONTROLLER:
+        connection.settimeout(None)
+        _handle_controller(connection, reader, runtime, hello.client_id)
         return
 
     connection.settimeout(None)
@@ -352,6 +396,38 @@ def _handle_negotiated_publisher(
                 raise ProtocolError(f"publisher cannot send message_type {message_type}")
         except ProtocolError as error:
             _send_protocol_error(connection, "invalid_frame", str(error))
+            return
+
+
+def _handle_controller(
+    connection: socket.socket,
+    reader: BinaryIO,
+    runtime: _BridgeRuntime,
+    client_id: str,
+) -> None:
+    while not runtime.stop.is_set():
+        try:
+            frame = read_frame(reader)
+            if frame is None:
+                return
+            value = decode_json_object(frame)
+            if value.get("message_type") != CONTROL_COMMAND_MESSAGE_TYPE:
+                raise ProtocolError(
+                    f"controller cannot send message_type {value.get('message_type')}"
+                )
+            command = ControlCommand.from_dict(value)
+            result = runtime.control_router.route(
+                command, expected_issued_by=client_id
+            )
+            connection.settimeout(CONTROLLER_WRITE_TIMEOUT_SECONDS)
+            try:
+                connection.sendall(encode_frame(result.to_dict()))
+            finally:
+                connection.settimeout(None)
+        except ProtocolError as error:
+            _send_protocol_error(connection, "invalid_frame", str(error))
+            return
+        except TimeoutError:
             return
 
 

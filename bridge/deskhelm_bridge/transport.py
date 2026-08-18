@@ -14,6 +14,7 @@ SERVER_HELLO_MESSAGE_TYPE = "server_hello"
 PROTOCOL_ERROR_MESSAGE_TYPE = "protocol_error"
 AGENT_EVENT_MESSAGE_TYPE = "agent_event"
 AGENT_EVENT_V1_CAPABILITY = "agent_event_v1"
+CONTROL_COMMAND_V1_CAPABILITY = "control_command_v1"
 INTERACTION_EVENT_V1_CAPABILITY = "interaction_event_v1"
 INTERACTION_SUBSCRIPTION_V1_CAPABILITY = "interaction_subscription_v1"
 STATE_SUBSCRIPTION_V1_CAPABILITY = "state_subscription_v1"
@@ -82,6 +83,9 @@ class ServerHello:
     max_connections: int
     max_subscribers: int | None = None
     subscriber_queue_frames: int | None = None
+    control_idempotency_entries: int | None = None
+    control_idempotency_retention_ms: int | None = None
+    control_approval_records: int | None = None
     protocol_version: int = PROTOCOL_VERSION
     message_type: str = SERVER_HELLO_MESSAGE_TYPE
 
@@ -103,6 +107,26 @@ class ServerHello:
             _validate_positive_integer(
                 self.subscriber_queue_frames, "subscriber_queue_frames"
             )
+        control_limits = (
+            self.control_idempotency_entries,
+            self.control_idempotency_retention_ms,
+            self.control_approval_records,
+        )
+        if any(limit is None for limit in control_limits) and any(
+            limit is not None for limit in control_limits
+        ):
+            raise ProtocolError("control limits must be provided together")
+        if self.control_idempotency_entries is not None:
+            _validate_positive_integer(
+                self.control_idempotency_entries, "control_idempotency_entries"
+            )
+            _validate_positive_integer(
+                self.control_idempotency_retention_ms,
+                "control_idempotency_retention_ms",
+            )
+            _validate_positive_integer(
+                self.control_approval_records, "control_approval_records"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         limits = {
@@ -112,6 +136,12 @@ class ServerHello:
         if self.max_subscribers is not None:
             limits["max_subscribers"] = self.max_subscribers
             limits["subscriber_queue_frames"] = self.subscriber_queue_frames
+        if self.control_idempotency_entries is not None:
+            limits["control_idempotency_entries"] = self.control_idempotency_entries
+            limits["control_idempotency_retention_ms"] = (
+                self.control_idempotency_retention_ms
+            )
+            limits["control_approval_records"] = self.control_approval_records
         return {
             "protocol_version": self.protocol_version,
             "message_type": self.message_type,
@@ -136,6 +166,15 @@ class ServerHello:
             max_subscribers=_optional_integer(limits, "max_subscribers"),
             subscriber_queue_frames=_optional_integer(
                 limits, "subscriber_queue_frames"
+            ),
+            control_idempotency_entries=_optional_integer(
+                limits, "control_idempotency_entries"
+            ),
+            control_idempotency_retention_ms=_optional_integer(
+                limits, "control_idempotency_retention_ms"
+            ),
+            control_approval_records=_optional_integer(
+                limits, "control_approval_records"
             ),
         )
 

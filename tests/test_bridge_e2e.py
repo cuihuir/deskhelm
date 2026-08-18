@@ -175,7 +175,7 @@ class BridgeEndToEndTests(unittest.TestCase):
             self.assertIn("agent=demo:negotiated", stdout)
             self.assertIn("state=waiting_user", stdout)
 
-    def test_unavailable_controller_role_receives_protocol_error(self) -> None:
+    def test_controller_receives_correlated_safe_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             socket_path = Path(directory) / "bridge.sock"
             bridge, environment = self._start_bridge(socket_path, max_events=1)
@@ -192,12 +192,45 @@ class BridgeEndToEndTests(unittest.TestCase):
                         "client_id": "test-controller",
                         "role": "controller",
                         "supported_versions": [1],
-                        "capabilities": [],
+                        "capabilities": ["control_command_v1"],
                     },
                 )
-                error = json.loads(reader.readline())
-                self.assertEqual(error["message_type"], "protocol_error")
-                self.assertEqual(error["code"], "role_unavailable")
+                hello = json.loads(reader.readline())
+                self.assertEqual(
+                    hello["accepted_capabilities"], ["control_command_v1"]
+                )
+                self.assertEqual(
+                    hello["limits"]["control_idempotency_entries"], 1024
+                )
+
+                now_ms = int(time.time() * 1000)
+                command = {
+                    "protocol_version": 1,
+                    "message_type": "control_command",
+                    "command_id": "controller-missing-target",
+                    "kind": "focus",
+                    "agent_id": "codex",
+                    "session_id": "missing-session",
+                    "project_id": "deskhelm",
+                    "issued_by": "test-controller",
+                    "issued_at": now_ms,
+                    "expires_at": now_ms + 30_000,
+                    "idempotency_key": "missing-target-1",
+                    "payload": {},
+                }
+                self._send_json(client, command)
+                missing = json.loads(reader.readline())
+                self.assertEqual(missing["message_type"], "control_result")
+                self.assertEqual(missing["command_id"], command["command_id"])
+                self.assertEqual(missing["code"], "target_not_found")
+
+                spoofed = dict(command)
+                spoofed["command_id"] = "controller-spoofed-issuer"
+                spoofed["idempotency_key"] = "spoofed-issuer-1"
+                spoofed["issued_by"] = "another-controller"
+                self._send_json(client, spoofed)
+                mismatch = json.loads(reader.readline())
+                self.assertEqual(mismatch["code"], "issuer_mismatch")
 
                 emitted = subprocess.run(
                     [

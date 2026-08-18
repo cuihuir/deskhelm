@@ -18,7 +18,7 @@ The server accepts legacy first-frame `AgentEvent v1` publishers and negotiated
 `publisher` connections using `client_hello`, `server_hello`, and
 self-describing state or interaction frames. It limits frames to 1 MiB and
 handles 16 connections concurrently by default. Negotiated state and
-interaction subscribers are enabled; controllers remain unavailable. See
+interaction subscribers and `control_command_v1` controllers are enabled. See
 [`protocol/local-transport-v1.md`](../protocol/local-transport-v1.md).
 
 ## Phase 0 Quickstart
@@ -35,6 +35,13 @@ Use `--max-connections` to lower or raise the bounded connection limit.
 The default subscriber limit is shared by state and interaction subscribers and
 is half the connection limit. Each subscriber has an 8-frame output queue.
 Override these with `--max-subscribers` and `--subscriber-queue-frames`.
+
+Control routing retains at most 1024 idempotency entries and 1024 approval
+records by default. Override these with `--control-idempotency-entries`,
+`--control-idempotency-retention-ms`, and `--control-approval-records`.
+`focus` is handled internally; other command kinds reject with
+`handler_unavailable` until an Agent or Voice Gateway registers a bounded
+non-blocking handler.
 
 Python integrations can use `deskhelm_bridge.send_negotiated_event` for a
 single negotiated state event while the CLI remains a legacy compatibility

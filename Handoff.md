@@ -27,8 +27,9 @@ and `ControlCommand v1` are implemented and covered by compatibility fixtures,
 and negotiated state subscribers receive atomic snapshots followed by ordered
 live updates. Negotiated interaction publishers and bounded live-only
 interaction subscribers are implemented without entering state projection.
-Control routing and the controller role remain unimplemented. Voice Gateway
-implementation has not started.
+`ControlRouter`, bounded control state, correlated results, and negotiated
+controller connections are implemented. Agent and Voice Gateway handlers are
+not registered yet. Voice Gateway implementation has not started.
 
 ## Completed Work
 
@@ -82,6 +83,18 @@ implementation has not started.
 - Implemented `ControlCommand v1` for focus, prompt submission, interruption,
   approval, rejection, speech, and stopping speech.
 - Added seven complete control wire fixtures plus validation and expiry tests.
+- Implemented `ControlResult v1` with fixed accepted/rejected codes and no
+  private command or handler-error content.
+- Implemented `ControlRouter` validation for controller identity, expiry,
+  active full-session targets, approval metadata, and idempotency conflicts.
+- Added bounded idempotency and pending/decided approval records. Capacity
+  refuses new work instead of evicting live deduplication state.
+- Enabled negotiated `control_command_v1` controller connections with one
+  correlated result per structurally valid command.
+- Made `focus` an internal router action and exposed explicit non-blocking
+  handler registration for Agent and Voice Gateway commands.
+- Consumed approval requests after any dispatch attempt, including ambiguous
+  handler failure, so approval decisions cannot be replayed.
 - Added unit and end-to-end coverage for events, display, Codex hooks,
   `StateStore`, and `SessionRegistry`.
 - Recorded Phase 0 and Bridge-boundary ADRs.
@@ -122,7 +135,8 @@ implementation has not started.
   places accepted connections into an unbounded application work queue.
 - Negotiated publishers support `agent_event_v1`, `interaction_event_v1`, or
   both. Negotiated subscribers select exactly one of `state_subscription_v1`
-  and `interaction_subscription_v1`. The controller role remains unavailable.
+  and `interaction_subscription_v1`. Negotiated controllers use
+  `control_command_v1`.
 - Version 1 has no durable event history or replay. State subscribers recover
   through a fresh snapshot; interaction subscribers restart live-only delivery.
 - Snapshot capture and subscriber registration are atomic. Snapshot sequence is
@@ -137,8 +151,15 @@ implementation has not started.
   controls. Voice controls also retain session ownership.
 - Control idempotency is scoped by `issued_by + idempotency_key`. An allowed
   retry preserves the complete command identity and content.
+- Controller `client_id` is bound to `issued_by`. Exact retained retries return
+  the original result without redispatch; changed content is a conflict.
+- Live idempotency entries are never evicted to admit new work. The default
+  bounds are 1024 idempotency entries, five-minute minimum retention, and 1024
+  combined pending/decided approval records.
 - Approval and rejection echo the pending request ID, summary, and expiry. The
   command expiry equals the request expiry, and automatic replay is forbidden.
+  Any dispatch attempt consumes the request because downstream failure may be
+  ambiguous.
 
 ## Important Files
 
@@ -160,6 +181,8 @@ implementation has not started.
   expiry, idempotency, retry, and approval safety decisions.
 - `protocol/interaction-event-v1.md`: rich session event contract.
 - `protocol/control-command-v1.md`: targeted control command contract.
+- `protocol/control-result-v1.md`: correlated control outcomes and fixed result
+  codes.
 - `protocol/state-subscription-v1.md`: state snapshot, live update, sequencing,
   resource bounds, and reconnect contract.
 - `protocol/interaction-subscription-v1.md`: live-only rich updates, bounds,
@@ -170,6 +193,10 @@ implementation has not started.
   validation.
 - `bridge/deskhelm_bridge/control.py`: `ControlCommand v1` payload models,
   validation, serialization, and expiry checks.
+- `bridge/deskhelm_bridge/control_result.py`: correlated result model and fixed
+  status codes.
+- `bridge/deskhelm_bridge/control_router.py`: live target checks, approval
+  tracking, bounded idempotency, focus, and handler dispatch.
 - `bridge/deskhelm_bridge/subscription.py`: subscription wire models and bounded
   per-subscriber update queue.
 - `bridge/deskhelm_bridge/interaction_subscription.py`: rich subscription wire
@@ -188,7 +215,7 @@ Last verified on 2026-08-18:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 81 tests passed, including strict `ResourceWarning` handling.
+Result: 97 tests passed, including strict `ResourceWarning` handling.
 
 Repository checks also passed:
 
@@ -202,23 +229,24 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Implement `ControlRouter`, bounded idempotency retention, a command result
-   contract, and the negotiated `controller` role.
-3. Define the adapter capability contract and add versioned Codex fixtures.
-4. Build the text-only Codex gateway with a deterministic fake provider.
-5. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
+2. Define the adapter capability contract and add versioned Codex fixtures.
+3. Register Agent command handlers and build the text-only Codex gateway with a
+   deterministic fake provider.
+4. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
    providers before installing models.
 
 ## Risks and Blockers
 
-- The controller role is not enabled; command routing and results remain
-  unimplemented.
 - Session disconnect and restore APIs exist but are not yet driven by adapter
   connection lifecycle events.
-- `ControlCommand v1` is accepted and modeled but is not transported by the
-  Bridge server yet.
-- Live target, pending approval, idempotency conflict, and dispatch validation
-  await `ControlRouter`; protocol parsing alone does not authorize a command.
+- The running Bridge has no Agent or Voice Gateway control handlers yet, so
+  non-focus commands safely return `handler_unavailable`.
+- Full session registration is not yet driven by adapter connections. Live
+  controller commands therefore cannot target a modern full-identity session
+  until the adapter capability/lifecycle phase is implemented.
+- Approval tracking is bounded. When its capacity is exhausted, new approval
+  requests remain visible to interaction subscribers but cannot be decided
+  through the router and return `approval_not_found`.
 - The default socket path changed during the pre-release rename; existing
   Bridge and hook processes must restart together after updating.
 - Legacy CLI and module-execution aliases still exist and need a deprecation
@@ -235,7 +263,7 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
 
 ## Next Step
 
-Implement `ControlRouter`, bounded idempotency retention, command results, and
-the negotiated controller role without weakening target, expiry, approval, or
-retry rules. Obtain the license decision from the user when packaging or
+Define the adapter capability and lifecycle contract, add versioned Codex
+fixtures, and register bounded Agent control handlers before building the
+text-only gateway. Obtain the license decision from the user when packaging or
 external contributions require it.

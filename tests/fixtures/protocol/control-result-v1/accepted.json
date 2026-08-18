@@ -1,0 +1,9 @@
+{
+  "protocol_version": 1,
+  "message_type": "control_result",
+  "command_id": "command-focus-1",
+  "status": "accepted",
+  "code": "focused",
+  "processed_at": 1786935100001,
+  "duplicate": false
+}

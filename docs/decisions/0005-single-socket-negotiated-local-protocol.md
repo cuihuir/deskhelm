@@ -93,4 +93,6 @@ within the 16-connection server limit.
 Interaction-event fan-out uses the same bounded subscriber capacity, queue
 size, write deadline, read-only enforcement, and slow-consumer isolation as
 state subscriptions. It retains no rich event history and never updates the
-state projection. The `controller` role remains pending.
+state projection. The `controller` role is enabled with
+`control_command_v1`, synchronous correlated results, controller identity
+binding, and bounded control state as specified by ADR 0006.

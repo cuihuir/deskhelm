@@ -40,6 +40,8 @@ Required fields are `agent_id`, `slot`, and `state`. Valid states are:
   message, tool, approval, input, completion, and failure events.
 - [`control-command-v1.md`](control-command-v1.md) defines targeted, expiring,
   idempotent focus, prompt, interruption, approval, and speech controls.
+- [`control-result-v1.md`](control-result-v1.md) defines correlated accepted,
+  rejected, and duplicate outcomes without private command content.
 - [`state-subscription-v1.md`](state-subscription-v1.md) defines atomic state
   snapshots, ordered live updates, queue bounds, and reconnect recovery.
 - [`interaction-subscription-v1.md`](interaction-subscription-v1.md) defines
@@ -48,4 +50,5 @@ Required fields are `agent_id`, `slot`, and `state`. Valid states are:
 
 State and interaction publisher/subscriber negotiation and the
 `InteractionEvent v1` and `ControlCommand v1` Python models and fixtures are
-implemented. The socket server does not accept controller connections yet.
+implemented. Negotiated controllers use `control_command_v1` and receive one
+correlated result per structurally valid command.

@@ -176,11 +176,21 @@ Keep third-party reference files outside version control under
   stable identifiers.
 - Every control must name `agent_id + session_id + project_id`, `issued_by`, an
   issue time, an expiry, and an idempotency key. Never target controls by slot.
+- Negotiated controllers use `control_command_v1`; `client_id` must match every
+  command's `issued_by`, and every structurally valid command receives a
+  private-content-free correlated `control_result`.
 - Scope control idempotency by `issued_by + idempotency_key`; a retry preserves
   the complete command identity and content.
+- Never evict a live idempotency record to admit a new dispatch. Reject at
+  capacity, retain ambiguous handler failures, and keep all control and approval
+  records explicitly bounded.
 - Never replay approval or rejection blindly. Consequential controls must name
   their target session and copy the pending request ID, summary, and expiry
   exactly. Approval and rejection are never automatically retried.
+- Treat any approval dispatch attempt as consuming the pending request, even if
+  its handler fails, because the downstream decision may already have applied.
+- Control handlers must be explicit, non-blocking, and bounded. Missing handlers
+  reject safely; never report dispatch success before a handler accepts work.
 - Do not log prompts, source code, tool arguments, raw Agent events, audio, or
   credentials by default.
 - Keep PyTorch, CUDA, model weights, and provider-specific voice dependencies
@@ -202,6 +212,9 @@ Current commands:
   run with an explicit bounded connection limit.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --max-subscribers 8
   --subscriber-queue-frames 8`: run with explicit subscription bounds.
+- `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge
+  --control-idempotency-entries 1024 --control-approval-records 1024`: run with
+  explicit control-state bounds.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge simulate`: emit demo events.
 - `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
 - `git diff --check`: detect whitespace errors.

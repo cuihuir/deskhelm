@@ -39,8 +39,9 @@ adapter. The Bridge now separates state storage, session-to-slot projection, and
 terminal rendering while remaining compatible with `AgentEvent v1`.
 The local server now has bounded concurrent connection handling, negotiated
 state and interaction publishers, atomic state snapshot/live subscriptions,
-and bounded live-only rich interaction subscriptions. Targeted control models
-are defined, while control routing remains in progress.
+bounded live-only rich interaction subscriptions, and negotiated controllers
+with targeted routing and correlated results. Agent and Voice Gateway command
+handlers are the next integration boundary.
 
 Current development focuses on the no-hardware Agent Console path:
 

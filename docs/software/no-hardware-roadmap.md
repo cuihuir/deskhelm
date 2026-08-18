@@ -31,7 +31,7 @@ Acceptance criteria:
 
 ## Milestone 2: Interaction and Control Protocols
 
-Status: In progress
+Status: Complete
 
 - [x] Write an ADR for the negotiated local transport and message envelopes.
 - [x] Define versioned `InteractionEvent v1`.
@@ -40,7 +40,9 @@ Status: In progress
 - [x] Define interaction ordering, correlation, and terminal-event semantics.
 - [x] Define queue bounds, maximum record size, and slow-subscriber direction.
 - [x] Add bounded live interaction fan-out and negotiated publishing.
-- [ ] Implement targeting and validation in a `ControlRouter`.
+- [x] Implement targeting and validation in a `ControlRouter`.
+- [x] Add bounded idempotency and approval retention plus command results.
+- [x] Enable the negotiated `controller` role.
 - [x] Require `request_id`, target session, summary, and expiry for approvals.
 - [x] Require idempotency keys for retryable prompt and control operations.
 
@@ -101,7 +103,6 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Implement `ControlRouter`, bounded idempotency retention, command results,
-   and the negotiated `controller` role.
-2. Define adapter capabilities and add versioned Codex fixtures.
-3. Build the text-only Codex gateway before adding audio dependencies.
+1. Define adapter capabilities and add versioned Codex fixtures.
+2. Register Agent control handlers and build the text-only Codex gateway.
+3. Add Voice Gateway handlers before audio dependencies.

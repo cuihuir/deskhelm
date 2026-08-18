@@ -1,7 +1,6 @@
 # ControlCommand v1
 
-Status: Accepted protocol model; controller transport and routing are not yet
-enabled
+Status: Implemented model, routing, and negotiated controller transport
 
 ## Purpose
 
@@ -112,6 +111,12 @@ The idempotency scope is `issued_by + idempotency_key`. Reusing a key with
 different command content is an error. A permitted retry resends the unchanged
 command, including `command_id`, timestamps, target, and payload.
 
+The controller connection's negotiated `client_id` must equal `issued_by`.
+Exact retries return the retained result with `duplicate: true` and are not
+dispatched again. The Bridge retains at most the advertised number of records;
+when the table is full it rejects a new dispatch rather than evicting a live
+record and risking a duplicate side effect.
+
 Idempotency does not authorize automatic retry:
 
 - `submit_prompt` and `speak` may retry only with the same command identity.
@@ -127,6 +132,8 @@ Idempotency does not authorize automatic retry:
   version 1.
 - Text, summaries, and reasons must not be copied into ordinary Bridge logs.
 
-The negotiated `controller` role remains unavailable. It will be enabled only
-after `ControlRouter`, bounded idempotency retention, and a command result or
-acknowledgement contract are implemented.
+The negotiated `controller` role uses `control_command_v1`. Each valid command
+receives a correlated result defined by
+[`control-result-v1.md`](control-result-v1.md). `focus` is handled internally.
+Other kinds require an explicitly registered non-blocking handler; absent
+handlers return `handler_unavailable`.

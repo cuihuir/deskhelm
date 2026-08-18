@@ -28,6 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
     bridge.add_argument("--max-connections", type=int, default=16)
     bridge.add_argument("--max-subscribers", type=int)
     bridge.add_argument("--subscriber-queue-frames", type=int, default=8)
+    bridge.add_argument("--control-idempotency-entries", type=int, default=1024)
+    bridge.add_argument(
+        "--control-idempotency-retention-ms", type=int, default=300_000
+    )
+    bridge.add_argument("--control-approval-records", type=int, default=1024)
 
     emit = subparsers.add_parser("emit", help="send one normalized event")
     add_socket_argument(emit)
@@ -102,6 +107,11 @@ def main(argv: list[str] | None = None) -> int:
                 max_connections=args.max_connections,
                 max_subscribers=args.max_subscribers,
                 subscriber_queue_frames=args.subscriber_queue_frames,
+                control_idempotency_entries=args.control_idempotency_entries,
+                control_idempotency_retention_ms=(
+                    args.control_idempotency_retention_ms
+                ),
+                control_approval_records=args.control_approval_records,
             )
             return 0 if return_code >= 0 else 1
         if args.command == "emit":

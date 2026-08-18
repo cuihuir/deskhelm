@@ -1,7 +1,6 @@
 # Local Transport v1
 
-Status: State and interaction publishing/subscription implemented; controller
-role is reserved but not yet enabled
+Status: State, interaction, and controller roles implemented
 
 ## Framing and Limits
 
@@ -46,13 +45,17 @@ The Bridge returns a process-local stream identifier and the active limits:
     "max_frame_bytes": 1048576,
     "max_connections": 16,
     "max_subscribers": 8,
-    "subscriber_queue_frames": 8
+    "subscriber_queue_frames": 8,
+    "control_idempotency_entries": 1024,
+    "control_idempotency_retention_ms": 300000,
+    "control_approval_records": 1024
   }
 }
 ```
 
-The role is fixed for the life of the connection. `controller` is a valid role
-name but currently receives `role_unavailable` and is disconnected.
+The role is fixed for the life of the connection. Controllers request
+`control_command_v1`; their `client_id` is the required `issued_by` identity for
+every command on that connection.
 
 ## Negotiated Publisher Frames
 
@@ -87,6 +90,19 @@ A negotiated interaction subscriber receives
 frames. It has no snapshot, history, replay, or resume offset. See
 [`interaction-subscription-v1.md`](interaction-subscription-v1.md).
 
+## Controller Frames
+
+A controller sends one complete `control_command` and receives one correlated
+`control_result` before sending the next command. Routing is synchronous and
+does not create an unbounded input queue. Malformed or unsupported frames return
+`invalid_frame` and close the connection. See
+[`control-command-v1.md`](control-command-v1.md) and
+[`control-result-v1.md`](control-result-v1.md).
+
+`server_hello.limits` advertises `control_idempotency_entries`,
+`control_idempotency_retention_ms`, and `control_approval_records`. A full
+idempotency table refuses new dispatches instead of evicting live entries.
+
 ## Legacy Compatibility
 
 When the first frame has no `message_type` and is a valid `AgentEvent v1`, the
@@ -105,8 +121,8 @@ socket remains writable:
 {
   "protocol_version": 1,
   "message_type": "protocol_error",
-  "code": "role_unavailable",
-  "message": "controller connections are not enabled yet"
+  "code": "capability_unavailable",
+  "message": "controller must request control_command_v1"
 }
 ```
 

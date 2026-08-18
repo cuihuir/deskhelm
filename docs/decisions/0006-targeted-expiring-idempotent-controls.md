@@ -52,8 +52,8 @@ Version 1 includes these command kinds:
 - `speak`
 - `stop_speaking`
 
-Controller transport remains disabled until routing and a correlated command
-result contract are implemented.
+Controller transport uses the negotiated `control_command_v1` capability and a
+correlated `ControlResult v1` response.
 
 ## Consequences
 
@@ -67,3 +67,20 @@ result contract are implemented.
   future `ControlRouter`.
 - Approval routing must retain pending request metadata until decision or
   expiry.
+
+## Implementation Status
+
+`ControlRouter`, bounded idempotency retention, bounded pending/decided approval
+tracking, and negotiated controller transport are implemented. The controller
+`client_id` is bound to `issued_by`. Exact retained retries return the original
+outcome without redispatch; conflicting reuse is rejected.
+
+The router refuses a new dispatch when the idempotency table is full instead of
+evicting a live entry. Fixed result codes do not expose command content or
+handler exceptions. `focus` is handled internally. Other commands require a
+registered non-blocking handler; the current Bridge process does not yet
+install Agent or Voice Gateway handlers.
+
+An approval request is consumed after any downstream dispatch attempt,
+including a handler failure, because the external outcome may be ambiguous and
+approval decisions must never be replayed automatically.

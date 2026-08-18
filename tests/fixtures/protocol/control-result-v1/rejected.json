@@ -1,0 +1,9 @@
+{
+  "protocol_version": 1,
+  "message_type": "control_result",
+  "command_id": "command-prompt-1",
+  "status": "rejected",
+  "code": "handler_unavailable",
+  "processed_at": 1786935101001,
+  "duplicate": false
+}

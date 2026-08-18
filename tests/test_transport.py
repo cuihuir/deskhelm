@@ -4,6 +4,7 @@ import unittest
 from deskhelm_bridge.event import ProtocolError
 from deskhelm_bridge.transport import (
     AGENT_EVENT_V1_CAPABILITY,
+    CONTROL_COMMAND_V1_CAPABILITY,
     INTERACTION_EVENT_V1_CAPABILITY,
     INTERACTION_SUBSCRIPTION_V1_CAPABILITY,
     MAX_FRAME_BYTES,
@@ -63,6 +64,9 @@ class TransportProtocolTests(unittest.TestCase):
             max_connections=8,
             max_subscribers=4,
             subscriber_queue_frames=8,
+            control_idempotency_entries=128,
+            control_idempotency_retention_ms=60_000,
+            control_approval_records=64,
         )
 
         self.assertEqual(
@@ -72,11 +76,15 @@ class TransportProtocolTests(unittest.TestCase):
                 "max_connections": 8,
                 "max_subscribers": 4,
                 "subscriber_queue_frames": 8,
+                "control_idempotency_entries": 128,
+                "control_idempotency_retention_ms": 60_000,
+                "control_approval_records": 64,
             },
         )
         self.assertEqual(ServerHello.from_dict(hello.to_dict()), hello)
 
     def test_capabilities_have_stable_wire_names(self) -> None:
+        self.assertEqual(CONTROL_COMMAND_V1_CAPABILITY, "control_command_v1")
         self.assertEqual(STATE_SUBSCRIPTION_V1_CAPABILITY, "state_subscription_v1")
         self.assertEqual(INTERACTION_EVENT_V1_CAPABILITY, "interaction_event_v1")
         self.assertEqual(
@@ -100,6 +108,8 @@ class TransportProtocolTests(unittest.TestCase):
         hello = ServerHello.from_dict(value)
 
         self.assertIsNone(hello.max_subscribers)
+        self.assertIsNone(hello.control_idempotency_entries)
+        self.assertIsNone(hello.control_approval_records)
         self.assertEqual(hello.to_dict(), value)
 
     def test_frame_encoding_is_utf8_ndjson_and_bounded(self) -> None:
