@@ -3,6 +3,7 @@ from .fake_providers import (
     FakeCaptureProvider,
     FakePlaybackProvider,
     FakeTtsProvider,
+    FakeVadProvider,
 )
 from .gateway import VoiceGateway
 from .models import (
@@ -19,6 +20,13 @@ from .models import (
 )
 from .providers import VoiceCancelled
 from .pipewire import PipeWireCaptureProvider, PipeWirePlaybackProvider
+from .streaming import (
+    PcmChunk,
+    PcmStreamFormat,
+    SpeechSegment,
+    VadEvent,
+    VadEventKind,
+)
 
 __all__ = [
     "CapturedAudio",
@@ -26,11 +34,15 @@ __all__ = [
     "FakeCaptureProvider",
     "FakePlaybackProvider",
     "FakeTtsProvider",
+    "FakeVadProvider",
     "PcmSampleFormat",
+    "PcmChunk",
+    "PcmStreamFormat",
     "PipeWireCaptureProvider",
     "PipeWirePlaybackProvider",
     "SpeechItem",
     "SpeechPriority",
+    "SpeechSegment",
     "SynthesizedAudio",
     "Transcript",
     "VoiceCancelled",
@@ -39,4 +51,6 @@ __all__ = [
     "VoiceGateway",
     "VoicePttState",
     "VoiceTarget",
+    "VadEvent",
+    "VadEventKind",
 ]

@@ -7,6 +7,7 @@ from threading import Event, Lock
 
 from .models import CapturedAudio, SynthesizedAudio, Transcript
 from .providers import VoiceCancelled
+from .streaming import PcmChunk, PcmStreamFormat, VadEvent
 
 
 @dataclass(slots=True)
@@ -88,3 +89,63 @@ class FakePlaybackProvider:
             self.cancelled_count += 1
             raise VoiceCancelled()
         self.completed.set()
+
+
+@dataclass(slots=True)
+class FakeVadProvider:
+    events: Iterable[VadEvent]
+    fail: bool = False
+    sessions_opened: int = field(default=0, init=False)
+    _events: tuple[VadEvent, ...] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._events = tuple(self.events)
+
+    def open_session(self, format: PcmStreamFormat) -> FakeVadSession:
+        if not isinstance(format, PcmStreamFormat):
+            raise ValueError("fake VAD stream format is invalid")
+        self.sessions_opened += 1
+        return FakeVadSession(format, self._events, self.fail)
+
+
+@dataclass(slots=True)
+class FakeVadSession:
+    format: PcmStreamFormat
+    events: tuple[VadEvent, ...]
+    fail: bool = False
+    _next_event: int = field(default=0, init=False, repr=False)
+    _end_frame: int = field(default=0, init=False, repr=False)
+
+    def __enter__(self) -> FakeVadSession:
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        return None
+
+    def process(self, chunk: PcmChunk, cancel: Event) -> tuple[VadEvent, ...]:
+        if cancel.is_set():
+            raise VoiceCancelled()
+        if self.fail:
+            raise RuntimeError("private fake VAD failure")
+        if chunk.format != self.format or chunk.start_frame != self._end_frame:
+            raise ValueError("fake VAD received a discontinuous PCM stream")
+        self._end_frame = chunk.end_frame
+        emitted = []
+        while (
+            self._next_event < len(self.events)
+            and self.events[self._next_event].frame_index <= chunk.end_frame
+        ):
+            emitted.append(self.events[self._next_event])
+            self._next_event += 1
+        return tuple(emitted)
+
+    def finish(self, cancel: Event) -> tuple[VadEvent, ...]:
+        if cancel.is_set():
+            raise VoiceCancelled()
+        if self.fail:
+            raise RuntimeError("private fake VAD failure")
+        remaining = self.events[self._next_event :]
+        if any(event.frame_index > self._end_frame for event in remaining):
+            raise ValueError("fake VAD event exceeds the PCM stream")
+        self._next_event = len(self.events)
+        return remaining

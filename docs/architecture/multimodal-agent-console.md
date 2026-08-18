@@ -235,7 +235,8 @@ deskhelm/
 
 - 硬件设备如何发现、认证和协商协议版本。
 - 审批命令的 UI、长按时长和过期策略。
-- PipeWire capture 的流式分块、VAD 和设备恢复 provider 契约。
+- PipeWire streaming provider 的具体 chunk 大小、实时 pacing 和设备恢复策略。
+- 首个 VAD provider、阈值、最短语音/静音和 padding 配置。
 - 首个本地 ASR/TTS 组合及其资源、延迟和许可证门槛。
 
 这些事项进入实现前应分别记录 ADR。

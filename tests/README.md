@@ -29,3 +29,6 @@ It never opens a live microphone or speaker.
 `test_voice_benchmark.py` validates the versioned synthetic corpus, bounded
 NDJSON observations, fake-provider runners, CER/WER and keyword metrics,
 resource fields, privacy-preserving failure records, and unknown-input rejection.
+`test_vad_benchmark.py` validates contiguous PCM chunks, independent VAD
+sessions, ordered speech-boundary events, segmentation metrics, fixed failure
+records, NDJSON round trips, and CLI summaries without audio devices or models.

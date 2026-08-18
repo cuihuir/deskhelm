@@ -43,7 +43,10 @@ resource summaries, and explicit licensing identity. The first real local audio
 boundary is implemented: explicit raw PCM models plus bounded PipeWire capture
 and playback providers support the current default devices or stable-name
 overrides. They are not activated by the Bridge CLI, and no live microphone or
-speaker was opened during implementation or validation.
+speaker was opened during implementation or validation. The streaming PCM and
+VAD benchmark boundary is now implemented with contiguous absolute frame
+positions, independent provider sessions, bounded speech events, derived
+segmentation metrics, and no selected production VAD model.
 
 ## Completed Work
 
@@ -175,6 +178,17 @@ speaker was opened during implementation or validation.
 - Added deterministic fake-`pw-cat` coverage for default/manual targets, PCM
   alignment, bounds, startup/nonzero failures, cancellation, and forced cleanup
   without opening live audio devices.
+- Accepted ADR 0012: streaming capture uses contiguous complete-frame PCM chunks
+  with absolute frame positions, and each VAD run owns an independent session
+  with explicit end-of-stream flushing.
+- Added streaming PCM, VAD event, and speech-segment models plus provider
+  protocols for owned chunk streams and session-based VAD implementations.
+- Extended the benchmark with bounded VAD samples and privacy-safe NDJSON
+  observations for segmentation overlap, detection delay, processing latency,
+  CPU time, real-time factor, and optional memory peaks.
+- Added deterministic fake VAD sessions and coverage for chunk continuity,
+  event ordering, precision/recall/F1, failure isolation, NDJSON, and CLI output
+  without audio devices or model dependencies.
 - Recorded ESP32-S3 wireless-audio research: BLE HID for keyboard controls,
   reliable BLE/Wi-Fi state, and Wi-Fi Opus as the preferred future voice path.
 - Selected a simpler local POC path: follow the computer's current PipeWire
@@ -233,8 +247,18 @@ speaker was opened during implementation or validation.
 - Voice lifecycle events expose identifiers and fixed error codes, not audio,
   transcripts, prompts, or speech text. Raw and normalized transcripts remain
   separate in memory.
-- VAD is deferred until PipeWire streaming capture is designed; the skeleton
-  does not impose a speculative batch VAD interface.
+- Voice Gateway integration of VAD remains deferred. The current gateway keeps
+  its batch capture path while the separate benchmark boundary uses
+  frame-positioned chunks and provider-owned VAD sessions.
+- Streaming chunks keep one immutable PCM format, contiguous absolute frame
+  positions, and a 1 MiB per-chunk limit. VAD events are ordered, alternating
+  speech boundaries no later than supplied audio; every active region must end
+  during processing or `finish()`.
+- VAD benchmark samples are limited to 100,000 chunks, 256 segments, and
+  64 MiB PCM. Observations persist derived durations, counts, timing, and
+  resources rather than PCM or provider exception text.
+- Offline VAD replay measures compute time and frame-relative detection delay
+  separately; it is not reported as live microphone end-to-end latency.
 - Voice benchmark v1 fixes corpus IDs and reference text, limits records to
   1 MiB, files to 64 MiB, and runs to 10,000 observations, and requires
   provider/model versions, licenses, anonymous system profile, and device
@@ -328,6 +352,8 @@ speaker was opened during implementation or validation.
   observation format, scoring, bounds, privacy, resources, and licensing.
 - `docs/decisions/0011-bounded-pipewire-pcm-providers.md`: local PCM format,
   PipeWire targets, provider bounds, process ownership, and privacy contract.
+- `docs/decisions/0012-streaming-pcm-vad-benchmark-boundary.md`: streaming PCM
+  chunks, VAD sessions/events, benchmark metrics, bounds, and privacy contract.
 - `docs/research/2026-08-18-pipewire-preflight.md`: verified local PipeWire
   capabilities and provider-design implications.
 - `docs/research/2026-08-18-esp32-s3-audio-transport.md`: official ESP32-S3 and
@@ -367,6 +393,8 @@ speaker was opened during implementation or validation.
 - `voice/deskhelm_voice/fake_providers.py`: deterministic no-hardware providers.
 - `voice/deskhelm_voice/pipewire.py`: bounded raw-PCM `pw-cat` capture and
   playback providers.
+- `voice/deskhelm_voice/streaming.py`: frame-positioned PCM chunks, speech
+  boundaries, and segment models.
 - `voice/deskhelm_voice/benchmark.py`: bounded runners, observation models,
   NDJSON CLI, accuracy metrics, and summaries.
 - `voice/benchmarks/utterances-v1.json`: stable synthetic benchmark corpus.
@@ -381,6 +409,8 @@ speaker was opened during implementation or validation.
   models, bounded queue, and in-process fan-out hub.
 - `tests/test_pipewire_providers.py`: fake-subprocess PCM, targeting, bounds,
   failure, cancellation, and process-cleanup coverage.
+- `tests/test_vad_benchmark.py`: streaming chunk/session validation, VAD metrics,
+  failure records, NDJSON, and CLI summary coverage.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
 - `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
   connection role dispatch.
@@ -395,8 +425,9 @@ Last verified on 2026-08-18:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 153 tests passed, including strict `ResourceWarning` handling and 13
-fake-subprocess PipeWire/PCM tests. No live audio device was opened.
+Result: 160 tests passed, including strict `ResourceWarning` handling, 13
+fake-subprocess PipeWire/PCM tests, and 7 streaming VAD benchmark tests. No live
+audio device or model runtime was opened.
 
 Repository checks also passed:
 
@@ -411,8 +442,8 @@ python3 -m compileall -q bridge adapters/codex voice tests
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Define the streaming capture/VAD boundary, then benchmark VAD, Paraformer,
-   Piper, and Kokoro outside Bridge.
+2. Benchmark production VAD candidates on labeled external audio, then benchmark
+   Paraformer, Piper, and Kokoro outside Bridge.
 3. Add application-level audio provider/device configuration and measure live
    default/manual target plus disconnect/reconnect recovery behavior.
 4. Add a multi-project working-directory registry before one Bridge process
@@ -427,11 +458,11 @@ python3 -m compileall -q bridge adapters/codex voice tests
   Approval and rejection remain unavailable; speech handlers exist only when a
   Voice Gateway is explicitly composed into the Bridge.
 - PipeWire capture/playback providers exist, but the Bridge CLI does not select
-  them yet. VAD, production ASR/TTS, device enumeration, and live recovery are
-  not implemented.
-- The benchmark runner records batch ASR final and TTS synthesis latency. First
-  partial, streaming first-audio, interruption, and recovery timing await the
-  streaming provider contract.
+  them yet. Production VAD/ASR/TTS, streaming PipeWire capture, device
+  enumeration, and live recovery are not implemented.
+- The benchmark runner records VAD compute/detection timing plus batch ASR final
+  and TTS synthesis latency. Live capture-to-decision, first partial,
+  streaming first-audio, interruption, and recovery timing remain unmeasured.
 - PipeWire lifecycle behavior is validated with fake subprocesses only. Live
   source/sink access, unavailable explicit targets, hot unplug, default-device
   changes, and actual audio latency remain unverified by design.
@@ -455,13 +486,14 @@ python3 -m compileall -q bridge adapters/codex voice tests
   versioned fixture sets.
 - One configured Agent working directory currently applies to every gateway
   session. Multi-project path ownership is not yet modeled.
-- ASR and TTS quality, latency, recovery, resource use, and model licensing have
-  not been benchmarked on the target machine.
+- Production VAD, ASR, and TTS quality, latency, recovery, resource use, and
+  model licensing have not been benchmarked on the target machine.
 
 ## Next Step
 
-Define the streaming capture and VAD boundary, then implement a provider-neutral
-VAD benchmark before selecting a model. Keep PipeWire provider activation and
+Select the first VAD candidates and build a labeled external audio run set with
+threshold and licensing metadata, then record comparable observations through
+the provider-neutral benchmark. Keep PipeWire streaming activation and
 live-device recovery measurements at the application composition boundary.
 Obtain the repository license decision when packaging or external contributions
 require it.

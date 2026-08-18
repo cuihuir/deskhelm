@@ -54,7 +54,9 @@ English, and mixed-language corpus plus bounded provider-neutral accuracy,
 latency, resource, and licensing observations. The first real local audio
 boundary is now available as bounded PipeWire capture/playback providers using
 explicit raw PCM, the current default devices or stable-name overrides. The CLI
-does not activate live audio yet, and model measurements remain pending.
+does not activate live audio yet. A frame-positioned streaming PCM/VAD session
+contract and bounded provider-neutral VAD benchmark are also implemented;
+production model measurements remain pending.
 
 Current development focuses on the no-hardware Agent Console path:
 
@@ -64,7 +66,8 @@ Bridge state and sessions
   -> text-only Agent gateway
   -> bounded Voice Gateway skeleton
   -> bounded PipeWire audio providers
-  -> VAD, ASR, TTS, and recovery benchmarks
+  -> streaming VAD benchmark contract
+  -> VAD, ASR, TTS, and recovery measurements
 ```
 
 Hardware, firmware, and device transport decisions remain exploratory until

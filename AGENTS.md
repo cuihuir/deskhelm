@@ -226,6 +226,13 @@ Keep third-party reference files outside version control under
   NDJSON observation to 1 MiB, each result file to 64 MiB, and each run to
   10,000 observations. Record exact provider/model versions and licenses plus
   an anonymous system profile.
+- Model streaming PCM as complete, contiguous chunks of at most 1 MiB with one
+  immutable format and absolute frame positions. Open one independent VAD
+  session per stream, emit ordered alternating frame-positioned speech
+  boundaries, and flush it explicitly at end of stream.
+- Keep VAD samples bounded to 100,000 chunks, 256 segments, and 64 MiB PCM.
+  Persist only derived segmentation/timing/resource observations, never raw PCM
+  or provider exception text, unless separately approved under corpus rules.
 - Do not commit microphone captures, generated speech, model output, or local
   benchmark results without explicit provenance, consent, and redistribution
   terms.
@@ -274,6 +281,8 @@ Current commands:
 - `PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr --corpus
   voice/benchmarks/utterances-v1.json --observations <results.ndjson>`: score a
   bounded ASR benchmark run.
+- `PYTHONPATH=voice python3 -m deskhelm_voice.benchmark summarize-vad
+  --observations <results.ndjson>`: summarize bounded VAD observations.
 - `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
 - `git diff --check`: detect whitespace errors.
 - `find docs -name '*.md' -type f`: list documentation for review.

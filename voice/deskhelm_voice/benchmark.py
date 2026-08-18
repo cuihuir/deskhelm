@@ -13,8 +13,15 @@ from typing import TextIO
 import unicodedata
 import uuid
 
-from .models import CapturedAudio
-from .providers import AsrProvider, TtsProvider
+from .models import CapturedAudio, PcmSampleFormat
+from .providers import AsrProvider, TtsProvider, VadProvider
+from .streaming import (
+    PcmChunk,
+    PcmStreamFormat,
+    SpeechSegment,
+    VadEvent,
+    VadEventKind,
+)
 
 
 BENCHMARK_SCHEMA_VERSION = 1
@@ -24,6 +31,9 @@ MAX_OBSERVATION_FILE_BYTES = 64 << 20
 MAX_OBSERVATIONS = 10_000
 MAX_TEXT_CHARS = 4_096
 MAX_KEYWORDS = 32
+MAX_VAD_CHUNKS = 100_000
+MAX_VAD_SEGMENTS = 256
+MAX_VAD_SAMPLE_BYTES = 64 << 20
 
 
 class BenchmarkLanguage(StrEnum):
@@ -213,6 +223,58 @@ class BenchmarkAudioSample:
 
 
 @dataclass(frozen=True, slots=True)
+class VadBenchmarkSample:
+    sample_id: str
+    chunks: tuple[PcmChunk, ...]
+    reference_segments: tuple[SpeechSegment, ...]
+
+    def __post_init__(self) -> None:
+        _validate_text(self.sample_id, "sample_id")
+        if not self.chunks:
+            raise ValueError("VAD benchmark chunks must not be empty")
+        if len(self.chunks) > MAX_VAD_CHUNKS:
+            raise ValueError("VAD benchmark has too many chunks")
+        if len(self.reference_segments) > MAX_VAD_SEGMENTS:
+            raise ValueError("VAD benchmark has too many speech segments")
+        if not all(isinstance(chunk, PcmChunk) for chunk in self.chunks):
+            raise ValueError("VAD benchmark chunk is invalid")
+        if not all(
+            isinstance(segment, SpeechSegment)
+            for segment in self.reference_segments
+        ):
+            raise ValueError("VAD reference segment is invalid")
+        stream_format = self.chunks[0].format
+        expected_start = 0
+        total_bytes = 0
+        for chunk in self.chunks:
+            if chunk.format != stream_format:
+                raise ValueError("VAD benchmark chunk format changed")
+            if chunk.start_frame != expected_start:
+                raise ValueError("VAD benchmark chunks must be contiguous")
+            expected_start = chunk.end_frame
+            total_bytes += len(chunk.data)
+            if total_bytes > MAX_VAD_SAMPLE_BYTES:
+                raise ValueError("VAD benchmark sample exceeds size limit")
+        _validate_segments(self.reference_segments, expected_start)
+
+    @property
+    def format(self) -> PcmStreamFormat:
+        return self.chunks[0].format
+
+    @property
+    def total_frames(self) -> int:
+        return self.chunks[-1].end_frame
+
+    @property
+    def audio_duration_ms(self) -> float:
+        return self.total_frames * 1000 / self.format.sample_rate_hz
+
+    @property
+    def max_chunk_duration_ms(self) -> float:
+        return max(chunk.duration_seconds for chunk in self.chunks) * 1000
+
+
+@dataclass(frozen=True, slots=True)
 class AsrBenchmarkObservation:
     identity: BenchmarkIdentity
     utterance_id: str
@@ -369,6 +431,200 @@ class TtsBenchmarkObservation:
             raise ValueError("invalid TTS benchmark observation") from error
 
 
+@dataclass(frozen=True, slots=True)
+class VadBenchmarkObservation:
+    identity: BenchmarkIdentity
+    sample_id: str
+    repetition: int
+    status: BenchmarkStatus
+    sample_rate_hz: int
+    channels: int
+    sample_format: str
+    audio_duration_ms: float
+    max_chunk_duration_ms: float
+    processing_latency_ms: float
+    process_cpu_ms: float
+    reference_speech_ms: float
+    predicted_speech_ms: float
+    true_positive_ms: float
+    false_positive_ms: float
+    false_negative_ms: float
+    predicted_segments: int
+    first_speech_detection_delay_ms: float | None = None
+    peak_rss_mib: float | None = None
+    peak_vram_mib: float | None = None
+    error_code: str = ""
+    schema_version: int = BENCHMARK_SCHEMA_VERSION
+    record_type: str = "vad_observation"
+
+    def __post_init__(self) -> None:
+        _validate_observation_common(
+            self.schema_version,
+            self.record_type,
+            "vad_observation",
+            self.identity,
+            self.sample_id,
+            self.repetition,
+            self.status,
+            self.error_code,
+        )
+        if (
+            not isinstance(self.sample_rate_hz, int)
+            or isinstance(self.sample_rate_hz, bool)
+            or self.sample_rate_hz < 1
+        ):
+            raise ValueError("sample_rate_hz must be a positive integer")
+        if (
+            not isinstance(self.channels, int)
+            or isinstance(self.channels, bool)
+            or self.channels < 1
+        ):
+            raise ValueError("channels must be a positive integer")
+        try:
+            PcmSampleFormat(self.sample_format)
+        except (TypeError, ValueError) as error:
+            raise ValueError("sample_format is invalid") from error
+        for value, name in (
+            (self.audio_duration_ms, "audio_duration_ms"),
+            (self.max_chunk_duration_ms, "max_chunk_duration_ms"),
+            (self.processing_latency_ms, "processing_latency_ms"),
+            (self.process_cpu_ms, "process_cpu_ms"),
+            (self.reference_speech_ms, "reference_speech_ms"),
+            (self.predicted_speech_ms, "predicted_speech_ms"),
+            (self.true_positive_ms, "true_positive_ms"),
+            (self.false_positive_ms, "false_positive_ms"),
+            (self.false_negative_ms, "false_negative_ms"),
+        ):
+            _validate_non_negative_number(value, name)
+        _validate_optional_number(
+            self.first_speech_detection_delay_ms,
+            "first_speech_detection_delay_ms",
+        )
+        _validate_optional_number(self.peak_rss_mib, "peak_rss_mib")
+        _validate_optional_number(self.peak_vram_mib, "peak_vram_mib")
+        if self.audio_duration_ms <= 0:
+            raise ValueError("audio_duration_ms must be greater than zero")
+        if self.max_chunk_duration_ms <= 0:
+            raise ValueError("max_chunk_duration_ms must be greater than zero")
+        if (
+            not isinstance(self.predicted_segments, int)
+            or isinstance(self.predicted_segments, bool)
+            or self.predicted_segments < 0
+            or self.predicted_segments > MAX_VAD_SEGMENTS
+        ):
+            raise ValueError("predicted_segments is invalid")
+        tolerance = 1e-6
+        if abs(
+            self.predicted_speech_ms
+            - self.true_positive_ms
+            - self.false_positive_ms
+        ) > tolerance:
+            raise ValueError("predicted VAD durations are inconsistent")
+        if abs(
+            self.reference_speech_ms
+            - self.true_positive_ms
+            - self.false_negative_ms
+        ) > tolerance:
+            raise ValueError("reference VAD durations are inconsistent")
+        if (
+            self.reference_speech_ms > self.audio_duration_ms + tolerance
+            or self.predicted_speech_ms > self.audio_duration_ms + tolerance
+        ):
+            raise ValueError("VAD speech duration exceeds audio duration")
+        if (
+            self.first_speech_detection_delay_ms is not None
+            and self.first_speech_detection_delay_ms
+            > self.audio_duration_ms + tolerance
+        ):
+            raise ValueError("VAD detection delay exceeds audio duration")
+        if self.status is BenchmarkStatus.FAILED and any(
+            (
+                self.reference_speech_ms,
+                self.predicted_speech_ms,
+                self.true_positive_ms,
+                self.false_positive_ms,
+                self.false_negative_ms,
+                self.predicted_segments,
+            )
+        ):
+            raise ValueError("failed VAD observation must not contain output")
+        if (
+            self.status is BenchmarkStatus.FAILED
+            and self.first_speech_detection_delay_ms is not None
+        ):
+            raise ValueError("failed VAD observation must not contain delay")
+        if self.status is BenchmarkStatus.OK:
+            if self.predicted_segments == 0 and (
+                self.predicted_speech_ms != 0
+                or self.first_speech_detection_delay_ms is not None
+            ):
+                raise ValueError("empty VAD output contains speech metadata")
+            if self.predicted_segments > 0 and (
+                self.predicted_speech_ms <= 0
+                or self.first_speech_detection_delay_ms is None
+            ):
+                raise ValueError("VAD speech output is incomplete")
+
+    def to_dict(self) -> dict[str, object]:
+        data = _vad_observation_dict(self)
+        data.update(
+            {
+                "sample_rate_hz": self.sample_rate_hz,
+                "channels": self.channels,
+                "sample_format": self.sample_format,
+                "audio_duration_ms": self.audio_duration_ms,
+                "max_chunk_duration_ms": self.max_chunk_duration_ms,
+                "processing_latency_ms": self.processing_latency_ms,
+                "process_cpu_ms": self.process_cpu_ms,
+                "reference_speech_ms": self.reference_speech_ms,
+                "predicted_speech_ms": self.predicted_speech_ms,
+                "true_positive_ms": self.true_positive_ms,
+                "false_positive_ms": self.false_positive_ms,
+                "false_negative_ms": self.false_negative_ms,
+                "predicted_segments": self.predicted_segments,
+                "first_speech_detection_delay_ms": (
+                    self.first_speech_detection_delay_ms
+                ),
+                "peak_rss_mib": self.peak_rss_mib,
+                "peak_vram_mib": self.peak_vram_mib,
+            }
+        )
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, object]) -> VadBenchmarkObservation:
+        try:
+            return cls(
+                identity=_identity_from_dict(data),
+                sample_id=data["sample_id"],
+                repetition=data["repetition"],
+                status=BenchmarkStatus(data["status"]),
+                sample_rate_hz=data["sample_rate_hz"],
+                channels=data["channels"],
+                sample_format=data["sample_format"],
+                audio_duration_ms=data["audio_duration_ms"],
+                max_chunk_duration_ms=data["max_chunk_duration_ms"],
+                processing_latency_ms=data["processing_latency_ms"],
+                process_cpu_ms=data["process_cpu_ms"],
+                reference_speech_ms=data["reference_speech_ms"],
+                predicted_speech_ms=data["predicted_speech_ms"],
+                true_positive_ms=data["true_positive_ms"],
+                false_positive_ms=data["false_positive_ms"],
+                false_negative_ms=data["false_negative_ms"],
+                predicted_segments=data["predicted_segments"],
+                first_speech_detection_delay_ms=data.get(
+                    "first_speech_detection_delay_ms"
+                ),
+                peak_rss_mib=data.get("peak_rss_mib"),
+                peak_vram_mib=data.get("peak_vram_mib"),
+                error_code=data.get("error_code", ""),
+                schema_version=data["schema_version"],
+                record_type=data["record_type"],
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("invalid VAD benchmark observation") from error
+
+
 def run_asr_benchmark(
     provider: AsrProvider,
     identity: BenchmarkIdentity,
@@ -445,6 +701,73 @@ def run_tts_benchmark(
                     process_cpu_ms=_elapsed_ms(cpu_start, process_time_ns()),
                     output_bytes=output_bytes,
                     error_code=error_code,
+                )
+            )
+    return tuple(observations)
+
+
+def run_vad_benchmark(
+    provider: VadProvider,
+    identity: BenchmarkIdentity,
+    samples: Sequence[VadBenchmarkSample],
+    *,
+    repetitions: int = 1,
+    monotonic_ns: Callable[[], int] = time.monotonic_ns,
+    process_time_ns: Callable[[], int] = time.process_time_ns,
+) -> tuple[VadBenchmarkObservation, ...]:
+    _validate_run_size(len(samples), repetitions)
+    observations = []
+    for repetition in range(1, repetitions + 1):
+        for sample in samples:
+            wall_start = monotonic_ns()
+            cpu_start = process_time_ns()
+            try:
+                predicted, first_delay_frames = _run_vad_sample(
+                    provider, sample
+                )
+                metrics = _vad_duration_metrics(
+                    sample.reference_segments,
+                    predicted,
+                    sample.format.sample_rate_hz,
+                )
+                status = BenchmarkStatus.OK
+                error_code = ""
+                first_delay_ms = (
+                    first_delay_frames * 1000 / sample.format.sample_rate_hz
+                    if first_delay_frames is not None
+                    else None
+                )
+            except Exception:
+                predicted = ()
+                metrics = {
+                    "reference_speech_ms": 0.0,
+                    "predicted_speech_ms": 0.0,
+                    "true_positive_ms": 0.0,
+                    "false_positive_ms": 0.0,
+                    "false_negative_ms": 0.0,
+                }
+                status = BenchmarkStatus.FAILED
+                error_code = "provider_failed"
+                first_delay_ms = None
+            observations.append(
+                VadBenchmarkObservation(
+                    identity=identity,
+                    sample_id=sample.sample_id,
+                    repetition=repetition,
+                    status=status,
+                    sample_rate_hz=sample.format.sample_rate_hz,
+                    channels=sample.format.channels,
+                    sample_format=sample.format.sample_format.value,
+                    audio_duration_ms=sample.audio_duration_ms,
+                    max_chunk_duration_ms=sample.max_chunk_duration_ms,
+                    processing_latency_ms=_elapsed_ms(
+                        wall_start, monotonic_ns()
+                    ),
+                    process_cpu_ms=_elapsed_ms(cpu_start, process_time_ns()),
+                    predicted_segments=len(predicted),
+                    first_speech_detection_delay_ms=first_delay_ms,
+                    error_code=error_code,
+                    **metrics,
                 )
             )
     return tuple(observations)
@@ -560,6 +883,214 @@ def summarize_tts(
     }
 
 
+def summarize_vad(
+    observations: Sequence[VadBenchmarkObservation],
+) -> dict[str, object]:
+    identity = _validate_observations(observations, VadBenchmarkObservation)
+    successful = [
+        item for item in observations if item.status is BenchmarkStatus.OK
+    ]
+    true_positive_ms = sum(item.true_positive_ms for item in successful)
+    false_positive_ms = sum(item.false_positive_ms for item in successful)
+    false_negative_ms = sum(item.false_negative_ms for item in successful)
+    precision = _safe_ratio(
+        true_positive_ms, true_positive_ms + false_positive_ms
+    )
+    recall = _safe_ratio(
+        true_positive_ms, true_positive_ms + false_negative_ms
+    )
+    if precision is None or recall is None:
+        f1 = None
+    elif precision + recall == 0:
+        f1 = 0.0
+    else:
+        f1 = 2 * precision * recall / (precision + recall)
+    processing_latencies = [
+        item.processing_latency_ms for item in successful
+    ]
+    cpu_times = [item.process_cpu_ms for item in successful]
+    detection_delays = [
+        item.first_speech_detection_delay_ms
+        for item in successful
+        if item.first_speech_detection_delay_ms is not None
+    ]
+    real_time_factors = [
+        item.processing_latency_ms / item.audio_duration_ms
+        for item in successful
+        if item.audio_duration_ms > 0
+    ]
+    peak_rss = [
+        item.peak_rss_mib
+        for item in successful
+        if item.peak_rss_mib is not None
+    ]
+    peak_vram = [
+        item.peak_vram_mib
+        for item in successful
+        if item.peak_vram_mib is not None
+    ]
+    return {
+        "schema_version": BENCHMARK_SCHEMA_VERSION,
+        "summary_type": "vad",
+        "identity": _identity_dict(identity),
+        "total": len(observations),
+        "successful": len(successful),
+        "failed": len(observations) - len(successful),
+        "speech_precision": precision,
+        "speech_recall": recall,
+        "speech_f1": f1,
+        "false_positive_ms_total": false_positive_ms,
+        "false_negative_ms_total": false_negative_ms,
+        "first_speech_detection_delay_ms_p50": _percentile_or_none(
+            detection_delays, 50
+        ),
+        "first_speech_detection_delay_ms_p95": _percentile_or_none(
+            detection_delays, 95
+        ),
+        "processing_latency_ms_p50": _percentile_or_none(
+            processing_latencies, 50
+        ),
+        "processing_latency_ms_p95": _percentile_or_none(
+            processing_latencies, 95
+        ),
+        "process_cpu_ms_mean": _mean_or_none(cpu_times),
+        "real_time_factor_mean": _mean_or_none(real_time_factors),
+        "peak_rss_mib_max": max(peak_rss) if peak_rss else None,
+        "peak_vram_mib_max": max(peak_vram) if peak_vram else None,
+    }
+
+
+def _run_vad_sample(
+    provider: VadProvider,
+    sample: VadBenchmarkSample,
+) -> tuple[tuple[SpeechSegment, ...], int | None]:
+    cancel = Event()
+    events: list[VadEvent] = []
+    emitted_after_frames: list[int] = []
+    with provider.open_session(sample.format) as session:
+        for chunk in sample.chunks:
+            chunk_events = session.process(chunk, cancel)
+            _append_vad_events(
+                events,
+                emitted_after_frames,
+                chunk_events,
+                chunk.end_frame,
+            )
+        final_events = session.finish(cancel)
+        _append_vad_events(
+            events,
+            emitted_after_frames,
+            final_events,
+            sample.total_frames,
+        )
+    return _segments_from_vad_events(
+        events,
+        emitted_after_frames,
+        sample.total_frames,
+    )
+
+
+def _append_vad_events(
+    events: list[VadEvent],
+    emitted_after_frames: list[int],
+    new_events: object,
+    emitted_after_frame: int,
+) -> None:
+    if not isinstance(new_events, tuple) or not all(
+        isinstance(event, VadEvent) for event in new_events
+    ):
+        raise ValueError("VAD provider returned invalid events")
+    if len(events) + len(new_events) > MAX_VAD_SEGMENTS * 2:
+        raise ValueError("VAD provider returned too many events")
+    for event in new_events:
+        if event.frame_index > emitted_after_frame:
+            raise ValueError("VAD provider returned a future event")
+        events.append(event)
+        emitted_after_frames.append(emitted_after_frame)
+
+
+def _segments_from_vad_events(
+    events: Sequence[VadEvent],
+    emitted_after_frames: Sequence[int],
+    total_frames: int,
+) -> tuple[tuple[SpeechSegment, ...], int | None]:
+    segments = []
+    active_start: int | None = None
+    previous_frame = -1
+    first_delay_frames: int | None = None
+    for event, emitted_after_frame in zip(events, emitted_after_frames):
+        if event.frame_index < previous_frame or event.frame_index > total_frames:
+            raise ValueError("VAD provider returned unordered events")
+        previous_frame = event.frame_index
+        if event.kind is VadEventKind.SPEECH_STARTED:
+            if active_start is not None:
+                raise ValueError("VAD provider repeated speech start")
+            active_start = event.frame_index
+            if first_delay_frames is None:
+                first_delay_frames = emitted_after_frame - event.frame_index
+        else:
+            if active_start is None:
+                raise ValueError("VAD provider ended inactive speech")
+            segments.append(SpeechSegment(active_start, event.frame_index))
+            active_start = None
+    if active_start is not None:
+        raise ValueError("VAD provider did not end active speech")
+    _validate_segments(tuple(segments), total_frames)
+    return tuple(segments), first_delay_frames
+
+
+def _vad_duration_metrics(
+    reference: Sequence[SpeechSegment],
+    predicted: Sequence[SpeechSegment],
+    sample_rate_hz: int,
+) -> dict[str, float]:
+    reference_frames = sum(segment.frame_count for segment in reference)
+    predicted_frames = sum(segment.frame_count for segment in predicted)
+    true_positive_frames = _segment_intersection_frames(reference, predicted)
+    scale = 1000 / sample_rate_hz
+    return {
+        "reference_speech_ms": reference_frames * scale,
+        "predicted_speech_ms": predicted_frames * scale,
+        "true_positive_ms": true_positive_frames * scale,
+        "false_positive_ms": (predicted_frames - true_positive_frames) * scale,
+        "false_negative_ms": (reference_frames - true_positive_frames) * scale,
+    }
+
+
+def _segment_intersection_frames(
+    left: Sequence[SpeechSegment],
+    right: Sequence[SpeechSegment],
+) -> int:
+    total = 0
+    left_index = 0
+    right_index = 0
+    while left_index < len(left) and right_index < len(right):
+        left_segment = left[left_index]
+        right_segment = right[right_index]
+        total += max(
+            0,
+            min(left_segment.end_frame, right_segment.end_frame)
+            - max(left_segment.start_frame, right_segment.start_frame),
+        )
+        if left_segment.end_frame <= right_segment.end_frame:
+            left_index += 1
+        else:
+            right_index += 1
+    return total
+
+
+def _validate_segments(
+    segments: Sequence[SpeechSegment], total_frames: int
+) -> None:
+    previous_end = 0
+    for segment in segments:
+        if segment.start_frame < previous_end:
+            raise ValueError("speech segments must not overlap")
+        if segment.end_frame > total_frames:
+            raise ValueError("speech segment exceeds audio duration")
+        previous_end = segment.end_frame
+
+
 def character_error_rate(reference: str, hypothesis: str) -> float:
     _validate_metric_text(reference, "reference")
     _validate_metric_text(hypothesis, "hypothesis")
@@ -604,9 +1135,20 @@ def read_tts_observations(path: Path) -> tuple[TtsBenchmarkObservation, ...]:
     )
 
 
+def read_vad_observations(path: Path) -> tuple[VadBenchmarkObservation, ...]:
+    return tuple(
+        VadBenchmarkObservation.from_dict(item)
+        for item in _read_ndjson(path, "vad_observation")
+    )
+
+
 def write_observations(
     stream: TextIO,
-    observations: Iterable[AsrBenchmarkObservation | TtsBenchmarkObservation],
+    observations: Iterable[
+        AsrBenchmarkObservation
+        | TtsBenchmarkObservation
+        | VadBenchmarkObservation
+    ],
 ) -> int:
     count = 0
     total_bytes = 0
@@ -637,12 +1179,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         command = subparsers.add_parser(name)
         command.add_argument("--corpus", type=Path, required=True)
         command.add_argument("--observations", type=Path, required=True)
+    vad_command = subparsers.add_parser("summarize-vad")
+    vad_command.add_argument("--observations", type=Path, required=True)
     args = parser.parse_args(argv)
-    corpus = BenchmarkCorpus.load(args.corpus)
     if args.command == "score-asr":
+        corpus = BenchmarkCorpus.load(args.corpus)
         summary = summarize_asr(corpus, read_asr_observations(args.observations))
-    else:
+    elif args.command == "summarize-tts":
+        corpus = BenchmarkCorpus.load(args.corpus)
         summary = summarize_tts(corpus, read_tts_observations(args.observations))
+    else:
+        summary = summarize_vad(read_vad_observations(args.observations))
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
     return 0
 
@@ -705,6 +1252,21 @@ def _observation_dict(
         "error_code": observation.error_code,
     }
     data.update(_identity_dict(identity))
+    return data
+
+
+def _vad_observation_dict(
+    observation: VadBenchmarkObservation,
+) -> dict[str, object]:
+    data = {
+        "schema_version": observation.schema_version,
+        "record_type": observation.record_type,
+        "sample_id": observation.sample_id,
+        "repetition": observation.repetition,
+        "status": observation.status.value,
+        "error_code": observation.error_code,
+    }
+    data.update(_identity_dict(observation.identity))
     return data
 
 
@@ -871,6 +1433,10 @@ def _error_rate(reference: Sequence[str], hypothesis: Sequence[str]) -> float:
 
 def _mean_or_none(values: Sequence[float]) -> float | None:
     return sum(values) / len(values) if values else None
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float | None:
+    return numerator / denominator if denominator > 0 else None
 
 
 def _percentile_or_none(values: Sequence[float], percentile: int) -> float | None:

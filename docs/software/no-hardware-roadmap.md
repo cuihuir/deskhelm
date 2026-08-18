@@ -91,7 +91,8 @@ Status: In Progress
 
 - [x] Add PipeWire capture from the default or manually selected input source.
 - [x] Add PipeWire playback through the computer's configured/default sink.
-- [ ] Define and benchmark VAD at the selected streaming capture boundary.
+- [x] Define the streaming PCM and provider-neutral VAD benchmark boundary.
+- [ ] Benchmark production VAD candidates on labeled audio.
 - [ ] Benchmark Paraformer for streaming ASR.
 - [ ] Benchmark Piper and Kokoro for notification TTS.
 - [x] Add fixed Chinese, English, and mixed-language test utterances.
@@ -108,8 +109,8 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Define the streaming capture boundary and benchmark VAD without adding model
-   dependencies to Bridge.
+1. Benchmark VAD candidates on labeled external audio and record exact provider,
+   model, threshold, resource, latency, and licensing identity.
 2. Benchmark Paraformer, Piper, and Kokoro outside Bridge, including device-loss
    and cancellation recovery measurements.
 3. Add explicit provider selection and stable-name device configuration at the
