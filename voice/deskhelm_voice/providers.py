@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from threading import Event
-from typing import Protocol, Self
+from typing import Iterable, Protocol, Self
 
 from .models import CapturedAudio, SynthesizedAudio, Transcript
 from .streaming import PcmChunk, PcmStreamFormat, VadEvent
@@ -48,6 +48,14 @@ class StreamingAsrProvider(Protocol):
 
 class TtsProvider(Protocol):
     def synthesize(self, text: str, cancel: Event) -> SynthesizedAudio: ...
+
+
+class StreamingTtsProvider(Protocol):
+    def synthesize_streaming(
+        self,
+        text: str,
+        cancel: Event,
+    ) -> Iterable[SynthesizedAudio]: ...
 
 
 class PlaybackProvider(Protocol):

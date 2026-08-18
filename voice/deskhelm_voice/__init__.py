@@ -7,6 +7,7 @@ from .fake_providers import (
 )
 from .asr_manifest import AsrRunManifest, load_prepared_asr_set
 from .gateway import VoiceGateway
+from .kokoro_tts import KokoroTtsProvider
 from .models import (
     CapturedAudio,
     PcmSampleFormat,
@@ -19,8 +20,14 @@ from .models import (
     VoicePttState,
     VoiceTarget,
 )
-from .providers import StreamingAsrProvider, StreamingAsrResult, VoiceCancelled
+from .providers import (
+    StreamingAsrProvider,
+    StreamingAsrResult,
+    StreamingTtsProvider,
+    VoiceCancelled,
+)
 from .paraformer import ParaformerStreamingAsrProvider
+from .piper_tts import PiperTtsProvider
 from .pipewire import PipeWireCaptureProvider, PipeWirePlaybackProvider
 from .silero_onnx_vad import SileroOnnxVadProvider
 from .streaming import (
@@ -42,18 +49,21 @@ __all__ = [
     "FakePlaybackProvider",
     "FakeTtsProvider",
     "FakeVadProvider",
+    "KokoroTtsProvider",
     "PcmSampleFormat",
     "PcmChunk",
     "PcmStreamFormat",
     "ParaformerStreamingAsrProvider",
     "PipeWireCaptureProvider",
     "PipeWirePlaybackProvider",
+    "PiperTtsProvider",
     "SpeechItem",
     "SpeechPriority",
     "SpeechSegment",
     "SileroOnnxVadProvider",
     "StreamingAsrProvider",
     "StreamingAsrResult",
+    "StreamingTtsProvider",
     "SynthesizedAudio",
     "Transcript",
     "VoiceCancelled",

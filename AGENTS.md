@@ -243,6 +243,14 @@ Keep third-party reference files outside version control under
   requirements. Pin benchmark model revisions and checksums, use one streaming
   cache per transcription, serialize access to a shared model, and distinguish
   offline first-partial estimates from live capture-to-UI latency.
+- Keep Piper and Kokoro dependencies lazy and outside Bridge requirements. Pin
+  runtime/model revisions, licenses, artifact sizes, and checksums. Piper is the
+  initial low-latency notification baseline; Kokoro remains the quality
+  candidate, and neither is the final production selection.
+- Treat TTS first audio as the first complete provider chunk. Do not describe
+  it as PCM-frame streaming or claim cancellation during one model inference.
+- Review Piper's GPL-3.0-or-later runtime together with the repository license
+  and packaging plan before bundling or distributing it.
 - Do not commit microphone captures, generated speech, model output, or local
   benchmark results without explicit provenance, consent, and redistribution
   terms.
@@ -311,6 +319,15 @@ Current commands:
   references/vendor/paraformer-bench/run-v1/prepared --model-directory
   <ignored-model-snapshot> --observations <results.ndjson> --summary
   <summary.json>`: run the pinned Paraformer baseline from its isolated runtime.
+- `PYTHONPATH=voice python tools/prepare-tts-benchmark.py --manifest
+  voice/benchmarks/tts-candidates-v1.json --artifact-root
+  references/vendor/tts-bench/run-v1`: verify and prepare pinned TTS artifacts
+  under ignored storage.
+- `PYTHONPATH=voice python tools/run-tts-benchmark.py --candidate
+  piper-chaowen-medium --manifest voice/benchmarks/tts-candidates-v1.json
+  --prepared references/vendor/tts-bench/run-v1/prepared --corpus
+  voice/benchmarks/utterances-v1.json --observations <results.ndjson> --summary
+  <summary.json>`: run a pinned TTS candidate from its isolated runtime.
 - `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
 - `git diff --check`: detect whitespace errors.
 - `find docs -name '*.md' -type f`: list documentation for review.

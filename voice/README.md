@@ -39,9 +39,12 @@ real VAD benchmark adapters with lazy optional imports. `paraformer.py` provides
 the first real streaming ASR benchmark adapter, pinned to a verified model
 revision and the official 600 ms chunk configuration. These providers are not
 selected by the Voice Gateway yet. Paraformer remains a Chinese candidate, not
-the sole production ASR for mixed coding commands. Local production TTS remains
-pending. Keep model weights and provider-specific heavyweight dependencies
-outside the repository and outside Bridge.
+the sole production ASR for mixed coding commands. `piper_tts.py` and
+`kokoro_tts.py` provide the first lazy, bounded streaming TTS adapters. Piper
+Chaowen is the initial low-latency notification baseline; Kokoro remains the
+quality candidate. Neither is selected as production TTS, and neither is wired
+into the Voice Gateway composition yet. Keep model weights and
+provider-specific heavyweight dependencies outside the repository and Bridge.
 
 ## Benchmarks
 
@@ -97,12 +100,30 @@ PYTHONPATH=voice python tools/run-asr-benchmark.py \
   --repetitions 3 --cpu-threads 4
 ```
 
+Prepare and run a pinned TTS candidate from an isolated Python 3.12 environment
+containing its optional runtime:
+
+```bash
+PYTHONPATH=voice python tools/prepare-tts-benchmark.py \
+  --manifest voice/benchmarks/tts-candidates-v1.json \
+  --artifact-root references/vendor/tts-bench/run-v1
+
+PYTHONPATH=voice python tools/run-tts-benchmark.py \
+  --candidate piper-chaowen-medium \
+  --manifest voice/benchmarks/tts-candidates-v1.json \
+  --prepared references/vendor/tts-bench/run-v1/prepared \
+  --corpus voice/benchmarks/utterances-v1.json \
+  --observations voice/benchmarks/results/piper-chaowen-v1.ndjson \
+  --summary voice/benchmarks/results/piper-chaowen-v1-summary.json \
+  --repetitions 3 --cpu-threads 4
+```
+
 ## Tests
 
 ```bash
 PYTHONPATH=bridge python3 -m unittest \
   tests.test_pipewire_providers tests.test_voice_benchmark \
   tests.test_vad_benchmark tests.test_vad_providers tests.test_asr_providers \
-  tests.test_voice_gateway \
+  tests.test_tts_providers tests.test_voice_gateway \
   tests.test_voice_integration -v
 ```

@@ -51,7 +51,11 @@ both paths but does not select a production VAD. The first real streaming ASR
 baseline is also complete: a pinned Paraformer provider and external audio set
 produced 24/24 successful observations. It remains a Chinese candidate rather
 than DeskHelm's sole ASR because English word boundaries and short English
-commands performed poorly.
+commands performed poorly. The first Piper/Kokoro TTS comparison is complete
+with 36/36 successful observations per candidate. Piper is now the initial
+low-latency notification baseline; Kokoro remains the quality candidate, and a
+final production voice awaits human listening, live playback, recovery, and
+packaging license evidence.
 
 ## Completed Work
 
@@ -225,6 +229,20 @@ commands performed poorly.
   1.3.21 and CPU-only PyTorch/torchaudio 2.11.0. Mean CER was 0.438, English WER
   0.643, keyword accuracy 0.438, mean RTF 0.121, estimated first-partial p50/p95
   376/1,848 ms, cold load 4.97 seconds, and peak RSS 3.09 GiB.
+- Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
+  TTS baseline while retaining Kokoro 82M as the quality candidate and
+  deferring the final production selection.
+- Added pinned Piper/Kokoro candidate and artifact manifests, bounded download
+  and preparation tooling, lazy serialized providers, first-provider-chunk and
+  RTF benchmark metrics, ignored WAV export, and interruption probes.
+- Ran 36/36 successful observations per TTS candidate on Python 3.12.3 and four
+  CPU threads. Piper recorded 0.034 mean RTF, 174/592 ms first-chunk p50/p95,
+  and 1.01 GiB peak RSS; Kokoro recorded 0.185 RTF, 1,090/3,441 ms, and 2.52
+  GiB. Piper cancelled between chunks; Kokoro completed before cancellation.
+- Transcribed 24 generated WAV files through the pinned Paraformer model as an
+  explicitly model-dependent intelligibility proxy. Both candidates were strong
+  on Chinese-only keywords and weak on mixed coding commands; no human quality
+  or MOS claim was made.
 - Recorded ESP32-S3 wireless-audio research: BLE HID for keyboard controls,
   reliable BLE/Wi-Fi state, and Wi-Fi Opus as the preferred future voice path.
 - Selected a simpler local POC path: follow the computer's current PipeWire
@@ -305,6 +323,13 @@ commands performed poorly.
 - Paraformer first-partial results are offline pacing estimates: required audio
   availability plus processing time for the first non-empty chunk. They are not
   live microphone capture-to-UI measurements.
+- Piper is the initial notification TTS integration baseline because it was
+  materially faster and smaller in the first run. Kokoro remains a comparison
+  candidate; neither is the final production voice.
+- TTS first-audio timing means the first complete provider chunk, not PCM-frame
+  streaming. Piper and Kokoro cancel only between inference/chunk boundaries.
+- Piper's GPL-3.0-or-later runtime requires packaging review before bundling or
+  distribution, especially while the repository has no selected root license.
 - External VAD audio is reconstructed from a versioned manifest with pinned
   HTTPS URLs, revisions, checksums, licenses, and explicit silence recipes.
   Raw/prepared audio, models, and observation files remain ignored.
@@ -407,6 +432,8 @@ commands performed poorly.
   candidates, dependency isolation, FSDD provenance, and selection limits.
 - `docs/decisions/0014-use-paraformer-as-initial-streaming-asr-baseline.md`:
   pinned model/runtime identity, streaming configuration, bounds, and limits.
+- `docs/decisions/0015-use-piper-as-initial-notification-tts-baseline.md`:
+  initial TTS baseline, streaming semantics, licensing, and selection limits.
 - `docs/research/2026-08-18-pipewire-preflight.md`: verified local PipeWire
   capabilities and provider-design implications.
 - `docs/research/2026-08-18-esp32-s3-audio-transport.md`: official ESP32-S3 and
@@ -415,6 +442,8 @@ commands performed poorly.
   candidate facts, first-run configuration, aggregate results, and gaps.
 - `docs/research/2026-08-18-paraformer-first-benchmark.md`: pinned identity,
   external-set provenance, measurements, per-sample results, and next evidence.
+- `docs/research/2026-08-18-piper-kokoro-first-benchmark.md`: pinned TTS
+  identities, performance, interruption, proxy intelligibility, and gaps.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -459,6 +488,8 @@ commands performed poorly.
   checksums, format, speakers, and deterministic scenario recipes.
 - `voice/benchmarks/asr-external-v1.json`: pinned public ASR audio references,
   checksums, licenses, speakers, and expected transcripts.
+- `voice/benchmarks/tts-candidates-v1.json`: pinned TTS runtime/model identity,
+  artifacts, sizes, checksums, and licenses.
 - `voice/benchmarks/README.md`: measurement and artifact-handling contract.
 - `voice/deskhelm_voice/vad_manifest.py`: bounded external-audio manifest model.
 - `voice/deskhelm_voice/vad_samples.py`: checksum-validating prepared WAV loader
@@ -469,6 +500,12 @@ commands performed poorly.
   adapter and offline first-partial measurement.
 - `voice/deskhelm_voice/asr_manifest.py`: bounded external ASR manifest and
   prepared-set checksum/duration validation.
+- `voice/deskhelm_voice/piper_tts.py`: lazy bounded Piper provider with pinned
+  local Chinese G2P resources.
+- `voice/deskhelm_voice/kokoro_tts.py`: lazy bounded Kokoro Chinese/English
+  provider.
+- `voice/deskhelm_voice/tts_manifest.py`: bounded TTS candidate and artifact
+  manifest validation.
 - `tools/prepare-vad-benchmark.py`: bounded download, verification, conversion,
   composition, and local prepared-index generation.
 - `tools/run-vad-benchmark.py`: isolated candidate runner and NDJSON writer.
@@ -476,6 +513,10 @@ commands performed poorly.
   conversion, and prepared-index generation.
 - `tools/run-asr-benchmark.py`: pinned model verification, isolated Paraformer
   run, observations, resource metadata, and summary output.
+- `tools/prepare-tts-benchmark.py`: bounded downloads, verification, and safe
+  G2PW extraction.
+- `tools/run-tts-benchmark.py`: isolated candidate runner, WAV export,
+  interruption probe, observations, and summary output.
 - `bridge/deskhelm_bridge/voice_integration.py`: transcript, interaction, and
   control composition between Bridge and Voice.
 - `adapters/codex/deskhelm_codex_adapter/provider.py`: Codex command, stdin,
@@ -492,6 +533,8 @@ commands performed poorly.
   format, and hysteresis coverage.
 - `tests/test_asr_providers.py`: ASR manifest/prepared-set, measured streaming
   result, lazy loading, input bounds, cancellation, and validation coverage.
+- `tests/test_tts_providers.py`: TTS manifest, benchmark metrics, provider
+  routing, lazy loading, bounds, and cancellation coverage.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
 - `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
   connection role dispatch.
@@ -506,11 +549,11 @@ Last verified on 2026-08-18:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 168 tests passed under the workstation resource limiter, including
+Result: 172 tests passed under the workstation resource limiter, including
 strict `ResourceWarning` handling, 13 fake-subprocess PipeWire/PCM tests, 7
 streaming VAD benchmark tests, 4 VAD manifest/provider tests, and 4 new ASR
-manifest/provider tests. The full unit suite opened no live audio device and
-did not import the optional Paraformer runtime.
+manifest/provider tests plus 4 TTS manifest/provider tests. The full unit suite
+opened no live audio device and did not import optional model runtimes.
 
 The isolated real-candidate run also passed with 35/35 successful observations
 for both WebRTC and Silero. Downloaded FSDD audio, prepared WAV files, the ONNX
@@ -523,6 +566,12 @@ the accuracy/latency results in the dated research report. The Python 3.12
 environment, weights, downloaded/prepared audio, raw NDJSON, and local summary
 remain ignored.
 
+The isolated TTS run passed with 36/36 successful observations per candidate,
+and a post-change offline smoke run passed with 12/12 per candidate. The dated
+research report records exact performance, memory, interruption, licensing,
+signal, and ASR-proxy results. Environments, weights, generated WAV files, raw
+NDJSON, proxy output, and local summaries remain ignored.
+
 Repository checks also passed:
 
 ```bash
@@ -531,16 +580,19 @@ python3 -m compileall -q bridge adapters/codex voice tests tools
 ! rg -n '[[:blank:]]+$' . --glob '!.git/**'
 ! rg -n 'deskhelm_bridge|bridge\.' voice/deskhelm_voice
 git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
-  voice/benchmarks/results/paraformer-v1.ndjson
+  references/vendor/tts-bench/py312/bin/python \
+  voice/benchmarks/results/paraformer-v1.ndjson \
+  voice/benchmarks/results/piper-chaowen-v1.ndjson \
+  voice/benchmarks/results/kokoro-v1.ndjson
 ```
 
 ## Remaining Work
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Benchmark Piper and Kokoro outside Bridge. Expand ASR to consented
-   Chinese/mixed coding commands and an alternative model before selecting a
-   production default.
+2. Run blinded Piper/Kokoro listening and live PipeWire playback/interruption
+   tests. Expand ASR to consented Chinese/mixed coding commands and an
+   alternative model before selecting production defaults.
 3. Expand VAD to noisy/conversational labeled audio and live-device threshold
    measurements.
 4. Add application-level audio provider/device configuration and measure live
@@ -557,12 +609,13 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   Approval and rejection remain unavailable; speech handlers exist only when a
   Voice Gateway is explicitly composed into the Bridge.
 - PipeWire capture/playback providers exist, but the Bridge CLI does not select
-  them yet. Production VAD selection, ASR/TTS, streaming PipeWire capture, device
-  enumeration, and live recovery are not implemented.
+  them yet. Production VAD/ASR/TTS selection, streaming PipeWire capture,
+  device enumeration, and live recovery are not implemented.
 - The benchmark runner records VAD compute/detection timing, batch ASR final
-  latency, Paraformer offline first-partial estimates, and TTS synthesis
-  latency. Live capture-to-decision/partial, streaming first-audio,
-  interruption, and recovery timing remain unmeasured.
+  latency, Paraformer offline first-partial estimates, and provider-chunk TTS
+  first audio/interruption. Live capture-to-decision/partial,
+  playback-to-speaker first audio, mid-inference interruption, and recovery
+  timing remain unmeasured.
 - PipeWire lifecycle behavior is validated with fake subprocesses only. Live
   source/sink access, unavailable explicit targets, hot unplug, default-device
   changes, and actual audio latency remain unverified by design.
@@ -593,15 +646,17 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   exact, but English spacing and four of six isolated digits failed; about
   3.09 GiB peak RSS and cancellation only between inference calls also remain
   product risks. It is not selected as the sole production ASR.
-- Production TTS quality, first-audio/interruption latency, recovery, resource
-  use, and model licensing have not been benchmarked on the target machine.
+- Piper and Kokoro performance, resources, provider-chunk first audio,
+  interruption boundaries, and licenses are measured, but human quality and
+  actual playback latency are not. Piper produced a very small full-scale
+  sample fraction and its GPL runtime needs packaging review.
 
 ## Next Step
 
-Compare Piper and Kokoro notification TTS outside Bridge, including first-audio,
-interruption, resource, and licensing evidence. In parallel planning, define a
-consented Chinese/mixed coding-command ASR set and select one alternative to
-compare with Paraformer. Keep broader VAD threshold/noise work plus PipeWire
-streaming activation and live-device recovery at the application composition
-boundary. Obtain the repository license decision when packaging or external
-contributions require it.
+Add explicit application-level audio provider/device selection and exercise the
+first live no-hardware path with the current PipeWire default devices. Measure
+capture, playback, interruption, and disconnect/reconnect behavior without
+making Piper, Paraformer, WebRTC, or Silero final production defaults. In
+parallel planning, define blinded TTS listening and a consented Chinese/mixed
+coding-command ASR set with one alternative to Paraformer. Obtain the repository
+license decision before packaging Piper or accepting external contributions.

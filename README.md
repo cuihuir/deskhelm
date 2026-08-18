@@ -61,7 +61,9 @@ Bridge; broader noisy/live evidence is still required before selecting a
 production VAD. The first pinned Paraformer streaming ASR run is also complete:
 Chinese transcription and CPU real-time performance are promising, but English
 segmentation and short English commands prevent selecting it as the sole
-production ASR.
+production ASR. The first pinned Piper/Kokoro TTS comparison is complete:
+Piper is the initial low-latency notification baseline, while Kokoro remains a
+quality candidate pending human listening and live playback evidence.
 
 Current development focuses on the no-hardware Agent Console path:
 
@@ -73,7 +75,8 @@ Bridge state and sessions
   -> bounded PipeWire audio providers
   -> initial external-audio WebRTC/Silero VAD comparison
   -> initial Paraformer streaming ASR baseline
-  -> broader VAD/ASR, TTS, and recovery measurements
+  -> initial Piper/Kokoro notification TTS comparison
+  -> broader live VAD/ASR/TTS and recovery measurements
 ```
 
 Hardware, firmware, and device transport decisions remain exploratory until

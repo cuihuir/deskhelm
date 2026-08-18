@@ -13,11 +13,12 @@ from typing import TextIO
 import unicodedata
 import uuid
 
-from .models import CapturedAudio, PcmSampleFormat
+from .models import CapturedAudio, PcmSampleFormat, SynthesizedAudio
 from .providers import (
     AsrProvider,
     StreamingAsrProvider,
     StreamingAsrResult,
+    StreamingTtsProvider,
     TtsProvider,
     VadProvider,
 )
@@ -371,6 +372,8 @@ class TtsBenchmarkObservation:
     synthesis_latency_ms: float
     process_cpu_ms: float
     output_bytes: int
+    audio_duration_ms: float | None = None
+    first_audio_latency_ms: float | None = None
     peak_rss_mib: float | None = None
     peak_vram_mib: float | None = None
     error_code: str = ""
@@ -394,6 +397,11 @@ class TtsBenchmarkObservation:
         _validate_non_negative_number(self.process_cpu_ms, "process_cpu_ms")
         _validate_optional_number(self.peak_rss_mib, "peak_rss_mib")
         _validate_optional_number(self.peak_vram_mib, "peak_vram_mib")
+        _validate_optional_number(self.audio_duration_ms, "audio_duration_ms")
+        _validate_optional_number(
+            self.first_audio_latency_ms,
+            "first_audio_latency_ms",
+        )
         if not isinstance(self.output_bytes, int) or isinstance(
             self.output_bytes, bool
         ) or self.output_bytes < 0:
@@ -402,6 +410,11 @@ class TtsBenchmarkObservation:
             raise ValueError("successful TTS observation requires output bytes")
         if self.status is BenchmarkStatus.FAILED and self.output_bytes != 0:
             raise ValueError("failed TTS observation must not contain output")
+        if self.status is BenchmarkStatus.FAILED and (
+            self.audio_duration_ms is not None
+            or self.first_audio_latency_ms is not None
+        ):
+            raise ValueError("failed TTS observation must not contain timing")
 
     def to_dict(self) -> dict[str, object]:
         data = _observation_dict(self)
@@ -410,6 +423,8 @@ class TtsBenchmarkObservation:
                 "synthesis_latency_ms": self.synthesis_latency_ms,
                 "process_cpu_ms": self.process_cpu_ms,
                 "output_bytes": self.output_bytes,
+                "audio_duration_ms": self.audio_duration_ms,
+                "first_audio_latency_ms": self.first_audio_latency_ms,
                 "peak_rss_mib": self.peak_rss_mib,
                 "peak_vram_mib": self.peak_vram_mib,
             }
@@ -427,6 +442,8 @@ class TtsBenchmarkObservation:
                 synthesis_latency_ms=data["synthesis_latency_ms"],
                 process_cpu_ms=data["process_cpu_ms"],
                 output_bytes=data["output_bytes"],
+                audio_duration_ms=data.get("audio_duration_ms"),
+                first_audio_latency_ms=data.get("first_audio_latency_ms"),
                 peak_rss_mib=data.get("peak_rss_mib"),
                 peak_vram_mib=data.get("peak_vram_mib"),
                 error_code=data.get("error_code", ""),
@@ -683,13 +700,16 @@ def run_asr_benchmark(
 
 
 def run_tts_benchmark(
-    provider: TtsProvider,
+    provider: TtsProvider | StreamingTtsProvider,
     identity: BenchmarkIdentity,
     corpus: BenchmarkCorpus,
     *,
     repetitions: int = 1,
     monotonic_ns: Callable[[], int] = time.monotonic_ns,
     process_time_ns: Callable[[], int] = time.process_time_ns,
+    audio_consumer: Callable[
+        [str, int, SynthesizedAudio], None
+    ] | None = None,
 ) -> tuple[TtsBenchmarkObservation, ...]:
     _validate_run_size(len(corpus.utterances), repetitions)
     observations = []
@@ -698,13 +718,34 @@ def run_tts_benchmark(
             wall_start = monotonic_ns()
             cpu_start = process_time_ns()
             try:
-                audio = provider.synthesize(utterance.text, Event())
+                streaming_method = getattr(provider, "synthesize_streaming", None)
+                if streaming_method is None:
+                    audio = provider.synthesize(utterance.text, Event())
+                    first_audio_latency_ms = None
+                else:
+                    chunks = []
+                    first_audio_latency_ms = None
+                    for chunk in streaming_method(utterance.text, Event()):
+                        if not isinstance(chunk, SynthesizedAudio):
+                            raise ValueError("streaming TTS chunk is invalid")
+                        if first_audio_latency_ms is None:
+                            first_audio_latency_ms = _elapsed_ms(
+                                wall_start,
+                                monotonic_ns(),
+                            )
+                        chunks.append(chunk)
+                    audio = _join_synthesized_audio(chunks)
                 status = BenchmarkStatus.OK
                 output_bytes = len(audio.data)
+                audio_duration_ms = audio.duration_seconds * 1000
+                if audio_consumer is not None:
+                    audio_consumer(utterance.utterance_id, repetition, audio)
                 error_code = ""
             except Exception:
                 status = BenchmarkStatus.FAILED
                 output_bytes = 0
+                audio_duration_ms = None
+                first_audio_latency_ms = None
                 error_code = "provider_failed"
             observations.append(
                 TtsBenchmarkObservation(
@@ -717,6 +758,8 @@ def run_tts_benchmark(
                     ),
                     process_cpu_ms=_elapsed_ms(cpu_start, process_time_ns()),
                     output_bytes=output_bytes,
+                    audio_duration_ms=audio_duration_ms,
+                    first_audio_latency_ms=first_audio_latency_ms,
                     error_code=error_code,
                 )
             )
@@ -871,6 +914,9 @@ def summarize_tts(
     latencies = []
     cpu_times = []
     output_sizes = []
+    audio_durations = []
+    first_audio_latencies = []
+    real_time_factors = []
     failed = 0
     peak_rss = []
     peak_vram = []
@@ -883,6 +929,15 @@ def summarize_tts(
         latencies.append(observation.synthesis_latency_ms)
         cpu_times.append(observation.process_cpu_ms)
         output_sizes.append(float(observation.output_bytes))
+        if observation.audio_duration_ms is not None:
+            audio_durations.append(observation.audio_duration_ms)
+            if observation.audio_duration_ms > 0:
+                real_time_factors.append(
+                    observation.synthesis_latency_ms
+                    / observation.audio_duration_ms
+                )
+        if observation.first_audio_latency_ms is not None:
+            first_audio_latencies.append(observation.first_audio_latency_ms)
         if observation.peak_rss_mib is not None:
             peak_rss.append(observation.peak_rss_mib)
         if observation.peak_vram_mib is not None:
@@ -896,11 +951,43 @@ def summarize_tts(
         "failed": failed,
         "synthesis_latency_ms_p50": _percentile_or_none(latencies, 50),
         "synthesis_latency_ms_p95": _percentile_or_none(latencies, 95),
+        "first_audio_latency_ms_p50": _percentile_or_none(
+            first_audio_latencies, 50
+        ),
+        "first_audio_latency_ms_p95": _percentile_or_none(
+            first_audio_latencies, 95
+        ),
         "process_cpu_ms_mean": _mean_or_none(cpu_times),
         "output_bytes_mean": _mean_or_none(output_sizes),
+        "audio_duration_ms_mean": _mean_or_none(audio_durations),
+        "real_time_factor_mean": _mean_or_none(real_time_factors),
         "peak_rss_mib_max": max(peak_rss) if peak_rss else None,
         "peak_vram_mib_max": max(peak_vram) if peak_vram else None,
     }
+
+
+def _join_synthesized_audio(
+    chunks: Sequence[SynthesizedAudio],
+) -> SynthesizedAudio:
+    if not chunks:
+        raise ValueError("streaming TTS returned no audio")
+    first = chunks[0]
+    if any(
+        chunk.sample_rate_hz != first.sample_rate_hz
+        or chunk.channels != first.channels
+        or chunk.sample_format is not first.sample_format
+        for chunk in chunks[1:]
+    ):
+        raise ValueError("streaming TTS format changed")
+    payload = b"".join(chunk.data for chunk in chunks)
+    if len(payload) > 64 << 20:
+        raise ValueError("streaming TTS output exceeds size limit")
+    return SynthesizedAudio(
+        payload,
+        first.sample_rate_hz,
+        first.channels,
+        first.sample_format,
+    )
 
 
 def summarize_vad(

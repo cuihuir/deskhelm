@@ -25,6 +25,12 @@ must remain local and must not be redistributed. Preparation verifies source
 checksums and writes normalized 16 kHz mono S16LE WAV files plus an index under
 ignored storage.
 
+`tts-candidates-v1.json` pins Piper Chaowen and Kokoro 82M runtime/model
+revisions, licenses, artifact URLs, exact sizes, and SHA-256 checksums. It also
+pins Piper's Chinese G2P and tokenizer resources so the benchmark can run
+offline. Prepared weights, environments, generated WAV files, and results stay
+under ignored storage.
+
 ## Observation Format
 
 VAD, ASR, and TTS runs write UTF-8 NDJSON with one versioned observation per
@@ -69,9 +75,11 @@ PYTHONPATH=voice python3 -m deskhelm_voice.benchmark summarize-vad \
 
 ASR summaries report CER, English-only WER, keyword accuracy, final/partial
 latency, CPU time, and real-time factor when audio duration is known. TTS
-summaries currently cover batch synthesis latency, CPU time, and output size;
-streaming first-audio and interruption timing enter the provider benchmark when
-that contract is implemented. VAD summaries report frame-weighted speech
+summaries report complete synthesis and first-provider-chunk latency, output
+duration, CPU time, output size, and real-time factor. The candidate runner also
+records cold load, process peak RSS, and an interruption probe. First-provider-
+chunk timing is not PCM-frame streaming when a provider yields one complete
+utterance chunk. VAD summaries report frame-weighted speech
 precision, recall and F1, total false-positive/false-negative duration,
 first-speech detection delay, processing latency, CPU time, and real-time factor.
 For the Paraformer offline runner, first-partial latency is an estimate: audio
@@ -90,6 +98,19 @@ Prepare the pinned set with `tools/prepare-asr-benchmark.py` and run it with
 `tools/run-asr-benchmark.py`. The runner verifies the exact pinned `model.pt`
 checksum before loading the provider and records model verification/load time
 and process peak RSS in the local summary.
+
+## Streaming TTS Inputs
+
+Piper and Kokoro accept bounded text, lazily load optional runtimes, serialize
+shared-model use, cap generated output, and check cancellation while waiting or
+between yielded chunks. Piper outputs 22,050 Hz mono S16LE; Kokoro outputs
+24 kHz mono S16LE and selects its Chinese pipeline whenever text contains CJK.
+Neither adapter can cancel during one model inference.
+
+Prepare candidates with `tools/prepare-tts-benchmark.py` and run them with
+`tools/run-tts-benchmark.py`. The runner verifies exact runtime versions and
+artifact checksums before model load. Optional first-run WAV export belongs
+under ignored storage and is for controlled listening/proxy analysis only.
 
 ## Streaming VAD Inputs
 

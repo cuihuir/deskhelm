@@ -10,3 +10,7 @@ a final production selection.
 [`0014-use-paraformer-as-initial-streaming-asr-baseline.md`](0014-use-paraformer-as-initial-streaming-asr-baseline.md)
 pins the first licensed streaming ASR baseline and records why it is not yet the
 sole production default.
+
+[`0015-use-piper-as-initial-notification-tts-baseline.md`](0015-use-piper-as-initial-notification-tts-baseline.md)
+selects Piper for low-latency notification experiments while retaining Kokoro
+as the quality candidate and deferring the final production choice.

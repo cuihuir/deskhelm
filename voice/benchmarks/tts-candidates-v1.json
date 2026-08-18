@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "name": "deskhelm-tts-candidates-v1",
+  "candidates": [
+    {
+      "candidate_id": "piper-chaowen-medium",
+      "provider_name": "piper-tts",
+      "provider_version": "1.7.0",
+      "provider_revision": "7b8e8f7197a480047677715f00d3d78903b55a2a",
+      "provider_license": "GPL-3.0-or-later",
+      "model_name": "zh_CN-chaowen-medium",
+      "model_version": "piper-voices-f5a6e909",
+      "model_revision": "f5a6e9094787fd865d65cb024472f977f9c542b5",
+      "model_license": "CC0-1.0",
+      "artifacts": [
+        {
+          "role": "model",
+          "file_name": "zh_CN-chaowen-medium.onnx",
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/f5a6e9094787fd865d65cb024472f977f9c542b5/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx",
+          "sha256": "820d64ac16048fbcf38dd0823d37fab5f5e0c2bd71b01ca5a50f553fac19e746",
+          "size_bytes": 63221984
+        },
+        {
+          "role": "config",
+          "file_name": "zh_CN-chaowen-medium.onnx.json",
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/f5a6e9094787fd865d65cb024472f977f9c542b5/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx.json",
+          "sha256": "a6bb2caafa0645642f13cbf7e2f6fbbb16fded66e51109fc26d622f6472fa16f",
+          "size_bytes": 2927
+        },
+        {
+          "role": "model_card",
+          "file_name": "MODEL_CARD",
+          "url": "https://huggingface.co/rhasspy/piper-voices/resolve/f5a6e9094787fd865d65cb024472f977f9c542b5/zh/zh_CN/chaowen/medium/MODEL_CARD",
+          "sha256": "7155212ec9192b1201898500621ae562dc5eeb6d90fa183f3267cd06dc7d5b6b",
+          "size_bytes": 273
+        },
+        {
+          "role": "g2pw_archive",
+          "file_name": "g2pw.tar.gz",
+          "url": "https://huggingface.co/datasets/rhasspy/piper-checkpoints/resolve/e358e1eb6a04a0fcc8a7c50d83f8bd157c397896/zh/zh_CN/_resources/g2pw.tar.gz",
+          "sha256": "252c6f561c11014fbb243d70aec993a816d82109887b91edcda0261ab9967060",
+          "size_bytes": 112991734
+        },
+        {
+          "role": "tokenizer_json",
+          "file_name": "tokenizer.json",
+          "url": "https://huggingface.co/google-bert/bert-base-chinese/resolve/8f23c25b06e129b6c986331a13d8d025a92cf0ea/tokenizer.json",
+          "sha256": "55c5edcfb8936895e019b2d8f97dcb547734f25b29f95009155f4c8c15649aae",
+          "size_bytes": 268943
+        },
+        {
+          "role": "tokenizer_config",
+          "file_name": "tokenizer_config.json",
+          "url": "https://huggingface.co/google-bert/bert-base-chinese/resolve/8f23c25b06e129b6c986331a13d8d025a92cf0ea/tokenizer_config.json",
+          "sha256": "0f6d13e6f4da6f9e24f22ada6bc3be571123d858d7c0c05a8a7cd55a9c23c2e8",
+          "size_bytes": 49
+        },
+        {
+          "role": "tokenizer_vocab",
+          "file_name": "vocab.txt",
+          "url": "https://huggingface.co/google-bert/bert-base-chinese/resolve/8f23c25b06e129b6c986331a13d8d025a92cf0ea/vocab.txt",
+          "sha256": "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c",
+          "size_bytes": 109540
+        }
+      ]
+    },
+    {
+      "candidate_id": "kokoro-v1-auto-zh-en",
+      "provider_name": "kokoro",
+      "provider_version": "0.9.4",
+      "provider_revision": "dfb907a02bba8152ca444717ca5d78747ccb4bec",
+      "provider_license": "Apache-2.0",
+      "model_name": "hexgrad/Kokoro-82M zf_xiaobei+af_heart",
+      "model_version": "v1.0",
+      "model_revision": "f3ff3571791e39611d31c381e3a41a3af07b4987",
+      "model_license": "Apache-2.0",
+      "artifacts": [
+        {
+          "role": "model",
+          "file_name": "kokoro-v1_0.pth",
+          "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/kokoro-v1_0.pth",
+          "sha256": "496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4",
+          "size_bytes": 327212226
+        },
+        {
+          "role": "config",
+          "file_name": "config.json",
+          "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/config.json",
+          "sha256": "5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f",
+          "size_bytes": 2351
+        },
+        {
+          "role": "chinese_voice",
+          "file_name": "zf_xiaobei.pt",
+          "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/voices/zf_xiaobei.pt",
+          "sha256": "9b76be63dab4f4f96962030acc0126a9aee9728608fbbe115e2b58a2bd504df6",
+          "size_bytes": 523435
+        },
+        {
+          "role": "english_voice",
+          "file_name": "af_heart.pt",
+          "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/voices/af_heart.pt",
+          "sha256": "0ab5709b8ffab19bfd849cd11d98f75b60af7733253ad0d67b12382a102cb4ff",
+          "size_bytes": 523425
+        }
+      ]
+    }
+  ]
+}

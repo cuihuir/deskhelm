@@ -97,7 +97,7 @@ Status: In Progress
 - [ ] Expand VAD measurements to conversational/noisy audio and live devices,
   then select the production default.
 - [x] Benchmark Paraformer for streaming ASR.
-- [ ] Benchmark Piper and Kokoro for notification TTS.
+- [x] Benchmark Piper and Kokoro for notification TTS.
 - [x] Add fixed Chinese, English, and mixed-language test utterances.
 - [x] Define versioned latency, accuracy, resource, and licensing observations.
 - [ ] Record recovery results and real provider measurements.
@@ -112,8 +112,8 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Benchmark Piper and Kokoro outside Bridge, including interruption and
-   resource measurements.
+1. Run blinded TTS listening and live PipeWire playback/interruption tests
+   before selecting a production voice.
 2. Expand VAD coverage to noisy/conversational speech, threshold sweeps, and
    live PipeWire latency before selecting a default.
 3. Expand ASR coverage to consented Chinese/mixed coding commands, compare an
