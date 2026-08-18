@@ -26,9 +26,23 @@ tests. PipeWire, local ASR/VAD, and production TTS providers are not selected
 yet. Keep model weights and provider-specific heavyweight dependencies outside
 the repository and outside Bridge.
 
+## Benchmarks
+
+[`benchmarks/`](benchmarks/) contains the versioned synthetic utterance corpus
+and measurement documentation. `deskhelm_voice.benchmark` provides bounded fake
+or production provider runners, NDJSON observations, CER/WER and keyword
+scoring, and latency/resource summaries without model dependencies.
+
+```bash
+PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr \
+  --corpus voice/benchmarks/utterances-v1.json \
+  --observations /path/to/asr-observations.ndjson
+```
+
 ## Tests
 
 ```bash
 PYTHONPATH=bridge python3 -m unittest \
-  tests.test_voice_gateway tests.test_voice_integration -v
+  tests.test_voice_benchmark tests.test_voice_gateway \
+  tests.test_voice_integration -v
 ```

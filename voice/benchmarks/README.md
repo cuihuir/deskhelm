@@ -1,0 +1,54 @@
+# Voice Benchmarks
+
+Versioned, provider-neutral benchmark inputs for local ASR and TTS selection.
+The corpus contains public synthetic text only; it does not contain captured
+user audio, credentials, source code, or private prompts.
+
+## Corpus
+
+`utterances-v1.json` covers Chinese, English, mixed language, commands, paths,
+URLs, version numbers, symbols, negation, repetition, and longer recovery
+instructions. `utterance_id` is stable within version 1. Change reference text
+or keyword expectations only by creating a new corpus version.
+
+Audio recordings are intentionally not committed yet. A future capture set must
+record speaker consent, microphone and room metadata, sample format, checksum,
+and redistribution license before entering version control.
+
+## Observation Format
+
+ASR and TTS runs write UTF-8 NDJSON with one versioned observation per line.
+Each record includes run/provider/model/device identity, utterance ID,
+provider and model license identifiers, an anonymous system profile, repetition,
+status, latency, process CPU time, optional peak RSS/VRAM, and a fixed error
+code. ASR success records include the transcript; failed records never include
+provider exception text. TTS records include only output size, not generated
+audio. Use an exact SPDX identifier when verified and the literal `unverified`
+when a provider or model license still needs review.
+
+Records are limited to 1 MiB each, 64 MiB per file, and 10,000 observations per
+run. Model weights, generated audio, raw microphone captures, and local
+benchmark results belong outside Git unless their provenance and redistribution
+terms are clear.
+
+Score an ASR observation file:
+
+```bash
+PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr \
+  --corpus voice/benchmarks/utterances-v1.json \
+  --observations /path/to/asr-observations.ndjson
+```
+
+Summarize a TTS observation file:
+
+```bash
+PYTHONPATH=voice python3 -m deskhelm_voice.benchmark summarize-tts \
+  --corpus voice/benchmarks/utterances-v1.json \
+  --observations /path/to/tts-observations.ndjson
+```
+
+ASR summaries report CER, English-only WER, keyword accuracy, final/partial
+latency, CPU time, and real-time factor when audio duration is known. TTS
+summaries currently cover batch synthesis latency, CPU time, and output size;
+streaming first-audio and interruption timing enter the provider benchmark when
+that contract is implemented.

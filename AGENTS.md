@@ -222,6 +222,13 @@ Keep third-party reference files outside version control under
   interruptible playback; queued or active speech remains session-targeted.
 - Preserve raw and normalized transcripts separately. Ordinary lifecycle and
   failure events must not contain audio, transcript, prompt, or speech text.
+- Keep voice benchmark corpora and observation formats versioned. Bound each
+  NDJSON observation to 1 MiB, each result file to 64 MiB, and each run to
+  10,000 observations. Record exact provider/model versions and licenses plus
+  an anonymous system profile.
+- Do not commit microphone captures, generated speech, model output, or local
+  benchmark results without explicit provenance, consent, and redistribution
+  terms.
 
 Record significant protocol, transport, concurrency, framework, MCU, or
 licensing decisions in an ADR before implementation spreads across components.
@@ -248,6 +255,9 @@ Current commands:
   gateway with its default read-only sandbox.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_voice_gateway
   tests.test_voice_integration -v`: run the no-hardware Voice Gateway tests.
+- `PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr --corpus
+  voice/benchmarks/utterances-v1.json --observations <results.ndjson>`: score a
+  bounded ASR benchmark run.
 - `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
 - `git diff --check`: detect whitespace errors.
 - `find docs -name '*.md' -type f`: list documentation for review.

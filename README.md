@@ -49,7 +49,10 @@ provider streams normalized JSONL results and supports interruption, timeout,
 and process-local session resume without placing prompts in process arguments.
 An isolated bounded Voice Gateway now completes the fake PTT, transcript, Agent,
 TTS, and playback pipeline, with targeted speech controls and no audio/model
-dependencies in Bridge.
+dependencies in Bridge. Voice benchmarking now has a versioned Chinese,
+English, and mixed-language corpus plus bounded provider-neutral accuracy,
+latency, resource, and licensing observations. Production audio providers and
+model measurements remain pending.
 
 Current development focuses on the no-hardware Agent Console path:
 

@@ -22,3 +22,6 @@ Voice tests use fake capture, ASR, TTS, and playback providers to verify PTT
 state, raw/normalized transcript separation, recoverable provider failure,
 bounded speech, playback interruption, targeted controls, and the complete
 fake Voice-to-Agent-to-speech pipeline without audio hardware or model weights.
+`test_voice_benchmark.py` validates the versioned synthetic corpus, bounded
+NDJSON observations, fake-provider runners, CER/WER and keyword metrics,
+resource fields, privacy-preserving failure records, and unknown-input rejection.

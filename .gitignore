@@ -51,3 +51,7 @@ models/
 *.pth
 *.safetensors
 *.gguf
+
+# Local voice benchmark artifacts
+voice/benchmarks/recordings/
+voice/benchmarks/results/

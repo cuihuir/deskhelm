@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "name": "deskhelm-short-command-v1",
+  "utterances": [
+    {
+      "utterance_id": "zh-basic-01",
+      "language": "zh-CN",
+      "text": "请总结当前任务的进度，并告诉我下一步应该做什么。",
+      "tags": ["chinese", "general"],
+      "keywords": ["当前任务", "下一步"]
+    },
+    {
+      "utterance_id": "zh-negation-01",
+      "language": "zh-CN",
+      "text": "不要修改数据库，只检查迁移脚本并报告风险。",
+      "tags": ["chinese", "negation", "safety"],
+      "keywords": ["不要修改", "只检查", "迁移脚本"]
+    },
+    {
+      "utterance_id": "zh-repeat-01",
+      "language": "zh-CN",
+      "text": "嗯，先运行测试，先运行测试，然后再提交代码。",
+      "tags": ["chinese", "disfluency", "repetition"],
+      "keywords": ["运行测试", "提交代码"]
+    },
+    {
+      "utterance_id": "mixed-command-01",
+      "language": "zh-CN+en-US",
+      "text": "请运行 PYTHONPATH=bridge python3 -m unittest discover -s tests -v。",
+      "tags": ["mixed", "command"],
+      "keywords": ["PYTHONPATH=bridge", "unittest", "tests"]
+    },
+    {
+      "utterance_id": "mixed-path-01",
+      "language": "zh-CN+en-US",
+      "text": "打开 voice/deskhelm_voice/gateway.py，检查 press_ptt 函数。",
+      "tags": ["mixed", "path", "symbol"],
+      "keywords": ["voice/deskhelm_voice/gateway.py", "press_ptt"]
+    },
+    {
+      "utterance_id": "mixed-version-01",
+      "language": "zh-CN+en-US",
+      "text": "确认 DeskHelm 版本 0.1.0.dev0 支持 Python 3.11 及以上版本。",
+      "tags": ["mixed", "version", "number"],
+      "keywords": ["DeskHelm", "0.1.0.dev0", "Python 3.11"]
+    },
+    {
+      "utterance_id": "mixed-url-01",
+      "language": "zh-CN+en-US",
+      "text": "请查看 https://github.com/cuihuir/deskhelm 并核对 README。",
+      "tags": ["mixed", "url", "project-name"],
+      "keywords": ["https://github.com/cuihuir/deskhelm", "README"]
+    },
+    {
+      "utterance_id": "mixed-agent-01",
+      "language": "zh-CN+en-US",
+      "text": "让 Codex 检查 ControlRouter，再让 Claude Code 复核协议边界。",
+      "tags": ["mixed", "agent-name", "symbol"],
+      "keywords": ["Codex", "ControlRouter", "Claude Code"]
+    },
+    {
+      "utterance_id": "mixed-number-01",
+      "language": "zh-CN+en-US",
+      "text": "把超时时间设置为 300 秒，队列容量保持 8，不要改成 16。",
+      "tags": ["mixed", "number", "negation"],
+      "keywords": ["300 秒", "容量保持 8", "不要改成 16"]
+    },
+    {
+      "utterance_id": "en-basic-01",
+      "language": "en-US",
+      "text": "Run the focused tests and report any resource warnings.",
+      "tags": ["english", "general"],
+      "keywords": ["focused tests", "resource warnings"]
+    },
+    {
+      "utterance_id": "en-symbol-01",
+      "language": "en-US",
+      "text": "Keep raw_text separate from normalized_text in Transcript.",
+      "tags": ["english", "symbol"],
+      "keywords": ["raw_text", "normalized_text", "Transcript"]
+    },
+    {
+      "utterance_id": "zh-long-01",
+      "language": "zh-CN",
+      "text": "完成实现以后先检查格式和测试结果，如果出现设备断开、模型超时或者队列已满，就保留明确的错误状态，不要自动重试批准或拒绝操作。",
+      "tags": ["chinese", "long", "recovery", "negation"],
+      "keywords": ["设备断开", "模型超时", "队列已满", "不要自动重试"]
+    }
+  ]
+}

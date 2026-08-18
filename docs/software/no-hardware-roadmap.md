@@ -87,14 +87,15 @@ Acceptance criteria:
 
 ## Milestone 5: Local Audio Providers and Benchmarking
 
-Status: Planned
+Status: In Progress
 
 - [ ] Add PipeWire capture and playback adapters.
 - [ ] Define and benchmark VAD at the selected streaming capture boundary.
 - [ ] Benchmark Paraformer for streaming ASR.
 - [ ] Benchmark Piper and Kokoro for notification TTS.
-- [ ] Add fixed Chinese and mixed-language test utterances.
-- [ ] Record latency, accuracy, resource use, recovery, and licensing results.
+- [x] Add fixed Chinese, English, and mixed-language test utterances.
+- [x] Define versioned latency, accuracy, resource, and licensing observations.
+- [ ] Record recovery results and real provider measurements.
 
 Acceptance criteria:
 
@@ -106,7 +107,8 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Define the local audio provider benchmark harness and fixed utterance set.
+1. Define the PCM/container, capture bound, process ownership, device targeting,
+   and recovery contract for PipeWire providers.
 2. Add PipeWire device enumeration, capture, playback, and recovery adapters.
 3. Benchmark VAD, Paraformer, Piper, and Kokoro outside Bridge.
 4. Add a multi-project working-directory registry before one Bridge process
