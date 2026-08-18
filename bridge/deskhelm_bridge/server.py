@@ -10,6 +10,7 @@ import time
 from typing import BinaryIO, TextIO
 import uuid
 
+from .agent_gateway import AgentGateway, AgentProvider
 from .adapter import (
     ADAPTER_SESSION_MESSAGE_TYPE,
     AdapterCapability,
@@ -73,6 +74,7 @@ class _BridgeRuntime:
     max_subscribers: int
     subscriber_queue_frames: int
     subscriber_permits: Semaphore
+    agent_gateway: AgentGateway | None = None
     stop: Event = field(default_factory=Event)
     received: int = 0
     _event_lock: Lock = field(default_factory=Lock, repr=False)
@@ -120,6 +122,10 @@ def run_bridge(
     control_idempotency_entries: int = DEFAULT_CONTROL_IDEMPOTENCY_ENTRIES,
     control_idempotency_retention_ms: int = DEFAULT_CONTROL_IDEMPOTENCY_RETENTION_MS,
     control_approval_records: int = DEFAULT_CONTROL_APPROVAL_RECORDS,
+    agent_provider: AgentProvider | None = None,
+    agent_working_directory: Path | None = None,
+    agent_max_active_runs: int = 4,
+    agent_session_records: int = 64,
 ) -> int:
     if max_connections < 1:
         raise ValueError("max_connections must be at least 1")
@@ -139,6 +145,12 @@ def run_bridge(
         raise ValueError("control_idempotency_retention_ms must be at least 1")
     if control_approval_records < 1:
         raise ValueError("control_approval_records must be at least 1")
+    if agent_max_active_runs < 1:
+        raise ValueError("agent_max_active_runs must be at least 1")
+    if agent_session_records < agent_max_active_runs:
+        raise ValueError(
+            "agent_session_records must be at least agent_max_active_runs"
+        )
 
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     socket_path.unlink(missing_ok=True)
@@ -168,6 +180,15 @@ def run_bridge(
         subscriber_queue_frames=subscriber_queue_frames,
         subscriber_permits=Semaphore(max_subscribers),
     )
+    if agent_provider is not None:
+        runtime.agent_gateway = AgentGateway(
+            provider=agent_provider,
+            publish_interaction=runtime.process_interaction,
+            working_directory=(agent_working_directory or Path.cwd()),
+            max_active_runs=agent_max_active_runs,
+            max_session_records=agent_session_records,
+        )
+        runtime.agent_gateway.register_handlers(control_router)
     permits = Semaphore(max_connections)
     active_connections: set[socket.socket] = set()
     active_lock = RLock()
@@ -216,6 +237,8 @@ def run_bridge(
                         connection.shutdown(socket.SHUT_RDWR)
                     except OSError:
                         pass
+                if runtime.agent_gateway is not None:
+                    runtime.agent_gateway.close()
                 executor.shutdown(wait=True, cancel_futures=True)
     finally:
         socket_path.unlink(missing_ok=True)

@@ -50,6 +50,10 @@ Accepted codes are `focused` and `dispatched`. Current rejection codes are:
 - `approval_expiry_mismatch`
 - `approval_already_decided`
 
+`dispatched` means an explicit bounded handler accepted the work. Completion,
+cancellation, timeout, or downstream failure is reported separately through
+the relevant interaction terminal event; dispatch is not a completion claim.
+
 `dispatch_failed` intentionally carries no downstream error text. A handler may
 have performed a side effect before failing, so the result is retained for
 deduplication. For approval and rejection, any dispatch attempt consumes the

@@ -42,8 +42,11 @@ state and interaction publishers, atomic state snapshot/live subscriptions,
 bounded live-only rich interaction subscriptions, and negotiated controllers
 with targeted routing and correlated results. Adapter publishers now declare
 runtime capabilities and drive complete session registration, disconnect,
-restore, and release lifecycle. Agent and Voice Gateway command handlers are
-the next integration boundary.
+restore, and release lifecycle. Agent prompt and interruption handlers are
+available through an explicitly enabled bounded text gateway. The Codex
+provider streams normalized JSONL results and supports interruption, timeout,
+and process-local session resume without placing prompts in process arguments.
+Voice Gateway handlers remain the next integration boundary.
 
 Current development focuses on the no-hardware Agent Console path:
 
@@ -67,6 +70,17 @@ Start the local Bridge:
 ```bash
 PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --plain
 ```
+
+Enable the text-only Codex gateway for the current repository:
+
+```bash
+PYTHONPATH=bridge:adapters/codex python3 -m deskhelm_bridge bridge --plain \
+  --agent-provider codex \
+  --agent-workdir "$PWD"
+```
+
+The provider is disabled by default and uses the Codex read-only sandbox unless
+`--codex-sandbox workspace-write` is selected explicitly.
 
 In another terminal, run the four-agent simulator:
 

@@ -16,7 +16,9 @@ agent-io = "deskhelm_bridge.cli:main"
 agent-io-codex-hook = "deskhelm_bridge.codex_hook:main"
 
 [tool.setuptools]
-package-dir = {"" = "bridge"}
+packages = ["agent_io_bridge", "deskhelm_bridge", "deskhelm_codex_adapter"]
 
-[tool.setuptools.packages.find]
-where = ["bridge"]
+[tool.setuptools.package-dir]
+agent_io_bridge = "bridge/agent_io_bridge"
+deskhelm_bridge = "bridge/deskhelm_bridge"
+deskhelm_codex_adapter = "adapters/codex/deskhelm_codex_adapter"

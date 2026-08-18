@@ -31,8 +31,10 @@ interaction subscribers are implemented without entering state projection.
 controller connections are implemented. Modern adapter publishers can now
 declare capabilities and drive complete session registration, disconnect,
 restore, and release lifecycle with connection ownership. Versioned Codex JSONL
-evidence is present. Agent and Voice Gateway handlers are not registered yet.
-Voice Gateway implementation has not started.
+evidence is present. The opt-in bounded text Agent Gateway now handles targeted
+prompt submission and interruption, streams normalized Codex JSONL interactions,
+and supports timeout, cancellation, and process-local resume. Voice Gateway
+implementation has not started.
 
 ## Completed Work
 
@@ -115,6 +117,21 @@ Voice Gateway implementation has not started.
   focus, disconnect rejection, restore, and release behavior end to end.
 - Added versioned Codex `exec --json` fixtures with explicit official-document
   versus synthetic provenance and malformed/unknown/failure boundaries.
+- Accepted ADR 0008: use an in-process, fixed-capacity generic Agent Gateway
+  while keeping Codex process construction and JSON parsing in its adapter.
+- Implemented bounded `submit_prompt` and `interrupt` handlers with one active
+  run per complete session, fixed worker capacity, and bounded provider-session
+  records.
+- Implemented a deterministic fake provider for prompt streaming, resume,
+  capacity, cancellation, and terminal-event tests.
+- Implemented the Codex subprocess provider using `codex exec --json`, bounded
+  JSONL frames, supported item mapping, forward-compatible unknown-event
+  handling, timeout, process-group termination, and nonzero/malformed failure
+  outcomes.
+- Passed prompts through stdin so private text does not appear in process
+  command-line arguments, and suppressed Codex stderr from ordinary logs.
+- Added socket-level coverage proving a targeted controller prompt produces an
+  assistant message and task terminal event for interaction subscribers.
 - Reviewed two public Agent I/O projects and extracted streaming, adapter,
   fixture, observability, privacy, and idempotency lessons.
 - Added the project constitution and durable DeskHelm-specific collaboration
@@ -140,6 +157,18 @@ Voice Gateway implementation has not started.
   observation so control routing retains full identity.
 - Adapter registrations are process-local; version 1 has no durable persistence
   and no control delivery over the publisher connection.
+- The text Agent Gateway is opt-in, uses a fixed worker pool without an
+  unbounded pending queue, and retains only a bounded set of provider session
+  IDs and interaction sequences.
+- `project_id` remains an identity rather than a path. The initial gateway uses
+  one explicitly configured working directory for all sessions.
+- A `dispatched` result means bounded work was accepted, not completed. Agent
+  completion, cancellation, timeout, and failure use interaction terminal
+  events.
+- Codex prompts use stdin, JSONL records are limited to 1 MiB, stderr is not
+  logged, and owned process groups are terminated on cancellation or timeout.
+- The Codex provider is disabled by default and uses a read-only sandbox unless
+  workspace-write is selected explicitly.
 - Streams and queues require explicit bounds, ordering, cancellation,
   correlation, and slow-consumer behavior.
 - Approval and rejection require precise targets and must not be blindly
@@ -206,6 +235,8 @@ Voice Gateway implementation has not started.
   expiry, idempotency, retry, and approval safety decisions.
 - `docs/decisions/0007-adapter-session-capabilities-and-ownership.md`: adapter
   identity, capabilities, lifecycle, ownership, and restore semantics.
+- `docs/decisions/0008-bounded-text-agent-gateway.md`: provider boundary,
+  capacity, process safety, privacy, cancellation, and terminal semantics.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -230,6 +261,12 @@ Voice Gateway implementation has not started.
   protocol models.
 - `bridge/deskhelm_bridge/adapter_registry.py`: connection-owned registration,
   lifecycle, and event validation.
+- `bridge/deskhelm_bridge/agent_gateway.py`: generic bounded prompt/interrupt
+  scheduling, provider-session resume, sequence ownership, and normalization.
+- `bridge/deskhelm_bridge/fake_agent_provider.py`: deterministic provider used
+  by gateway tests without external services.
+- `adapters/codex/deskhelm_codex_adapter/provider.py`: Codex command, stdin,
+  JSONL parsing, timeout, cancellation, and process-exit handling.
 - `bridge/deskhelm_bridge/subscription.py`: subscription wire models and bounded
   per-subscriber update queue.
 - `bridge/deskhelm_bridge/interaction_subscription.py`: rich subscription wire
@@ -248,13 +285,13 @@ Last verified on 2026-08-18:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 111 tests passed, including strict `ResourceWarning` handling.
+Result: 123 tests passed, including strict `ResourceWarning` handling.
 
 Repository checks also passed:
 
 ```bash
 git diff --check
-PYTHONPATH=bridge python3 -m compileall -q bridge tests
+python3 -m compileall -q bridge adapters/codex tests
 ! rg -n '[[:blank:]]+$' . --glob '!.git/**'
 ```
 
@@ -262,15 +299,18 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
 
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Register Agent command handlers and build the text-only Codex gateway with a
-   deterministic fake provider.
-3. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
+2. Build the Voice Gateway skeleton with fake audio, ASR, TTS, and playback
    providers before installing models.
+3. Add a multi-project working-directory registry before one Bridge process
+   manages Agent sessions from different repositories.
 
 ## Risks and Blockers
 
-- The running Bridge has no Agent or Voice Gateway control handlers yet, so
-  non-focus commands safely return `handler_unavailable`.
+- The text Agent Gateway is disabled by default. Without
+  `--agent-provider codex`, Agent and Voice commands other than focus still
+  return `handler_unavailable`.
+- The current text gateway handles prompt submission and interruption only.
+  Approval, rejection, speech, and stop-speech handlers remain unavailable.
 - Adapter registrations are process-local and must be re-established after a
   Bridge restart. No durable session history or replay is promised.
 - Approval tracking is bounded. When its capacity is exhausted, new approval
@@ -286,13 +326,17 @@ PYTHONPATH=bridge python3 -m compileall -q bridge tests
   source-tree imports, both module entry points, and `pyproject.toml` metadata
   were validated directly.
 - Codex compatibility currently has official-document and synthetic JSONL
-  fixture evidence, but no locally captured authenticated run. Claude and
-  Gemini compatibility still lack versioned fixture sets.
+  fixture evidence plus fake-subprocess coverage, but no locally captured
+  authenticated model run. Claude and Gemini compatibility still lack
+  versioned fixture sets.
+- One configured Agent working directory currently applies to every gateway
+  session. Multi-project path ownership is not yet modeled.
 - ASR and TTS quality, latency, recovery, resource use, and model licensing have
   not been benchmarked on the target machine.
 
 ## Next Step
 
-Register bounded Agent provider/control handlers and build the text-only Codex
-gateway with deterministic fake-provider tests. Obtain the license decision
-from the user when packaging or external contributions require it.
+Build the isolated Voice Gateway skeleton with fake capture, ASR, TTS, and
+playback providers, then connect its bounded prompt and speech handlers. Obtain
+the license decision from the user when packaging or external contributions
+require it.

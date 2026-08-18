@@ -43,7 +43,27 @@ records by default. Override these with `--control-idempotency-entries`,
 `--control-idempotency-retention-ms`, and `--control-approval-records`.
 `focus` is handled internally; other command kinds reject with
 `handler_unavailable` until an Agent or Voice Gateway registers a bounded
-non-blocking handler.
+non-blocking handler. Enabling `--agent-provider codex` installs bounded
+`submit_prompt` and `interrupt` handlers. A dispatched result means the run was
+accepted by the fixed-capacity gateway; completion arrives separately as an
+interaction terminal event.
+
+Run the Bridge with the text-only Codex provider:
+
+```bash
+PYTHONPATH=bridge:adapters/codex python3 -m deskhelm_bridge bridge --plain \
+  --agent-provider codex \
+  --agent-workdir "$PWD" \
+  --agent-max-active-runs 4 \
+  --agent-session-records 64 \
+  --agent-run-timeout-seconds 300
+```
+
+The provider is opt-in and defaults to `--codex-sandbox read-only`. Prompts are
+sent through stdin, Codex stderr is not logged, JSONL records are bounded to
+1 MiB, and owned processes are terminated on interruption or timeout. The
+configured working directory applies to every gateway-managed session in this
+initial single-project implementation.
 
 Python integrations can use `deskhelm_bridge.send_negotiated_event` for a
 single negotiated state event while the CLI remains a legacy compatibility

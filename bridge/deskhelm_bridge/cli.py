@@ -33,6 +33,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--control-idempotency-retention-ms", type=int, default=300_000
     )
     bridge.add_argument("--control-approval-records", type=int, default=1024)
+    bridge.add_argument(
+        "--agent-provider",
+        choices=("none", "codex"),
+        default="none",
+        help="enable a text-only Agent provider",
+    )
+    bridge.add_argument("--agent-workdir", type=Path, default=Path.cwd())
+    bridge.add_argument("--agent-max-active-runs", type=int, default=4)
+    bridge.add_argument("--agent-session-records", type=int, default=64)
+    bridge.add_argument("--agent-run-timeout-seconds", type=float, default=300.0)
+    bridge.add_argument("--codex-executable", default="codex")
+    bridge.add_argument(
+        "--codex-sandbox",
+        choices=("read-only", "workspace-write"),
+        default="read-only",
+    )
 
     emit = subparsers.add_parser("emit", help="send one normalized event")
     add_socket_argument(emit)
@@ -97,6 +113,22 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "bridge":
             if args.slots < 1:
                 raise ValueError("--slots must be at least 1")
+            agent_provider = None
+            if args.agent_provider == "codex":
+                try:
+                    from deskhelm_codex_adapter import CodexExecProvider
+                except ModuleNotFoundError as error:
+                    if error.name != "deskhelm_codex_adapter":
+                        raise
+                    from adapters.codex.deskhelm_codex_adapter import (
+                        CodexExecProvider,
+                    )
+
+                agent_provider = CodexExecProvider(
+                    command_prefix=(args.codex_executable,),
+                    sandbox=args.codex_sandbox,
+                    timeout_seconds=args.agent_run_timeout_seconds,
+                )
             return_code = run_bridge(
                 socket_path=args.socket,
                 slot_count=args.slots,
@@ -112,6 +144,10 @@ def main(argv: list[str] | None = None) -> int:
                     args.control_idempotency_retention_ms
                 ),
                 control_approval_records=args.control_approval_records,
+                agent_provider=agent_provider,
+                agent_working_directory=args.agent_workdir,
+                agent_max_active_runs=args.agent_max_active_runs,
+                agent_session_records=args.agent_session_records,
             )
             return 0 if return_code >= 0 else 1
         if args.command == "emit":

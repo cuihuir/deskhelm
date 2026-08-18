@@ -201,6 +201,15 @@ Keep third-party reference files outside version control under
   its handler fails, because the downstream decision may already have applied.
 - Control handlers must be explicit, non-blocking, and bounded. Missing handlers
   reject safely; never report dispatch success before a handler accepts work.
+- Agent providers run behind the generic bounded gateway. Allow at most one
+  active run per complete session, bound concurrent runs and retained provider
+  session records, and do not create an unbounded prompt queue.
+- Keep vendor process construction and event parsing in `adapters/`. A provider
+  must produce one normalized terminal outcome and honor cancellation and
+  timeout of its owned work.
+- Never place prompts in process command-line arguments. Prefer bounded stdin,
+  suppress private stderr from ordinary logs, and terminate the owned process
+  group on cancellation or timeout.
 - Do not log prompts, source code, tool arguments, raw Agent events, audio, or
   credentials by default.
 - Keep PyTorch, CUDA, model weights, and provider-specific voice dependencies
@@ -226,6 +235,9 @@ Current commands:
   --control-idempotency-entries 1024 --control-approval-records 1024`: run with
   explicit control-state bounds.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge simulate`: emit demo events.
+- `PYTHONPATH=bridge:adapters/codex python3 -m deskhelm_bridge bridge
+  --agent-provider codex --agent-workdir "$PWD"`: run the opt-in text-only Codex
+  gateway with its default read-only sandbox.
 - `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
 - `git diff --check`: detect whitespace errors.
 - `find docs -name '*.md' -type f`: list documentation for review.

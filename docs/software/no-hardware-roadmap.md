@@ -54,12 +54,12 @@ Acceptance criteria:
 
 ## Milestone 3: Text-Only Agent Gateway
 
-Status: Planned
+Status: Complete
 
-- [ ] Wrap `codex exec --json` behind an agent-provider interface.
-- [ ] Stream Codex JSONL into normalized interaction events.
-- [ ] Support cancellation, process exit, timeout, and malformed output.
-- [ ] Add a fake provider for deterministic tests.
+- [x] Wrap `codex exec --json` behind an agent-provider interface.
+- [x] Stream Codex JSONL into normalized interaction events.
+- [x] Support cancellation, process exit, timeout, and malformed output.
+- [x] Add a fake provider for deterministic tests.
 
 Acceptance criteria:
 
@@ -103,7 +103,7 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Register Agent control handlers and build the text-only Codex gateway.
-2. Add a fake provider for deterministic prompt, streaming, and cancellation
-   tests.
-3. Add Voice Gateway handlers before audio dependencies.
+1. Build the Voice Gateway skeleton with fake capture, ASR, TTS, and playback.
+2. Connect Voice Gateway prompt and speech handlers before audio dependencies.
+3. Add a multi-project working-directory registry before one Bridge process
+   manages Agent sessions from different repositories.

@@ -1,19 +1,36 @@
 import os
 import json
+from io import StringIO
 from pathlib import Path
+from queue import Queue
 import socket
 import subprocess
 import sys
 import tempfile
+from threading import Thread
 import time
 import unittest
 
+from deskhelm_bridge.agent_gateway import (
+    AgentProviderEvent,
+    AgentRunResult,
+    AgentRunStatus,
+)
 from deskhelm_bridge.client import send_event, send_negotiated_event
 from deskhelm_bridge.event import AgentEvent, AgentState
+from deskhelm_bridge.fake_agent_provider import FakeAgentProvider, FakeRunScript
+from deskhelm_bridge.interaction import (
+    InteractionKind,
+    MessagePayload,
+    MessagePhase,
+    MessageRole,
+)
+from deskhelm_bridge.server import run_bridge
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHONPATH = str(ROOT / "bridge")
+FAKE_CODEX = ROOT / "tests" / "helpers" / "fake_codex_cli.py"
 
 
 class BridgeEndToEndTests(unittest.TestCase):
@@ -174,6 +191,35 @@ class BridgeEndToEndTests(unittest.TestCase):
             self.assertEqual(bridge.returncode, 0, stderr)
             self.assertIn("agent=demo:negotiated", stdout)
             self.assertIn("state=waiting_user", stdout)
+
+    def test_cli_composes_opt_in_codex_provider_without_model_request(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = Path(directory) / "bridge.sock"
+            bridge, _ = self._start_bridge(
+                socket_path,
+                max_events=1,
+                extra_args=[
+                    "--agent-provider",
+                    "codex",
+                    "--codex-executable",
+                    str(FAKE_CODEX),
+                ],
+            )
+            try:
+                send_event(
+                    AgentEvent(
+                        agent_id="demo:provider-composition",
+                        slot=0,
+                        state=AgentState.IDLE,
+                    ),
+                    socket_path,
+                )
+                stdout, stderr = bridge.communicate(timeout=3)
+            finally:
+                self._stop_bridge(bridge)
+
+            self.assertEqual(bridge.returncode, 0, stderr)
+            self.assertIn("agent=demo:provider-composition", stdout)
 
     def test_controller_receives_correlated_safe_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -421,6 +467,155 @@ class BridgeEndToEndTests(unittest.TestCase):
 
             self.assertEqual(error["message_type"], "protocol_error")
             self.assertEqual(error["code"], "invalid_frame")
+
+    def test_text_gateway_streams_controller_prompt_result_to_subscriber(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = Path(directory) / "bridge.sock"
+            output = StringIO()
+            provider = FakeAgentProvider(
+                [
+                    FakeRunScript(
+                        events=(
+                            AgentProviderEvent(
+                                kind=InteractionKind.MESSAGE,
+                                correlation_id="fake-message-1",
+                                payload=MessagePayload(
+                                    role=MessageRole.ASSISTANT,
+                                    phase=MessagePhase.COMPLETE,
+                                    text="deterministic response",
+                                ),
+                            ),
+                        ),
+                        result=AgentRunResult(AgentRunStatus.COMPLETED),
+                    )
+                ]
+            )
+            result: Queue[object] = Queue()
+
+            def serve() -> None:
+                try:
+                    result.put(
+                        run_bridge(
+                            socket_path=socket_path,
+                            slot_count=4,
+                            stream=output,
+                            color=False,
+                            live=False,
+                            max_events=3,
+                            agent_provider=provider,
+                            agent_working_directory=ROOT,
+                        )
+                    )
+                except BaseException as error:
+                    result.put(error)
+
+            server_thread = Thread(target=serve, daemon=True)
+            server_thread.start()
+            deadline = time.monotonic() + 3
+            while not socket_path.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(socket_path.exists())
+
+            publisher = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            subscriber = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            controller = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            for client in (publisher, subscriber, controller):
+                client.settimeout(3)
+            publisher_reader = subscriber_reader = controller_reader = None
+            try:
+                publisher.connect(str(socket_path))
+                publisher_reader = publisher.makefile("rb")
+                self._send_json(
+                    publisher,
+                    {
+                        "protocol_version": 1,
+                        "message_type": "client_hello",
+                        "client_id": "gateway-session-owner",
+                        "role": "publisher",
+                        "supported_versions": [1],
+                        "capabilities": [
+                            "adapter_session_v1",
+                            "agent_event_v1",
+                            "interaction_event_v1",
+                        ],
+                    },
+                )
+                json.loads(publisher_reader.readline())
+                self._send_json(publisher, self._adapter_session("register"))
+                json.loads(publisher_reader.readline())
+
+                subscriber.connect(str(socket_path))
+                subscriber_reader = subscriber.makefile("rb")
+                self._send_subscriber_hello(
+                    subscriber,
+                    "gateway-interaction-subscriber",
+                    capability="interaction_subscription_v1",
+                )
+                json.loads(subscriber_reader.readline())
+                json.loads(subscriber_reader.readline())
+
+                controller.connect(str(socket_path))
+                controller_reader = controller.makefile("rb")
+                self._send_json(
+                    controller,
+                    {
+                        "protocol_version": 1,
+                        "message_type": "client_hello",
+                        "client_id": "voice-gateway",
+                        "role": "controller",
+                        "supported_versions": [1],
+                        "capabilities": ["control_command_v1"],
+                    },
+                )
+                json.loads(controller_reader.readline())
+                prompt = json.loads(
+                    (
+                        ROOT
+                        / "tests"
+                        / "fixtures"
+                        / "protocol"
+                        / "control-v1"
+                        / "submit-prompt.json"
+                    ).read_text(encoding="utf-8")
+                )
+                now_ms = int(time.time() * 1000)
+                prompt["issued_at"] = now_ms
+                prompt["expires_at"] = now_ms + 30_000
+                self._send_json(controller, prompt)
+                control_result = json.loads(controller_reader.readline())
+                message_update = json.loads(subscriber_reader.readline())
+                terminal_update = json.loads(subscriber_reader.readline())
+
+                state_event = AgentEvent(
+                    agent_id="codex", slot=1, state=AgentState.COMPLETED
+                ).to_dict()
+                state_event["message_type"] = "agent_event"
+                self._send_json(publisher, state_event)
+                server_thread.join(timeout=3)
+            finally:
+                for reader in (
+                    publisher_reader,
+                    subscriber_reader,
+                    controller_reader,
+                ):
+                    if reader is not None:
+                        reader.close()
+                for client in (publisher, subscriber, controller):
+                    client.close()
+
+            self.assertFalse(server_thread.is_alive())
+            bridge_result = result.get(timeout=1)
+            if isinstance(bridge_result, BaseException):
+                raise bridge_result
+            self.assertEqual(bridge_result, 3)
+            self.assertEqual(control_result["code"], "dispatched")
+            self.assertEqual(message_update["event"]["kind"], "message")
+            self.assertEqual(
+                message_update["event"]["payload"]["text"],
+                "deterministic response",
+            )
+            self.assertEqual(terminal_update["event"]["kind"], "task_completed")
+            self.assertNotIn(prompt["payload"]["text"], output.getvalue())
 
     def test_subscriber_receives_snapshot_then_live_update(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

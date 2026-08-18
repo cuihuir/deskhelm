@@ -136,4 +136,6 @@ The negotiated `controller` role uses `control_command_v1`. Each valid command
 receives a correlated result defined by
 [`control-result-v1.md`](control-result-v1.md). `focus` is handled internally.
 Other kinds require an explicitly registered non-blocking handler; absent
-handlers return `handler_unavailable`.
+handlers return `handler_unavailable`. The opt-in text Agent Gateway currently
+handles `submit_prompt` and `interrupt`; Voice Gateway and approval handlers
+remain separate future integrations.
