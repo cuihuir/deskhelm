@@ -107,12 +107,17 @@ Live hot-unplug and hard in-flight cancellation measurements remain open.
 The multi-phrase diagnostic phase is now implemented under ADR 0022. It accepts
 up to eight repeated `--utterance-id` values, opens a fresh capture for each,
 reuses one lazy provider for warm-path behavior, and marks each result as
-requiring separate post-run confirmation. Four Chinese/mixed coding phrases are
-queued for the next synchronized Paraformer/SenseVoice comparison. The first
+requiring separate post-run confirmation. Four Chinese/mixed coding phrases
+were run for the Paraformer/SenseVoice comparison. The first
 SenseVoice batch completed all four captures and the user confirmed speaking
 each phrase, but reported that the spoken pace did not fully keep up with the
 phrase transitions; the result is therefore live diagnostic evidence rather
 than a tightly synchronized provider comparison.
+The repeated Paraformer batch also completed all four captures with `ok` status.
+The user described the prompt cadence as faster than comfortable natural speech
+and asked to begin analysis; the four records are treated as spoken with that
+timing caveat. Paraformer had lower mean CER but much higher final latency, and
+neither provider recovered the mixed coding keywords reliably.
 
 ## Completed Work
 
@@ -307,6 +312,14 @@ than a tightly synchronized provider comparison.
   provider reuse. All four records completed with fixed `ok` status and the
   user confirmed speaking each phrase; pace/synchronization was imperfect, so
   literal accuracy and keyword misses remain qualified evidence.
+- Ran the repeated four-phrase Paraformer batch with fresh captures and warm
+  provider reuse. All four records completed with fixed `ok` status; the user
+  reported the cadence was faster than comfortable natural speech, so the
+  records are qualified live evidence rather than paired comparison data.
+- Compared the two qualified batches: Paraformer mean CER was `0.726123` versus
+  SenseVoice `0.809943`; mean final latency was `2,158.430 ms` versus
+  `442.620 ms`. Both providers had `0.166667` mean keyword accuracy and zero
+  keyword accuracy on the three mixed coding phrases, so neither is selected.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -769,6 +782,14 @@ reported that the speaking pace did not fully keep up with phrase transitions;
 the measurements are recorded as qualified diagnostic evidence, not a tightly
 synchronized provider comparison.
 
+The repeated live Paraformer batch also completed four fresh captures with `ok`
+status. The user reported that the prompt cadence was faster than comfortable
+natural speech and asked to begin analysis; all four are treated as spoken with
+that caveat. Across the two qualified batches, Paraformer mean CER was `0.726123`
+versus SenseVoice `0.809943`, while mean final latency was `2,158.430 ms` versus
+`442.620 ms`. Both providers had `0.166667` mean keyword accuracy and zero
+keyword accuracy on the three mixed coding phrases.
+
 An additional startup smoke test used the current PipeWire graph and ignored
 prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local
 gateway, accepted one event, exited cleanly, and removed its socket without
@@ -951,11 +972,12 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 - Initial WebRTC and Silero VAD replay quality/latency and licenses are measured,
   but the corpus lacks conversational speech, Chinese, noise, music, keyboard
   sounds, distant microphones, and live recovery. Production VAD is unselected.
-- Paraformer is measured on a tiny public set plus one synchronized live Chinese
-  command. The live run matched all keywords but had 0.181818 CER; English
-  spacing, isolated digits, about 3.09 GiB peak RSS, and cancellation only
-  between inference calls also remain product risks. It is not selected as the
-  sole production ASR.
+- Paraformer is measured on a tiny public set, one synchronized live Chinese
+  command, and one qualified four-phrase live batch. The batch had lower mean
+  CER than SenseVoice but zero keyword accuracy on the three mixed coding
+  phrases; English spacing, isolated digits, about 3.09 GiB peak RSS, and
+  cancellation only between inference calls remain product risks. It is not
+  selected as the sole production ASR.
 - SenseVoice is final-only and cannot provide partials or cancel its native
   decode midway. It missed most isolated English digit clips, and its custom
   FunASR Model License 1.1 requires review before packaging or production use.
@@ -966,12 +988,12 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Next Step
 
-After a fresh readiness handshake, run the same four phrase IDs with Paraformer
-and confirm each phrase separately. Then compare the two qualified live batches,
-measure timeout/disconnect/default-device change and provider recovery, and
-retain whisper.cpp as the next licensing/quality fallback before selecting a
-production ASR. Expand live VAD threshold/noise evidence without granting
-endpoint control, and separately define actual speaker-first-audio and
+The multi-phrase ASR comparison is complete as qualified live evidence. Next,
+repeat selected phrases with a one-by-one readiness handshake if cleaner timing
+is needed; then measure timeout/disconnect/default-device change and provider
+recovery, and retain whisper.cpp as the next licensing/quality fallback before
+selecting a production ASR. Expand live VAD threshold/noise evidence without
+granting endpoint control, and separately define actual speaker-first-audio and
 interruption instrumentation. Keep every provider replaceable and obtain the
 repository license decision before packaging models or accepting external
 contributions.

@@ -28,11 +28,13 @@ batch. The recordings are not paired audio and must not be treated as such.
 
 ## Results
 
-The deterministic batch path and privacy tests pass. A user-confirmed
-SenseVoice batch completed all four captures, but the user reported that the
-spoken pace did not fully keep up with the phrase transitions. The measurements
-are therefore valid as a confirmed live diagnostic, not as a tightly
-synchronized provider comparison.
+The deterministic batch path and privacy tests pass. User feedback confirms
+that the phrases were spoken in both provider runs, but the prompt transitions
+were faster than comfortable natural speech. The measurements are therefore
+valid as confirmed live diagnostics, not as tightly synchronized provider
+comparisons. The current report treats all four Paraformer phrases as spoken,
+per the user's instruction to begin analysis, while retaining the pacing
+confounder.
 
 ### SenseVoice Batch
 
@@ -52,3 +54,48 @@ All four records had `status: ok`, no clipped samples, and a provisional
 `within_diagnostic_range` input hint. The result is retained with the
 per-phrase confirmation scope, while pace/synchronization remains a confounder
 for literal accuracy and keyword misses.
+
+### Paraformer Batch
+
+The second provider used the same source, capture bound, phrase order, VAD
+mode, and CPU thread count. It also completed all four captures with `ok`
+status, no clipped samples, and the same provisional input-level hint.
+
+| ID | Duration (ms) | Active (ms) | Chars | CER | Keyword accuracy | First partial (ms) | Final ASR (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `zh-negation-01` | 12008.938 | 4280.000 | 20 | 0.190476 | 0.666667 | 6048.826 | 5852.653 |
+| `mixed-command-01` | 12008.938 | 5108.938 | 15 | 0.818182 | 0.000000 | 7247.261 | 918.138 |
+| `mixed-path-01` | 12030.312 | 3930.312 | 17 | 0.895833 | 0.000000 | 1851.867 | 891.291 |
+| `mixed-number-01` | 12030.312 | 6800.000 | 28 | 1.000000 | 0.000000 | 1250.730 | 971.636 |
+
+### Comparison
+
+| Metric | SenseVoice | Paraformer |
+| --- | ---: | ---: |
+| Mean CER across four phrases | 0.809943 | 0.726123 |
+| Mean keyword accuracy | 0.166667 | 0.166667 |
+| Mean final ASR latency | 442.620 ms | 2,158.430 ms |
+| Mean warm-path final latency (phrases 2-4) | 223.010 ms | 927.022 ms |
+| Mean advisory speech-active fraction | 0.359097 | 0.418442 |
+
+Observed facts:
+
+- Both providers completed all four bounded captures and preserved the
+  privacy contract.
+- Paraformer produced the lower mean CER, driven mainly by the negation phrase,
+  but neither provider achieved an exact match and both had zero keyword
+  accuracy on the three mixed coding phrases.
+- SenseVoice was substantially faster after the first phrase and had the
+  lower cold-process final latency in this run.
+- Both providers reported full-range signal hints without clipping; the signal
+  metrics do not explain the mixed-command failures by themselves.
+
+Interpretation limits:
+
+- The two runs contain different human recordings and prompt-transition timing;
+  they are not paired-audio experiments.
+- The mixed-command results are not sufficient to select a production ASR for
+  code-sensitive commands. No provider is selected by this batch.
+- A cleaner follow-up should use one explicit readiness handshake per phrase,
+  let the user finish before starting the next capture, and retain the same
+  phrase order only for coverage rather than statistical pairing.
