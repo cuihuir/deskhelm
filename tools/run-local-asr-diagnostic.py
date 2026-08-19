@@ -201,6 +201,7 @@ def _diagnose_audio(
         "keyword_accuracy": None,
         "first_partial_latency_ms": None,
         "final_asr_latency_ms": None,
+        "requires_post_run_speech_confirmation": True,
         "privacy": "PCM and recognized text were not saved or printed",
     }
     started_ns = monotonic_ns()
@@ -276,6 +277,7 @@ def _capture_failure_summary() -> dict[str, object]:
         "keyword_accuracy": None,
         "first_partial_latency_ms": None,
         "final_asr_latency_ms": None,
+        "requires_post_run_speech_confirmation": True,
         "privacy": "PCM and recognized text were not saved or printed",
     }
 

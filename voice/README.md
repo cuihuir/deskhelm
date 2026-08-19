@@ -123,6 +123,9 @@ bounded in-memory recording, suppresses provider output, and reports only:
 - fixed capture, empty-transcript, or ASR failure codes.
 
 It neither saves PCM nor prints recognized text. Example:
+Its JSON explicitly states that post-run user confirmation is required; signal
+or ASR output must not be interpreted until the user confirms whether they
+actually spoke during that capture.
 
 ```bash
 PYTHONPATH=voice /ignored/py312/bin/python \

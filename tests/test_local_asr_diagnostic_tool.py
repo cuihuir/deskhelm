@@ -81,6 +81,7 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
         self.assertEqual(summary["keyword_accuracy"], 1)
         self.assertEqual(summary["first_partial_latency_ms"], 12.5)
         self.assertEqual(summary["final_asr_latency_ms"], 25.0)
+        self.assertTrue(summary["requires_post_run_speech_confirmation"])
         serialized = json.dumps(summary, ensure_ascii=False)
         self.assertNotIn(UTTERANCE.text, serialized)
         self.assertNotIn("audio_data", serialized)
@@ -113,6 +114,7 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
         failure = TOOL._capture_failure_summary()
         self.assertEqual(failure["error_code"], "voice_input_failed")
         self.assertEqual(failure["input_level_hint"], "unavailable")
+        self.assertTrue(failure["requires_post_run_speech_confirmation"])
         serialized = json.dumps(failure)
         self.assertNotIn("exception", serialized)
 

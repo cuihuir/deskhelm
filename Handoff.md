@@ -81,10 +81,12 @@ and final ASR always receives the complete bounded recording. VAD failures emit
 one fixed non-terminal event and fall back to the unchanged PTT path.
 The controlled microphone-only ASR diagnostic now pairs one versioned public
 phrase with signal, accuracy, and latency metadata while suppressing provider
-output and retaining neither PCM nor recognized text. Its first real run found
-a healthy unclipped input signal but another `voice_no_transcript`, narrowing
-the next investigation toward speech-active coverage, model/domain fit,
-streaming parameters, and an alternative ASR rather than simple input level.
+output and retaining neither PCM nor recognized text. Its first run produced
+`voice_no_transcript`; the user later confirmed that they did not speak, so the
+result is retained only as an unspoken negative control. A later user-confirmed
+spoken run produced 27 characters, matched both expected keywords, and had
+0.545455 CER. This verifies basic recognition and command-intent recovery, but
+literal accuracy remains inadequate for code-sensitive commands.
 
 ## Completed Work
 
@@ -749,13 +751,21 @@ saved nor printed. The 80 ms activity region validates live event plumbing and
 fallback only; it does not prove detection of the intended utterance or
 acceptable VAD/ASR quality.
 
-The controlled `zh-repeat-01` microphone-only run captured 223,178 bytes over
+The unspoken `zh-repeat-01` microphone-only run captured 223,178 bytes over
 6,974.312 ms at 16 kHz mono S16LE. Peak was 0.506927, RMS was 0.035902, clipped
 sample fraction was zero, and the provisional level hint was
 `within_diagnostic_range`. Paraformer returned `voice_no_transcript` after
-11,329.329 ms. PCM and recognized text were neither saved nor printed. This
-makes low level and clipping less likely primary causes, but speech-active
-duration was not measured and remains an explicit gap.
+11,329.329 ms. PCM and recognized text were neither saved nor printed. The user
+later confirmed they did not speak, so these values describe a background
+negative control rather than voice input or recognition quality.
+
+The third controlled attempt was user-confirmed as spoken. It captured
+256,628 bytes over 8,019.625 ms with peak 0.914215, RMS 0.120620, and no clipped
+samples. Paraformer returned 27 characters, matched both expected keywords,
+reported 0.545455 CER, first partial at 1,850.498 ms, and final output at
+5,785.955 ms. PCM and recognized text were neither saved nor printed. The user
+did not hear the attempted speaker cue, so future interpretation requires
+explicit post-run speech confirmation rather than relying on an audible cue.
 
 Live local audio diagnostics resolved three sources and three sinks. Two-second
 default and manual USB-source tests each captured about 1.98 seconds of 16 kHz
@@ -811,11 +821,12 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   playback-to-speaker first audio, mid-inference interruption, and recovery
   timing remain unmeasured.
 - Basic live default/manual input, default output, streaming PCM capture, and one
-  earlier ASR/TTS playback path are verified. Multiple Paraformer attempts,
-  including a controlled healthy-signal and zero-clipping run, returned no final
-  text. Speech-active duration, alternative-ASR comparison, startup calibration,
-  hot unplug, default-device changes, and actual speaker-first-audio latency
-  need explicit product behavior.
+  earlier ASR/TTS playback path are verified. A user-confirmed spoken run
+  recovered all expected keywords but had 0.545455 CER, so Paraformer remains
+  unsuitable as a production default. Speech-active duration, repeated command
+  coverage, alternative-ASR comparison, startup calibration, hot unplug,
+  default-device changes, and actual speaker-first-audio latency need explicit
+  product behavior.
 - Adapter registrations are process-local and must be re-established after a
   Bridge restart. No durable session history or replay is promised.
 - Approval tracking is bounded. When its capacity is exhausted, new approval

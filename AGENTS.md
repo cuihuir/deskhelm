@@ -235,6 +235,8 @@ Keep third-party reference files outside version control under
   suppress provider stdout/stderr, retain PCM and recognized text only in
   memory, and publish only signal, accuracy, length, timing, and fixed failure
   metadata. Input-level hints are provisional and must not change system gain.
+  Do not interpret a live ASR result until the user confirms whether they spoke
+  the prompted phrase during that capture.
 - Keep voice benchmark corpora and observation formats versioned. Bound each
   NDJSON observation to 1 MiB, each result file to 64 MiB, and each run to
   10,000 observations. Record exact provider/model versions and licenses plus
