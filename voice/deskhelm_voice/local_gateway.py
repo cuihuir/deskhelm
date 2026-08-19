@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+import math
 from pathlib import Path
 
 from .audio_config import (
@@ -46,6 +47,7 @@ class LocalVoiceConfig:
     cpu_threads: int = 4
     max_capture_seconds: float = 30.0
     max_capture_bytes: int = 1 << 20
+    max_asr_seconds: float = 30.0
     max_speech_items: int = 8
     vad_provider: LocalVadProviderKind = LocalVadProviderKind.NONE
 
@@ -87,6 +89,14 @@ class LocalVoiceConfig:
         ):
             raise ValueError("local voice capture byte limit is invalid")
         if (
+            not isinstance(self.max_asr_seconds, (int, float))
+            or isinstance(self.max_asr_seconds, bool)
+            or not math.isfinite(self.max_asr_seconds)
+            or self.max_asr_seconds <= 0
+            or self.max_asr_seconds > 120
+        ):
+            raise ValueError("local voice ASR timeout is invalid")
+        if (
             not isinstance(self.max_speech_items, int)
             or isinstance(self.max_speech_items, bool)
             or not 1 <= self.max_speech_items <= 64
@@ -124,6 +134,7 @@ class LocalVoiceConfig:
             ),
             max_capture_seconds=self.max_capture_seconds,
             max_capture_bytes=self.max_capture_bytes,
+            max_asr_seconds=self.max_asr_seconds,
             max_speech_items=self.max_speech_items,
         )
         return LocalVoiceComposition(gateway, selection)

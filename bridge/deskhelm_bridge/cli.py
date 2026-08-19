@@ -85,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     bridge.add_argument("--voice-cpu-threads", type=int, default=4)
     bridge.add_argument("--voice-max-capture-seconds", type=float, default=30.0)
     bridge.add_argument("--voice-max-capture-bytes", type=int, default=1 << 20)
+    bridge.add_argument("--voice-max-asr-seconds", type=float, default=30.0)
     bridge.add_argument("--voice-max-speech-items", type=int, default=8)
     bridge.add_argument("--voice-pw-dump-executable", default="pw-dump")
     bridge.add_argument("--voice-wpctl-executable", default="wpctl")
@@ -427,6 +428,7 @@ def _compose_local_voice(args: argparse.Namespace, *, inventory=None):
         cpu_threads=args.voice_cpu_threads,
         max_capture_seconds=args.voice_max_capture_seconds,
         max_capture_bytes=args.voice_max_capture_bytes,
+        max_asr_seconds=args.voice_max_asr_seconds,
         max_speech_items=args.voice_max_speech_items,
     )
     if inventory is None:

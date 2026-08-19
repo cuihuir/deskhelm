@@ -118,7 +118,9 @@ Status: In Progress
   input signal, accuracy, and latency metadata without playback.
 - [x] Add advisory speech-active segment, duration, and ratio measurements to
   that diagnostic without allowing VAD to gate ASR.
-- [ ] Record disconnect, timeout, device-change, and provider-failure recovery.
+- [ ] Measure live disconnect, timeout, device-change, and provider-failure
+  recovery; the bounded Gateway timeout contract is implemented, but native
+  hard-cancellation evidence is still missing.
 - [x] Define deterministic provider retry, cancellation, process-disconnect,
   and default/manual device-change semantics with fake-boundary tests.
 

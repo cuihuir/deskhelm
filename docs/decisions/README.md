@@ -46,3 +46,7 @@ and privacy-safe batch output for coding-command comparisons.
 [`0023-one-by-one-asr-readiness-handshake.md`](0023-one-by-one-asr-readiness-handshake.md)
 adds an opt-in bounded stdin handshake before each phrase capture so
 chat-driven diagnostics do not race automatic prompt transitions.
+
+[`0024-bounded-asr-timeout.md`](0024-bounded-asr-timeout.md) adds a bounded
+Voice Gateway ASR deadline, fixed timeout failure, and explicit retry boundary
+without claiming hard cancellation for native provider calls.

@@ -1,5 +1,6 @@
 from pathlib import Path
 from queue import Queue
+from threading import Event
 import time
 import unittest
 
@@ -17,6 +18,7 @@ from voice.deskhelm_voice import (
     Transcript,
     VoiceEvent,
     VoiceEventKind,
+    VoiceCancelled,
     VoiceGateway,
     VoiceNoTranscript,
     VoicePttState,
@@ -106,6 +108,88 @@ class VoiceGatewayTests(unittest.TestCase):
         while not events.empty():
             emitted.append(events.get_nowait())
         self.assertEqual(emitted[-1].error_code, "voice_no_transcript")
+
+    def test_asr_timeout_is_bounded_and_next_request_can_retry(self) -> None:
+        class TimeoutThenSuccessAsr:
+            def __init__(self) -> None:
+                self.calls = 0
+                self.started = Event()
+
+            def transcribe(self, _audio, cancel):
+                self.calls += 1
+                if self.calls == 1:
+                    self.started.set()
+                    while not cancel.wait(timeout=0.01):
+                        pass
+                    raise VoiceCancelled()
+                return Transcript("second", "second")
+
+        events: Queue[VoiceEvent] = Queue()
+        prompts: Queue[tuple[VoiceTarget, Transcript]] = Queue()
+        asr = TimeoutThenSuccessAsr()
+        gateway = self._gateway(
+            FakeCaptureProvider([self._audio(), self._audio()]),
+            asr,
+            event_sink=events.put,
+            max_asr_seconds=0.05,
+        )
+        gateway.register_prompt_sink(lambda target, text: prompts.put((target, text)))
+
+        gateway.press_ptt(self.target)
+        gateway.release_ptt()
+        self.assertTrue(asr.started.wait(timeout=1))
+        self._wait_for_state(gateway, VoicePttState.IDLE)
+
+        first_events = []
+        while not events.empty():
+            first_events.append(events.get_nowait())
+        self.assertEqual(first_events[-1].error_code, "voice_asr_timeout")
+
+        gateway.press_ptt(self.target)
+        gateway.release_ptt()
+        _, transcript = prompts.get(timeout=1)
+        self.assertEqual(transcript.normalized_text, "second")
+        self._wait_for_state(gateway, VoicePttState.IDLE)
+
+    def test_asr_timeout_limit_is_validated(self) -> None:
+        with self.assertRaisesRegex(ValueError, "max_asr_seconds"):
+            self._gateway(
+                FakeCaptureProvider([self._audio()]),
+                FakeAsrProvider([Transcript("raw", "normalized")]),
+                max_asr_seconds=0,
+            )
+
+    def test_asr_cancellation_does_not_wait_for_gateway_deadline(self) -> None:
+        class CancellableAsr:
+            def __init__(self) -> None:
+                self.started = Event()
+
+            def transcribe(self, _audio, cancel):
+                self.started.set()
+                if cancel.wait(timeout=2):
+                    raise VoiceCancelled()
+                raise AssertionError("ASR cancellation was not observed")
+
+        events: Queue[VoiceEvent] = Queue()
+        asr = CancellableAsr()
+        gateway = self._gateway(
+            FakeCaptureProvider([self._audio()]),
+            asr,
+            event_sink=events.put,
+            max_asr_seconds=2,
+        )
+        gateway.register_prompt_sink(lambda _target, _transcript: None)
+
+        gateway.press_ptt(self.target)
+        gateway.release_ptt()
+        self.assertTrue(asr.started.wait(timeout=1))
+        gateway.cancel_ptt()
+        self._wait_for_state(gateway, VoicePttState.IDLE)
+
+        emitted = []
+        while not events.empty():
+            emitted.append(events.get_nowait())
+        self.assertEqual(emitted[-1].kind, VoiceEventKind.PTT_CANCELLED)
 
     def test_streaming_capture_is_assembled_only_after_release(self) -> None:
         format = PcmStreamFormat(16000)
@@ -598,6 +682,7 @@ class VoiceGatewayTests(unittest.TestCase):
         vad=None,
         event_sink=None,
         max_capture_bytes: int = 1 << 20,
+        max_asr_seconds: float = 30.0,
         max_speech_items: int = 8,
     ) -> VoiceGateway:
         gateway = VoiceGateway(
@@ -607,6 +692,7 @@ class VoiceGatewayTests(unittest.TestCase):
             playback_provider=playback or FakePlaybackProvider(),
             vad_provider=vad,
             max_capture_bytes=max_capture_bytes,
+            max_asr_seconds=max_asr_seconds,
             max_speech_items=max_speech_items,
             event_sink=event_sink,
         )

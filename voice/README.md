@@ -18,6 +18,8 @@ has no import dependency on Bridge and no runtime audio or model dependency.
   activation ID derived from its press command.
 - `Transcript` keeps raw and normalized text separate.
 - The speech queue is fixed-capacity, priority-aware, and interruptible.
+- ASR has a bounded Gateway deadline; timeout and cooperative cancellation are
+  separate fixed lifecycle outcomes.
 - Lifecycle events contain identifiers and fixed error codes, not audio or
   private text.
 
@@ -77,8 +79,10 @@ implemented.
 
 Paraformer returning no text is reported as the fixed safe error
 `voice_no_transcript`, distinct from capture, format, runtime, or model failures
-reported as `voice_input_failed`. Neither error includes audio or transcript
-content.
+reported as `voice_input_failed`. A Gateway deadline reports
+`voice_asr_timeout`; the next explicit PTT request is the only retry boundary.
+Neither error includes audio or transcript content. Provider cancellation is
+cooperative; a native decoder may continue after the Gateway has returned.
 
 `LocalAudioConfig.pw_cat_command_prefix` allows an application to execute a
 compatible host `pw-cat` when a container's version lacks required raw-PCM

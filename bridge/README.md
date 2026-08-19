@@ -94,6 +94,9 @@ Startup resolves the configured PipeWire devices and checks required artifact
 files without loading models or opening audio. The first ASR/TTS request loads
 its runtime lazily. PipeWire audio reaches Voice Gateway as contiguous
 frame-positioned chunks and is aggregated under fixed bounds until PTT release.
+ASR waits at most 30 seconds by default; tune the bounded deadline with
+`--voice-max-asr-seconds` (1-120 seconds). A deadline emits
+`voice_asr_timeout`, and the next explicit PTT request is the retry boundary.
 `--voice-vad-provider webrtc` optionally publishes advisory, frame-positioned
 input activity. It is disabled by default, cannot stop or trim capture, and
 falls back to the unchanged PTT/final-ASR path on any VAD failure. Partial

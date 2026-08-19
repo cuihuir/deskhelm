@@ -129,6 +129,14 @@ this small live set. The CER/keyword spacing inconsistency found in that run is
 now fixed in code; historical live keyword scores remain pre-fix because
 recognized text was not retained.
 
+The first recovery sub-phase is now complete under ADR 0024. Voice Gateway ASR
+has a configurable 30-second default deadline (bounded to 120 seconds), emits
+`voice_asr_timeout` on expiry, returns PTT to `idle`, and allows the next
+explicit request to retry. Cancellation and close poll in short intervals so
+they do not wait for the full ASR deadline. A native provider call may still
+continue after the Gateway returns because hard cancellation remains
+cooperative; no audio or transcript content is retained or logged.
+
 ## Completed Work
 
 - Created and pushed the initial project baseline.
@@ -348,6 +356,10 @@ recognized text was not retained.
   for code-sensitive matching, and added regression coverage. Historical live
   handshake keyword scores remain unchanged and cannot be recomputed without
   retaining recognized text.
+- Accepted ADR 0024 and added a bounded Voice Gateway ASR deadline with fixed
+  `voice_asr_timeout` failure, responsive cancellation/close polling, explicit
+  retry semantics, and tests for timeout recovery. Native provider hard
+  cancellation remains unverified.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -634,6 +646,8 @@ recognized text was not retained.
   capture, per-phrase confirmation, and privacy-safe comparison output.
 - `docs/decisions/0023-one-by-one-asr-readiness-handshake.md`: bounded per-phrase
   stdin readiness and explicit capture-start semantics for chat-driven runs.
+- `docs/decisions/0024-bounded-asr-timeout.md`: bounded ASR deadline, fixed
+  timeout outcome, explicit retry, and cooperative cancellation boundary.
 - `docs/decisions/0015-use-piper-as-initial-notification-tts-baseline.md`:
   initial TTS baseline, streaming semantics, licensing, and selection limits.
 - `docs/decisions/0016-explicit-local-audio-selection-and-diagnostics.md`:
@@ -950,16 +964,19 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Remaining Work
 
-1. Choose and add the repository license; the GitHub repository is currently
+1. Measure real/default-device disconnect, timeout, device-change, and provider
+   restart recovery; the timeout contract is implemented but live/native hard
+   cancellation evidence is still missing.
+2. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-2. Run blinded Piper/Kokoro listening, actual speaker-first-audio measurement,
+3. Run blinded Piper/Kokoro listening, actual speaker-first-audio measurement,
    and live PipeWire interruption tests. Repeat controlled Chinese/mixed
    commands and compare an alternative ASR before selecting production defaults.
-3. Expand VAD to noisy/conversational labeled audio and live-device threshold
+4. Expand VAD to noisy/conversational labeled audio and live-device threshold
    measurements.
-4. Repeat controlled live VAD utterances and test threshold, disconnect,
+5. Repeat controlled live VAD utterances and test threshold, disconnect,
    runtime-failure, and reconnect behavior without enabling auto-endpointing.
-5. Add a multi-project working-directory registry before one Bridge process
+6. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.
 
 ## Risks and Blockers
@@ -1031,8 +1048,9 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 The keyword metric whitespace normalization is now fixed. Rerun the selected
 handshake phrases only if corrected keyword scores are needed for the provider
-gate. After that, measure timeout/disconnect/default-device change and provider
-recovery, and retain whisper.cpp as the next licensing/quality fallback before
+gate. The Gateway timeout contract is now in place; next measure
+disconnect/default-device change, native provider restart and hard-cancellation
+behavior, then retain whisper.cpp as the next licensing/quality fallback before
 selecting a production ASR. Expand live VAD threshold/noise evidence without
 granting endpoint control, and separately define actual speaker-first-audio and
 interruption instrumentation. Keep every provider replaceable and obtain the

@@ -39,6 +39,7 @@ class LocalVoiceConfigTests(unittest.TestCase):
                 tts_config_path=paths["tts_config"],
                 tts_resource_directory=paths["tts_resources"],
                 cpu_threads=3,
+                max_asr_seconds=7.5,
             )
 
             composition = config.compose(self._inventory())
@@ -61,6 +62,7 @@ class LocalVoiceConfigTests(unittest.TestCase):
                 self.assertEqual(composition.audio_selection.source.name, "source.usb")
                 self.assertIsNone(gateway.asr_provider._model)
                 self.assertIsNone(gateway.tts_provider._voice)
+                self.assertEqual(gateway.max_asr_seconds, 7.5)
                 self.assertIsNone(gateway.vad_provider)
             finally:
                 composition.gateway.close()
@@ -123,6 +125,8 @@ class LocalVoiceConfigTests(unittest.TestCase):
                     "host-spawn -no-pty pw-cat",
                     "--voice-vad-provider",
                     "webrtc",
+                    "--voice-max-asr-seconds",
+                    "9",
                 ]
             )
             composition = _compose_local_voice(
@@ -133,6 +137,7 @@ class LocalVoiceConfigTests(unittest.TestCase):
             self.assertEqual(local.voice_asr_provider, "paraformer")
             self.assertEqual(local.voice_tts_provider, "piper")
             self.assertEqual(local.voice_vad_provider, "webrtc")
+            self.assertEqual(local.voice_max_asr_seconds, 9.0)
             self.assertIsInstance(
                 composition.gateway.vad_provider,
                 WebRtcVadProvider,

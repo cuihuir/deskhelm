@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import ExitStack
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
+import math
 from threading import Condition, Event, RLock
+import time
 
 from .models import (
     CapturedAudio,
@@ -37,6 +39,10 @@ MAX_CAPTURE_CHUNKS = 10_000
 MAX_VAD_EVENTS = 256
 
 
+class _AsrTimeout(Exception):
+    """The Gateway deadline expired before ASR returned."""
+
+
 @dataclass(frozen=True, slots=True)
 class _QueuedSpeech:
     sequence: int
@@ -61,6 +67,7 @@ class VoiceGateway:
     playback_provider: PlaybackProvider
     max_capture_seconds: float = 30.0
     max_capture_bytes: int = 1 << 20
+    max_asr_seconds: float = 30.0
     max_speech_items: int = 8
     event_sink: VoiceEventSink | None = None
     vad_provider: VadProvider | None = None
@@ -82,6 +89,7 @@ class VoiceGateway:
     _lock: RLock = field(default_factory=RLock, init=False, repr=False)
     _condition: Condition = field(init=False, repr=False)
     _capture_executor: ThreadPoolExecutor = field(init=False, repr=False)
+    _asr_executor: ThreadPoolExecutor = field(init=False, repr=False)
     _playback_executor: ThreadPoolExecutor = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -97,11 +105,22 @@ class VoiceGateway:
             or not 2 <= self.max_capture_bytes <= 64 << 20
         ):
             raise ValueError("max_capture_bytes is invalid")
+        if (
+            not isinstance(self.max_asr_seconds, (int, float))
+            or isinstance(self.max_asr_seconds, bool)
+            or not math.isfinite(self.max_asr_seconds)
+            or self.max_asr_seconds <= 0
+            or self.max_asr_seconds > 120
+        ):
+            raise ValueError("max_asr_seconds is invalid")
         if self.max_speech_items < 1:
             raise ValueError("max_speech_items must be at least 1")
         self._condition = Condition(self._lock)
         self._capture_executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="deskhelm-voice-capture"
+        )
+        self._asr_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="deskhelm-voice-asr"
         )
         self._playback_executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="deskhelm-voice-playback"
@@ -280,6 +299,9 @@ class VoiceGateway:
             self._prompt_sink = None
             self._condition.notify_all()
         self._capture_executor.shutdown(wait=True, cancel_futures=False)
+        # A provider may be inside a native call that only observes cancellation
+        # when it returns. Do not make Gateway close wait on that call forever.
+        self._asr_executor.shutdown(wait=False, cancel_futures=True)
         self._playback_executor.shutdown(wait=True, cancel_futures=False)
 
     def _capture_and_transcribe(
@@ -295,7 +317,7 @@ class VoiceGateway:
                 self._ptt_state = VoicePttState.TRANSCRIBING
                 self._condition.notify_all()
             self._emit(VoiceEvent(VoiceEventKind.TRANSCRIBING, target))
-            transcript = self.asr_provider.transcribe(audio, cancel)
+            transcript = self._transcribe_with_timeout(audio, cancel)
             if cancel.is_set():
                 raise VoiceCancelled()
             self._emit(
@@ -320,6 +342,14 @@ class VoiceGateway:
                     error_code="voice_no_transcript",
                 )
             )
+        except _AsrTimeout:
+            self._emit(
+                VoiceEvent(
+                    VoiceEventKind.FAILURE,
+                    target,
+                    error_code="voice_asr_timeout",
+                )
+            )
         except Exception:
             self._emit(
                 VoiceEvent(
@@ -333,6 +363,31 @@ class VoiceGateway:
                 if self._ptt_target == target:
                     self._clear_ptt_locked()
                 self._condition.notify_all()
+
+    def _transcribe_with_timeout(
+        self,
+        audio: CapturedAudio,
+        cancel: Event,
+    ) -> Transcript:
+        future: Future[Transcript] = self._asr_executor.submit(
+            self.asr_provider.transcribe,
+            audio,
+            cancel,
+        )
+        deadline = time.monotonic() + self.max_asr_seconds
+        while True:
+            if cancel.is_set():
+                future.cancel()
+                raise VoiceCancelled()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                cancel.set()
+                future.cancel()
+                raise _AsrTimeout()
+            try:
+                return future.result(timeout=min(remaining, 0.05))
+            except TimeoutError:
+                continue
 
     def _capture_audio(
         self,

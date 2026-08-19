@@ -79,6 +79,8 @@ segmentation and short English commands prevent selecting it as the sole
 production ASR. The first pinned Piper/Kokoro TTS comparison is complete:
 Piper is the initial low-latency notification baseline, while Kokoro remains a
 quality candidate pending human listening and live playback evidence.
+Voice Gateway ASR now waits under a configurable bounded deadline and reports a
+fixed timeout outcome; native-provider hard cancellation remains unverified.
 
 Current development focuses on the no-hardware Agent Console path:
 
