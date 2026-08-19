@@ -37,6 +37,67 @@ class FakeCaptureProvider:
 
 
 @dataclass(slots=True)
+class FakeStreamingCaptureProvider:
+    chunks: Iterable[PcmChunk]
+    end_on_exhaustion: bool = False
+    started: Event = field(default_factory=Event, init=False)
+    streams_opened: int = field(default=0, init=False)
+    chunks_read: int = field(default=0, init=False)
+    streams_closed: int = field(default=0, init=False)
+    _chunks: tuple[PcmChunk, ...] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.end_on_exhaustion, bool):
+            raise ValueError("fake stream end_on_exhaustion must be boolean")
+        self._chunks = tuple(self.chunks)
+
+    def open_stream(self) -> FakePcmChunkStream:
+        self.streams_opened += 1
+        return FakePcmChunkStream(
+            self,
+            deque(self._chunks),
+            self.end_on_exhaustion,
+        )
+
+
+@dataclass(slots=True)
+class FakePcmChunkStream:
+    provider: FakeStreamingCaptureProvider = field(repr=False)
+    chunks: deque[PcmChunk] = field(repr=False)
+    end_on_exhaustion: bool = False
+    _open: bool = field(default=False, init=False, repr=False)
+
+    def __enter__(self) -> FakePcmChunkStream:
+        if self._open:
+            raise RuntimeError("fake PCM stream is already open")
+        self._open = True
+        self.provider.started.set()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if self._open:
+            self.provider.streams_closed += 1
+        self._open = False
+
+    def read(self, stop: Event, cancel: Event) -> PcmChunk | None:
+        if not self._open:
+            raise RuntimeError("fake PCM stream is not open")
+        if cancel.is_set():
+            raise VoiceCancelled()
+        if self.chunks:
+            self.provider.chunks_read += 1
+            return self.chunks.popleft()
+        if self.end_on_exhaustion:
+            return None
+        while not stop.wait(timeout=0.01):
+            if cancel.is_set():
+                raise VoiceCancelled()
+        if cancel.is_set():
+            raise VoiceCancelled()
+        return None
+
+
+@dataclass(slots=True)
 class FakeAsrProvider:
     transcripts: Iterable[Transcript]
     requests: list[CapturedAudio] = field(default_factory=list, init=False)

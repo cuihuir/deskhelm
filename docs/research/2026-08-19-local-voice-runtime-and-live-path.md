@@ -130,3 +130,22 @@ tool and must not be relabeled as first-speaker-audio latency.
    Silero VAD and publishing partial transcripts.
 5. Exercise the real `PTT -> ASR -> Codex -> TTS` composition separately; this
    diagnostic intentionally substituted a fixed public response for Codex.
+
+## Streaming Capture Follow-Up
+
+Later on 2026-08-19, PipeWire and Voice Gateway capture migrated to the accepted
+frame-positioned chunk boundary. A privacy-safe four-second signal diagnostic
+through the new stream captured 128,286 bytes, 4,008.938 ms of 16 kHz mono
+S16LE, peak 0.399292, and RMS 0.061689. The PCM was discarded.
+
+Two complete live attempts reached `transcribing` but did not produce a final
+transcript or playback. Release-to-transcribing was 7.197 ms and 14.177 ms; the
+runs ended after 11,623.340 ms and 9,448.426 ms respectively. The user confirmed
+speaking during the second attempt. No PCM or transcript text was retained.
+
+The healthy signal metadata makes a capture-boundary failure less likely, but
+does not by itself prove why Paraformer returned no usable result. The provider
+now maps an explicit empty recognition to `voice_no_transcript`, while other
+capture/runtime/model failures remain `voice_input_failed`; this distinction is
+unit-tested but still needs a subsequent live confirmation. The result reinforces
+the existing decision not to select Paraformer as the sole production ASR.

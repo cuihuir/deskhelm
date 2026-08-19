@@ -98,6 +98,8 @@ Status: In Progress
 - [x] Compose provisional PipeWire, Paraformer, and Piper providers behind an
   explicit disabled-by-default Bridge option.
 - [x] Define the streaming PCM and provider-neutral VAD benchmark boundary.
+- [x] Migrate PipeWire and Voice Gateway capture to bounded frame-positioned
+  chunks while preserving legacy batch provider compatibility.
 - [x] Benchmark initial WebRTC and Silero ONNX VAD candidates on a pinned public
   audio set.
 - [ ] Expand VAD measurements to conversational/noisy audio and live devices,
@@ -128,7 +130,7 @@ Acceptance criteria:
 3. Expand ASR coverage to consented Chinese/mixed coding commands with
    controlled input gain, compare an alternative ASR, and measure recovery
    before selecting a default.
-4. Migrate the Voice Gateway to streaming capture and integrate provisional VAD
-   without weakening chunk, endpoint, cancellation, or flushing semantics.
+4. Integrate provisional VAD into the migrated streaming capture path without
+   weakening chunk, endpoint, cancellation, or flushing semantics.
 5. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.

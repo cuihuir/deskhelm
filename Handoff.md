@@ -48,7 +48,11 @@ pinned Paraformer and Piper providers together, and a real four-second PTT run
 completed capture, final ASR, fixed-response TTS, and playback through the
 current USB microphone and computer sink without saving PCM or transcript
 text. The diagnostic does not call Codex, integrate VAD, publish partials, or
-measure actual first-speaker-audio. The streaming PCM and
+measure actual first-speaker-audio. PipeWire and Voice Gateway capture now use
+the frame-positioned streaming boundary: chunks retain one format and
+contiguous absolute frame positions, and the Gateway aggregates them under
+fixed chunk, byte, and duration limits until PTT release. Legacy batch capture
+providers remain compatible. The streaming PCM and
 VAD benchmark boundary now has its first reproducible real-audio implementation:
 pinned FSDD sources, deterministic prepared samples, lazy WebRTC and Silero
 ONNX adapters, and privacy-safe aggregate observations. The result validates
@@ -71,7 +75,8 @@ releases cannot stop the active capture. The Bridge CLI can now explicitly
 compose provisional PipeWire capture/playback, Paraformer ASR, and Piper TTS.
 The path remains disabled by default, validates devices and artifact files
 before startup, and loads model runtimes only on first use. VAD is not attached
-to the current batch PTT capture path.
+to the migrated streaming PTT capture path; final ASR still receives the
+complete bounded recording after release.
 
 ## Completed Work
 
@@ -295,6 +300,20 @@ to the current batch PTT capture path.
   four-second `PTT -> final ASR -> fixed TTS -> playback` run. It emitted the
   complete lifecycle through `speech_completed`, retained only a one-character
   transcript count, and did not save or print audio or transcript text.
+- Migrated PipeWire capture to an owned `PcmChunkStream` that emits complete
+  frames with contiguous absolute positions while retaining `capture()` as a
+  compatibility wrapper.
+- Migrated Voice Gateway to prefer streaming capture, reject gaps and format
+  changes, and enforce 10,000-chunk, byte, and duration bounds before final ASR.
+- Added deterministic streaming capture fakes and coverage for release gating,
+  stream cleanup, split-frame buffering, discontinuity, cancellation, byte
+  limits, and legacy batch compatibility.
+- Distinguished an explicit empty ASR result as `voice_no_transcript` without
+  exposing provider errors or private content.
+- Rechecked the live stream: a four-second privacy-safe signal diagnostic
+  captured 128,286 bytes with peak 0.399 and RMS 0.0617. Two full attempts
+  reached transcription but produced no final text; the second included a
+  user-confirmed spoken sentence. No PCM or transcript was retained.
 - Recorded ESP32-S3 wireless-audio research: BLE HID for keyboard controls,
   reliable BLE/Wi-Fi state, and Wi-Fi Opus as the preferred future voice path.
 - Selected a simpler local POC path: follow the computer's current PipeWire
@@ -353,9 +372,9 @@ to the current batch PTT capture path.
 - Voice lifecycle events expose identifiers and fixed error codes, not audio,
   transcripts, prompts, or speech text. Raw and normalized transcripts remain
   separate in memory.
-- Voice Gateway integration of VAD remains deferred. The current gateway keeps
-  its batch capture path while the separate benchmark boundary uses
-  frame-positioned chunks and provider-owned VAD sessions.
+- Voice Gateway integration of VAD remains deferred. The Gateway now consumes
+  frame-positioned capture chunks but aggregates them until PTT release; live
+  provider-owned VAD sessions and partial ASR are not attached.
 - Streaming chunks keep one immutable PCM format, contiguous absolute frame
   positions, and a 1 MiB per-chunk limit. VAD events are ordered, alternating
   speech boundaries no later than supplied audio; every active region must end
@@ -451,9 +470,11 @@ to the current batch PTT capture path.
 - Model-backed local voice is an explicit experimental composition, not a
   production default. Startup validates the selected devices and required
   external files but does not load FunASR, PyTorch, Piper, or ONNX Runtime.
-- The current local path uses PTT release as its capture endpoint. Do not claim
-  VAD, partial transcripts, or live endpoint timing until the Gateway consumes
-  the frame-positioned streaming boundary.
+- The current local path uses PTT release as its capture endpoint. Streaming
+  capture alone is not VAD or partial ASR; do not claim live endpoint timing
+  until a provider-owned VAD session consumes chunks before final aggregation.
+- An explicit empty provider recognition maps to `voice_no_transcript`; other
+  capture, format, runtime, and model failures remain `voice_input_failed`.
 - The live diagnostic substitutes a fixed public TTS response for Codex. Its
   `SPEECH_STARTED` event occurs before synthesis, so it must not be reported as
   actual first-speaker-audio latency.
@@ -557,13 +578,14 @@ to the current batch PTT capture path.
   scheduling, provider-session resume, sequence ownership, and normalization.
 - `bridge/deskhelm_bridge/fake_agent_provider.py`: deterministic provider used
   by gateway tests without external services.
-- `voice/deskhelm_voice/gateway.py`: PTT lifecycle, bounded speech queue,
-  playback ownership, interruption, and Voice events.
+- `voice/deskhelm_voice/gateway.py`: PTT lifecycle, bounded streaming capture
+  aggregation, speech queue, playback ownership, interruption, and Voice events.
 - `voice/deskhelm_voice/providers.py`: provider-neutral capture, ASR, TTS, and
   playback contracts.
-- `voice/deskhelm_voice/fake_providers.py`: deterministic no-hardware providers.
-- `voice/deskhelm_voice/pipewire.py`: bounded raw-PCM `pw-cat` capture and
-  playback providers.
+- `voice/deskhelm_voice/fake_providers.py`: deterministic batch/streaming
+  capture, ASR, TTS, playback, and VAD providers.
+- `voice/deskhelm_voice/pipewire.py`: owned frame-positioned raw-PCM `pw-cat`
+  capture stream, batch compatibility wrapper, and bounded playback provider.
 - `voice/deskhelm_voice/audio_config.py`: bounded discovery, provider/device
   selection, signal-only input reports, and generated output tones.
 - `voice/deskhelm_voice/local_gateway.py`: provisional provider selection,
@@ -650,10 +672,11 @@ Last verified on 2026-08-19:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 186 tests passed under the workstation resource limiter with strict
+Result: 193 tests passed under the workstation resource limiter with strict
 `ResourceWarning` handling. This includes the existing Bridge, protocol,
-adapter, voice, benchmark, and fake-subprocess PipeWire coverage plus two new
-live-diagnostic tests. The full unit suite opened no live audio device and did
+adapter, voice, benchmark, and fake-subprocess PipeWire coverage plus streaming
+capture continuity, bounds, premature-end, cleanup, compatibility, and empty-ASR
+classification tests. The full unit suite opened no live audio device and did
 not import optional model runtimes.
 
 An additional startup smoke test used the current PipeWire graph and ignored
@@ -661,8 +684,10 @@ prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local
 gateway, accepted one event, exited cleanly, and removed its socket without
 opening audio or loading model runtimes.
 
-The focused suite also passed 24/24 tests covering audio configuration, local
-voice composition, the live diagnostic summary, and fake PipeWire providers.
+The current focused suite passed 39/39 tests covering streaming and legacy
+capture, PipeWire split-frame buffering, Gateway stream bounds and cleanup,
+ASR empty-result classification, local composition, Voice integration, and the
+live diagnostic summary.
 
 The isolated real-candidate run also passed with 35/35 successful observations
 for both WebRTC and Silero. Downloaded FSDD audio, prepared WAV files, the ONNX
@@ -689,6 +714,14 @@ was 7,186.167 ms and total time was 15,294.695 ms. Only the transcript character
 count was reported; PCM and transcript text were neither saved nor printed.
 The earlier signal diagnostic peak of 1.0 and RMS near 0.394 indicate probable
 input clipping/high gain.
+
+After the streaming migration, a four-second signal-only run captured 128,286
+bytes over 4,008.938 ms with peak 0.399292 and RMS 0.061689. Two full-chain
+attempts reached `transcribing` but ended without a final transcript or
+playback; the user confirmed speaking during the second. PCM and transcript
+text were not saved. The healthy signal makes capture failure less likely, but
+the exact Paraformer failure still requires a live rerun after the new
+`voice_no_transcript` classification.
 
 Live local audio diagnostics resolved three sources and three sinks. Two-second
 default and manual USB-source tests each captured about 1.98 seconds of 16 kHz
@@ -720,8 +753,8 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
    selecting production defaults.
 3. Expand VAD to noisy/conversational labeled audio and live-device threshold
    measurements.
-4. Migrate the Voice Gateway to streaming capture, integrate provisional VAD,
-   and test disconnect/reconnect recovery.
+4. Integrate provisional VAD into the migrated streaming capture path and test
+   endpoint, disconnect, and reconnect recovery.
 5. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.
 
@@ -733,21 +766,21 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 - The current text gateway handles prompt submission and interruption.
   Approval and rejection remain unavailable; speech handlers exist only when a
   Voice Gateway is explicitly composed into the Bridge.
-- PipeWire discovery, diagnostics, external PTT, an opt-in Paraformer/Piper
-  composition, combined-runtime execution, and one successful live batch path
-  exist. VAD, streaming capture, partial transcript publication, real Codex use
-  in the live path, and live recovery are not implemented or tested.
+- PipeWire discovery, diagnostics, external PTT, streaming capture, an opt-in
+  Paraformer/Piper composition, combined-runtime execution, and one earlier
+  successful full path exist. VAD, partial transcript publication, real Codex
+  use in the live path, and live recovery are not implemented or tested.
 - The benchmark runner records VAD compute/detection timing, batch ASR final
   latency, Paraformer offline first-partial estimates, and provider-chunk TTS
   first audio/interruption. Live capture-to-decision/partial,
   playback-to-speaker first audio, mid-inference interruption, and recovery
   timing remain unmeasured.
-- Basic live default/manual input, default output, and one batch ASR/TTS playback
-  path are verified. A one-second USB input test returned no PCM while longer
-  tests succeeded, and a peak of 1.0 indicates probable clipping/high gain, so
-  startup/readiness and input calibration need explicit product policies. Hot
-  unplug, default-device changes during a stream, and actual speaker-first-audio
-  latency remain unverified.
+- Basic live default/manual input, default output, streaming PCM capture, and one
+  earlier ASR/TTS playback path are verified. The latest stream had healthy
+  signal metadata but two Paraformer attempts returned no final text. A prior
+  one-second USB test returned no PCM while longer tests succeeded. Startup,
+  input calibration, empty recognition, hot unplug, default-device changes, and
+  actual speaker-first-audio latency need explicit product behavior.
 - Adapter registrations are process-local and must be re-established after a
   Bridge restart. No durable session history or replay is promised.
 - Approval tracking is bounded. When its capacity is exhausted, new approval
@@ -782,12 +815,12 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Next Step
 
-Migrate Voice Gateway capture to the frame-positioned streaming boundary before
-attaching WebRTC or Silero VAD and publishing partial transcripts. Preserve the
-verified batch path while adding bounded chunk delivery, explicit final flush,
-cancellation, and device-loss recovery. In parallel, define actual
-speaker-first-audio/interruption instrumentation, blinded TTS listening, and a
-consented Chinese/mixed command ASR set with one alternative to Paraformer.
-Keep every provider replaceable and do not select production defaults from this
-provisional path. Obtain the repository license decision before packaging Piper
+Attach one provisional provider-owned VAD session to the migrated streaming
+capture path, with explicit final flush, bounded endpoint state, cancellation,
+and failure cleanup. Keep PTT as the safe fallback while measuring live speech
+start/end behavior; do not publish partial transcripts until ordering and
+recovery are defined. In parallel, confirm `voice_no_transcript` live, compare
+an alternative ASR on consented Chinese/mixed commands, and define actual
+speaker-first-audio/interruption instrumentation. Keep every provider
+replaceable and obtain the repository license decision before packaging Piper
 or accepting external contributions.

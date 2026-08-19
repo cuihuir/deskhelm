@@ -54,6 +54,26 @@ class PipeWireProviderTests(unittest.TestCase):
         self.assertEqual(audio.sample_format, PcmSampleFormat.S16LE)
         self.assertNotIn("--target", provider.command())
 
+    def test_capture_stream_emits_contiguous_complete_frames(self) -> None:
+        provider = PipeWireCaptureProvider(
+            command_prefix=self._prefix("capture-split-frame"),
+        )
+
+        with provider.open_stream() as stream:
+            first = stream.read(Event(), Event())
+            second = stream.read(Event(), Event())
+            finished = stream.read(Event(), Event())
+
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        assert first is not None and second is not None
+        self.assertEqual(first.start_frame, 0)
+        self.assertEqual(first.end_frame, 1)
+        self.assertEqual(second.start_frame, 1)
+        self.assertEqual(second.end_frame, 2)
+        self.assertEqual(first.format, second.format)
+        self.assertIsNone(finished)
+
     def test_capture_manual_target_and_stop_terminate_owned_process(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             ready = Path(directory) / "ready"
@@ -137,6 +157,11 @@ class PipeWireProviderTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "could not start"):
             unavailable.capture(Event(), Event())
+
+        cancel = Event()
+        cancel.set()
+        with self.assertRaises(VoiceCancelled):
+            unavailable.capture(Event(), cancel)
 
     def test_capture_stop_forces_kill_when_process_ignores_terminate(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

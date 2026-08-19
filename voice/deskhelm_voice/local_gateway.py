@@ -108,6 +108,8 @@ class LocalVoiceConfig:
                 max_output_bytes=16 << 20,
             ),
             playback_provider=self.audio.create_playback_provider(),
+            max_capture_seconds=self.max_capture_seconds,
+            max_capture_bytes=self.max_capture_bytes,
             max_speech_items=self.max_speech_items,
         )
         return LocalVoiceComposition(gateway, selection)

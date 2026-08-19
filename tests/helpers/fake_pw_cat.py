@@ -53,6 +53,13 @@ if mode.startswith("capture"):
         sys.stdout.buffer.write(b"odd")
         sys.stdout.buffer.flush()
         raise SystemExit(0)
+    if mode == "capture-split-frame":
+        sys.stdout.buffer.write(b"\x01\x00\x02")
+        sys.stdout.buffer.flush()
+        time.sleep(0.05)
+        sys.stdout.buffer.write(b"\x00")
+        sys.stdout.buffer.flush()
+        raise SystemExit(0)
     sys.stdout.buffer.write(b"\x01\x00" * 320)
     sys.stdout.buffer.flush()
     if mode == "capture-ignore-term":

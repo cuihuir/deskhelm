@@ -91,8 +91,10 @@ the host PipeWire client. Native host execution keeps the default `pw-cat`.
 
 Startup resolves the configured PipeWire devices and checks required artifact
 files without loading models or opening audio. The first ASR/TTS request loads
-its runtime lazily. This path uses PTT release as the capture endpoint; VAD and
-partial transcript publication are not integrated yet.
+its runtime lazily. PipeWire audio reaches Voice Gateway as contiguous
+frame-positioned chunks and is aggregated under fixed bounds until PTT release.
+PTT release remains the capture endpoint; VAD and partial transcript publication
+are not integrated yet.
 If `--agent-provider codex` is omitted, speech controls remain available but a
 completed PTT transcript cannot be dispatched and fails recoverably because no
 prompt handler is registered.

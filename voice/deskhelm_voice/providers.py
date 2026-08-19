@@ -13,6 +13,10 @@ class VoiceCancelled(Exception):
     pass
 
 
+class VoiceNoTranscript(Exception):
+    pass
+
+
 class CaptureProvider(Protocol):
     def capture(self, stop: Event, cancel: Event) -> CapturedAudio: ...
 

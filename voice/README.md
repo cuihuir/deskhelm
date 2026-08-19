@@ -6,10 +6,13 @@ has no import dependency on Bridge and no runtime audio or model dependency.
 ## Boundaries
 
 - `VoiceGateway` owns one capture/transcription flow and one playback worker.
-- `CaptureProvider`, `AsrProvider`, `TtsProvider`, and `PlaybackProvider` isolate
-  device and model implementations.
-- `PcmChunkStream` uses contiguous absolute frame positions, while each
-  `VadProvider` run owns an independent session with explicit final flushing.
+- `StreamingCaptureProvider` supplies complete-frame `PcmChunk` values with
+  contiguous absolute frame positions; legacy batch `CaptureProvider` remains
+  compatible.
+- The Gateway validates one immutable stream format and aggregates under fixed
+  chunk, byte, and duration limits until PTT release before final ASR.
+- Each future live `VadProvider` run owns an independent session with explicit
+  final flushing.
 - `VoiceTarget` always names `agent_id + session_id + project_id`.
 - Externally driven PTT release must match both the complete target and the
   activation ID derived from its press command.
@@ -31,6 +34,12 @@ tests. `pipewire.py` provides bounded raw-PCM capture and playback through
 `pw-cat`. It follows the current PipeWire default source/sink when no target is
 set, or accepts a manually selected stable node name. Numeric object IDs are
 rejected because they are not durable across PipeWire graph changes.
+
+`PipeWireCaptureProvider.open_stream()` owns the `pw-cat` process and emits
+contiguous `PcmChunk` values as complete frames arrive. Its existing `capture()`
+method is now a compatibility wrapper over the same stream. The Gateway prefers
+`open_stream()` when present, rejects gaps or format changes, and closes the
+owned stream on success, cancellation, or failure.
 
 `audio_config.py` adds process-local provider/device selection and bounded
 PipeWire discovery. `deskhelm audio status` resolves defaults or manual stable
@@ -58,9 +67,15 @@ and Bridge.
 `local_gateway.py` provides the first opt-in application composition. It
 preflights PipeWire selection plus required Paraformer/Piper artifact files,
 then constructs lazy model providers without opening audio or loading weights.
-It intentionally does not attach a VAD provider: the current Gateway capture
-contract is batch-oriented, while the VAD contract requires frame-positioned
-streaming input and explicit flushing.
+It intentionally does not attach a VAD provider yet. The Gateway now consumes
+the frame-positioned stream, but PTT release still ends capture and the complete
+bounded recording is passed to final ASR. VAD endpointing, partial transcripts,
+and live VAD session flushing remain the next composition phase.
+
+Paraformer returning no text is reported as the fixed safe error
+`voice_no_transcript`, distinct from capture, format, runtime, or model failures
+reported as `voice_input_failed`. Neither error includes audio or transcript
+content.
 
 `LocalAudioConfig.pw_cat_command_prefix` allows an application to execute a
 compatible host `pw-cat` when a container's version lacks required raw-PCM

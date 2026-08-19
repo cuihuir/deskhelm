@@ -239,6 +239,10 @@ Keep third-party reference files outside version control under
   immutable format and absolute frame positions. Open one independent VAD
   session per stream, emit ordered alternating frame-positioned speech
   boundaries, and flush it explicitly at end of stream.
+- Voice Gateway capture prefers `StreamingCaptureProvider`, validates format and
+  continuity, and aggregates under fixed chunk, byte, and duration bounds until
+  PTT release. Preserve legacy batch provider compatibility. Do not call this
+  VAD or partial ASR until live sessions consume chunks before final aggregation.
 - Keep VAD samples bounded to 100,000 chunks, 256 segments, and 64 MiB PCM.
   Persist only derived segmentation/timing/resource observations, never raw PCM
   or provider exception text, unless separately approved under corpus rules.

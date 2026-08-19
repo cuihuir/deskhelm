@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 import select
 import signal
 import subprocess
 from threading import Event
 import time
+from typing import Self
 
 from .models import CapturedAudio, PcmSampleFormat, SynthesizedAudio
 from .providers import VoiceCancelled
+from .streaming import PcmChunk, PcmStreamFormat
 
 
 DEFAULT_CAPTURE_RATE_HZ = 16_000
@@ -57,81 +59,24 @@ class PipeWireCaptureProvider:
             raise ValueError("capture stop and cancel signals are invalid")
         if cancel.is_set():
             raise VoiceCancelled()
-        process = self._start()
-        assert process.stdout is not None
-        descriptor = process.stdout.fileno()
-        os.set_blocking(descriptor, False)
-        deadline = time.monotonic() + self.max_capture_seconds
-        stop_requested = False
-        stop_deadline: float | None = None
         captured = bytearray()
-        try:
+        with self.open_stream() as stream:
             while True:
-                if cancel.is_set():
-                    _terminate_process(process, self.terminate_grace_seconds)
-                    raise VoiceCancelled()
-                now = time.monotonic()
-                if now >= deadline:
-                    _terminate_process(process, self.terminate_grace_seconds)
-                    raise RuntimeError("PipeWire capture duration limit exceeded")
-                if stop.is_set() and not stop_requested:
-                    stop_requested = True
-                    stop_deadline = now + self.terminate_grace_seconds
-                    _signal_process(process, signal.SIGTERM)
-                if (
-                    stop_deadline is not None
-                    and now >= stop_deadline
-                    and process.poll() is None
-                ):
-                    _signal_process(process, signal.SIGKILL)
-
-                readable, _, _ = select.select(
-                    [process.stdout], [], [], self.poll_seconds
-                )
-                if readable:
-                    chunk = _read_available(descriptor)
-                    if chunk:
-                        captured.extend(chunk)
-                        if len(captured) > self.max_capture_bytes:
-                            _terminate_process(
-                                process, self.terminate_grace_seconds
-                            )
-                            raise RuntimeError(
-                                "PipeWire capture byte limit exceeded"
-                            )
-                    elif chunk == b"":
-                        break
-
-                if process.poll() is not None:
-                    captured.extend(_drain_available(descriptor))
-                    if len(captured) > self.max_capture_bytes:
-                        raise RuntimeError("PipeWire capture byte limit exceeded")
+                chunk = stream.read(stop, cancel)
+                if chunk is None:
                     break
+                captured.extend(chunk.data)
+        if not captured:
+            raise RuntimeError("PipeWire capture produced no audio")
+        return CapturedAudio(
+            data=bytes(captured),
+            sample_rate_hz=self.sample_rate_hz,
+            channels=self.channels,
+            sample_format=self.sample_format,
+        )
 
-            try:
-                return_code = process.wait(
-                    timeout=self.terminate_grace_seconds
-                )
-            except subprocess.TimeoutExpired:
-                _terminate_process(process, self.terminate_grace_seconds)
-                raise RuntimeError("PipeWire capture process failed") from None
-            if return_code != 0 and not stop_requested:
-                raise RuntimeError("PipeWire capture process failed")
-            if not captured:
-                raise RuntimeError("PipeWire capture produced no audio")
-            frame_bytes = self.channels * self.sample_format.bytes_per_sample
-            if len(captured) % frame_bytes:
-                raise RuntimeError("PipeWire capture produced invalid PCM frames")
-            return CapturedAudio(
-                data=bytes(captured),
-                sample_rate_hz=self.sample_rate_hz,
-                channels=self.channels,
-                sample_format=self.sample_format,
-            )
-        finally:
-            process.stdout.close()
-            if process.poll() is None:
-                _terminate_process(process, self.terminate_grace_seconds)
+    def open_stream(self) -> PipeWirePcmChunkStream:
+        return PipeWirePcmChunkStream(self)
 
     def command(self) -> tuple[str, ...]:
         command = [
@@ -164,6 +109,170 @@ class PipeWireCaptureProvider:
             )
         except OSError as error:
             raise RuntimeError("PipeWire capture could not start") from error
+
+
+@dataclass(slots=True)
+class PipeWirePcmChunkStream:
+    provider: PipeWireCaptureProvider = field(repr=False)
+    _process: subprocess.Popen[bytes] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _descriptor: int = field(default=-1, init=False, repr=False)
+    _deadline: float = field(default=0.0, init=False, repr=False)
+    _stop_requested: bool = field(default=False, init=False, repr=False)
+    _stop_deadline: float | None = field(default=None, init=False, repr=False)
+    _pending: bytearray = field(default_factory=bytearray, init=False, repr=False)
+    _bytes_received: int = field(default=0, init=False, repr=False)
+    _next_frame: int = field(default=0, init=False, repr=False)
+    _finished: bool = field(default=False, init=False, repr=False)
+
+    def __enter__(self) -> Self:
+        if self._process is not None:
+            raise RuntimeError("PipeWire capture stream is already open")
+        process = self.provider._start()
+        assert process.stdout is not None
+        self._process = process
+        self._descriptor = process.stdout.fileno()
+        os.set_blocking(self._descriptor, False)
+        self._deadline = time.monotonic() + self.provider.max_capture_seconds
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        process = self._process
+        if process is None:
+            return
+        try:
+            if process.poll() is None:
+                _terminate_process(
+                    process,
+                    self.provider.terminate_grace_seconds,
+                )
+        finally:
+            if process.stdout is not None and not process.stdout.closed:
+                process.stdout.close()
+            self._finished = True
+
+    def read(self, stop: Event, cancel: Event) -> PcmChunk | None:
+        if not isinstance(stop, Event) or not isinstance(cancel, Event):
+            raise ValueError("capture stop and cancel signals are invalid")
+        process = self._process
+        if process is None:
+            raise RuntimeError("PipeWire capture stream is not open")
+        if self._finished:
+            return None
+
+        while True:
+            if cancel.is_set():
+                _terminate_process(
+                    process,
+                    self.provider.terminate_grace_seconds,
+                )
+                raise VoiceCancelled()
+            now = time.monotonic()
+            if now >= self._deadline:
+                _terminate_process(
+                    process,
+                    self.provider.terminate_grace_seconds,
+                )
+                raise RuntimeError("PipeWire capture duration limit exceeded")
+            self._request_stop(process, stop, now)
+
+            readable, _, _ = select.select(
+                [process.stdout],
+                [],
+                [],
+                self.provider.poll_seconds,
+            )
+            if readable:
+                data = _read_available(self._descriptor)
+                if data:
+                    self._append(data, process)
+                    chunk = self._take_complete_chunk()
+                    if chunk is not None:
+                        return chunk
+                elif data == b"":
+                    return self._finish_process(process)
+
+            if process.poll() is not None:
+                drained = _drain_available(self._descriptor)
+                if drained:
+                    self._append(drained, process)
+                return self._finish_process(process)
+
+    def _request_stop(
+        self,
+        process: subprocess.Popen[bytes],
+        stop: Event,
+        now: float,
+    ) -> None:
+        if stop.is_set() and not self._stop_requested:
+            self._stop_requested = True
+            self._stop_deadline = now + self.provider.terminate_grace_seconds
+            _signal_process(process, signal.SIGTERM)
+        if (
+            self._stop_deadline is not None
+            and now >= self._stop_deadline
+            and process.poll() is None
+        ):
+            _signal_process(process, signal.SIGKILL)
+
+    def _append(
+        self,
+        data: bytes,
+        process: subprocess.Popen[bytes],
+    ) -> None:
+        self._bytes_received += len(data)
+        if self._bytes_received > self.provider.max_capture_bytes:
+            _terminate_process(
+                process,
+                self.provider.terminate_grace_seconds,
+            )
+            raise RuntimeError("PipeWire capture byte limit exceeded")
+        self._pending.extend(data)
+
+    def _take_complete_chunk(self) -> PcmChunk | None:
+        format = self._format()
+        complete_bytes = (
+            len(self._pending) // format.frame_bytes * format.frame_bytes
+        )
+        if complete_bytes == 0:
+            return None
+        data = bytes(self._pending[:complete_bytes])
+        del self._pending[:complete_bytes]
+        chunk = PcmChunk(data, format, self._next_frame)
+        self._next_frame = chunk.end_frame
+        return chunk
+
+    def _finish_process(
+        self,
+        process: subprocess.Popen[bytes],
+    ) -> PcmChunk | None:
+        try:
+            return_code = process.wait(
+                timeout=self.provider.terminate_grace_seconds
+            )
+        except subprocess.TimeoutExpired:
+            _terminate_process(
+                process,
+                self.provider.terminate_grace_seconds,
+            )
+            raise RuntimeError("PipeWire capture process failed") from None
+        if return_code != 0 and not self._stop_requested:
+            raise RuntimeError("PipeWire capture process failed")
+        format = self._format()
+        if len(self._pending) % format.frame_bytes:
+            raise RuntimeError("PipeWire capture produced invalid PCM frames")
+        self._finished = True
+        return self._take_complete_chunk()
+
+    def _format(self) -> PcmStreamFormat:
+        return PcmStreamFormat(
+            self.provider.sample_rate_hz,
+            self.provider.channels,
+            self.provider.sample_format,
+        )
 
 
 @dataclass(slots=True)

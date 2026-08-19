@@ -68,3 +68,11 @@ Add an explicitly enabled local Voice Gateway composition to `deskhelm bridge`.
   implement the streaming behavior the VAD contract promises.
 - Add provider-specific logic to Bridge: rejected because model construction
   belongs in the Voice composition boundary.
+
+## Implementation Update
+
+On 2026-08-19, PipeWire and Voice Gateway capture migrated to the accepted
+frame-positioned `PcmChunkStream` boundary. The Gateway still aggregates the
+bounded stream for final ASR at PTT release. This satisfies the prerequisite for
+future live VAD composition but does not change this ADR's deferred VAD, partial
+transcript, or production-selection decisions.

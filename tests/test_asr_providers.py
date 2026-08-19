@@ -14,6 +14,7 @@ from voice.deskhelm_voice import (
     StreamingAsrResult,
     Transcript,
     VoiceCancelled,
+    VoiceNoTranscript,
     load_prepared_asr_set,
 )
 from voice.deskhelm_voice.benchmark import (
@@ -155,6 +156,24 @@ class AsrProviderTests(unittest.TestCase):
                 "/model",
                 max_audio_seconds=math.inf,
             )
+
+    def test_paraformer_reports_empty_recognition_without_private_text(self) -> None:
+        class EmptyModel:
+            def generate(self, **_kwargs):
+                return [{"text": ""}]
+
+        provider = ParaformerStreamingAsrProvider(
+            "/model",
+            model_factory=lambda _path, _threads: EmptyModel(),
+        )
+
+        with self.assertRaises(VoiceNoTranscript) as caught:
+            provider.transcribe(
+                CapturedAudio(b"\x00\x00" * 160, sample_rate_hz=16000),
+                Event(),
+            )
+
+        self.assertEqual(str(caught.exception), "")
 
 
 if __name__ == "__main__":

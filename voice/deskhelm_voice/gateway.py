@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from threading import Condition, Event, RLock
 
 from .models import (
+    CapturedAudio,
     SpeechItem,
     SpeechPriority,
     Transcript,
@@ -17,14 +18,19 @@ from .models import (
 from .providers import (
     AsrProvider,
     CaptureProvider,
+    PcmChunkStream,
     PlaybackProvider,
+    StreamingCaptureProvider,
     TtsProvider,
     VoiceCancelled,
+    VoiceNoTranscript,
 )
+from .streaming import PcmStreamFormat
 
 
 PromptSink = Callable[[VoiceTarget, Transcript], None]
 VoiceEventSink = Callable[[VoiceEvent], None]
+MAX_CAPTURE_CHUNKS = 10_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,10 +41,12 @@ class _QueuedSpeech:
 
 @dataclass(slots=True)
 class VoiceGateway:
-    capture_provider: CaptureProvider
+    capture_provider: CaptureProvider | StreamingCaptureProvider
     asr_provider: AsrProvider
     tts_provider: TtsProvider
     playback_provider: PlaybackProvider
+    max_capture_seconds: float = 30.0
+    max_capture_bytes: int = 1 << 20
     max_speech_items: int = 8
     event_sink: VoiceEventSink | None = None
     _prompt_sink: PromptSink | None = field(default=None, init=False, repr=False)
@@ -62,6 +70,18 @@ class VoiceGateway:
     _playback_executor: ThreadPoolExecutor = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if (
+            not isinstance(self.max_capture_seconds, (int, float))
+            or isinstance(self.max_capture_seconds, bool)
+            or not 0 < self.max_capture_seconds <= 120
+        ):
+            raise ValueError("max_capture_seconds is invalid")
+        if (
+            not isinstance(self.max_capture_bytes, int)
+            or isinstance(self.max_capture_bytes, bool)
+            or not 2 <= self.max_capture_bytes <= 64 << 20
+        ):
+            raise ValueError("max_capture_bytes is invalid")
         if self.max_speech_items < 1:
             raise ValueError("max_speech_items must be at least 1")
         self._condition = Condition(self._lock)
@@ -251,7 +271,7 @@ class VoiceGateway:
         self, target: VoiceTarget, stop: Event, cancel: Event
     ) -> None:
         try:
-            audio = self.capture_provider.capture(stop, cancel)
+            audio = self._capture_audio(stop, cancel)
             if cancel.is_set():
                 raise VoiceCancelled()
             with self._condition:
@@ -277,6 +297,14 @@ class VoiceGateway:
             prompt_sink(target, transcript)
         except VoiceCancelled:
             self._emit(VoiceEvent(VoiceEventKind.PTT_CANCELLED, target))
+        except VoiceNoTranscript:
+            self._emit(
+                VoiceEvent(
+                    VoiceEventKind.FAILURE,
+                    target,
+                    error_code="voice_no_transcript",
+                )
+            )
         except Exception:
             self._emit(
                 VoiceEvent(
@@ -290,6 +318,71 @@ class VoiceGateway:
                 if self._ptt_target == target:
                     self._clear_ptt_locked()
                 self._condition.notify_all()
+
+    def _capture_audio(self, stop: Event, cancel: Event) -> CapturedAudio:
+        open_stream = getattr(self.capture_provider, "open_stream", None)
+        if callable(open_stream):
+            return self._collect_stream(open_stream(), stop, cancel)
+        capture = getattr(self.capture_provider, "capture", None)
+        if not callable(capture):
+            raise RuntimeError("voice capture provider is invalid")
+        audio = capture(stop, cancel)
+        self._validate_captured_audio(audio)
+        return audio
+
+    def _collect_stream(
+        self,
+        stream: PcmChunkStream,
+        stop: Event,
+        cancel: Event,
+    ) -> CapturedAudio:
+        if cancel.is_set():
+            raise VoiceCancelled()
+        captured = bytearray()
+        stream_format: PcmStreamFormat | None = None
+        next_frame = 0
+        chunk_count = 0
+        with stream:
+            while True:
+                chunk = stream.read(stop, cancel)
+                if chunk is None:
+                    if not stop.is_set():
+                        raise RuntimeError("voice capture ended before PTT release")
+                    break
+                chunk_count += 1
+                if chunk_count > MAX_CAPTURE_CHUNKS:
+                    raise RuntimeError("voice capture chunk limit exceeded")
+                if stream_format is None:
+                    stream_format = chunk.format
+                if chunk.format != stream_format:
+                    raise RuntimeError("voice capture format changed")
+                if chunk.start_frame != next_frame:
+                    raise RuntimeError("voice capture stream is discontinuous")
+                next_frame = chunk.end_frame
+                captured.extend(chunk.data)
+                if len(captured) > self.max_capture_bytes:
+                    raise RuntimeError("voice capture byte limit exceeded")
+                if (
+                    next_frame / stream_format.sample_rate_hz
+                    > self.max_capture_seconds
+                ):
+                    raise RuntimeError("voice capture duration limit exceeded")
+        if stream_format is None or not captured:
+            raise RuntimeError("voice capture produced no audio")
+        return CapturedAudio(
+            bytes(captured),
+            sample_rate_hz=stream_format.sample_rate_hz,
+            channels=stream_format.channels,
+            sample_format=stream_format.sample_format,
+        )
+
+    def _validate_captured_audio(self, audio: object) -> None:
+        if not isinstance(audio, CapturedAudio):
+            raise RuntimeError("voice capture provider returned invalid audio")
+        if len(audio.data) > self.max_capture_bytes:
+            raise RuntimeError("voice capture byte limit exceeded")
+        if audio.duration_seconds > self.max_capture_seconds:
+            raise RuntimeError("voice capture duration limit exceeded")
 
     def _capture_after_start(
         self,

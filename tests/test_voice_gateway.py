@@ -8,12 +8,16 @@ from voice.deskhelm_voice import (
     FakeAsrProvider,
     FakeCaptureProvider,
     FakePlaybackProvider,
+    FakeStreamingCaptureProvider,
     FakeTtsProvider,
+    PcmChunk,
+    PcmStreamFormat,
     SpeechItem,
     Transcript,
     VoiceEvent,
     VoiceEventKind,
     VoiceGateway,
+    VoiceNoTranscript,
     VoicePttState,
     VoiceTarget,
 )
@@ -77,6 +81,130 @@ class VoiceGatewayTests(unittest.TestCase):
         self.assertEqual(emitted[0].kind, VoiceEventKind.PTT_STARTED)
         self.assertEqual(emitted[-1].kind, VoiceEventKind.FAILURE)
         self.assertEqual(emitted[-1].error_code, "voice_input_failed")
+
+    def test_empty_asr_result_has_distinct_safe_failure(self) -> None:
+        class NoTranscriptAsr:
+            def transcribe(self, _audio, _cancel):
+                raise VoiceNoTranscript()
+
+        events: Queue[VoiceEvent] = Queue()
+        gateway = self._gateway(
+            FakeCaptureProvider([self._audio()]),
+            NoTranscriptAsr(),
+            event_sink=events.put,
+        )
+        gateway.register_prompt_sink(lambda _target, _transcript: None)
+
+        gateway.press_ptt(self.target)
+        gateway.release_ptt()
+        self._wait_for_state(gateway, VoicePttState.IDLE)
+
+        emitted = []
+        while not events.empty():
+            emitted.append(events.get_nowait())
+        self.assertEqual(emitted[-1].error_code, "voice_no_transcript")
+
+    def test_streaming_capture_is_assembled_only_after_release(self) -> None:
+        format = PcmStreamFormat(16000)
+        capture = FakeStreamingCaptureProvider(
+            [
+                PcmChunk(b"\x01\x00" * 160, format, 0),
+                PcmChunk(b"\x02\x00" * 160, format, 160),
+            ]
+        )
+        asr = FakeAsrProvider([Transcript("raw", "normalized")])
+        prompts: Queue[tuple[VoiceTarget, Transcript]] = Queue()
+        gateway = self._gateway(capture, asr)
+        gateway.register_prompt_sink(lambda target, text: prompts.put((target, text)))
+
+        gateway.press_ptt(self.target)
+        self.assertTrue(capture.started.wait(timeout=1))
+        self._wait_for(lambda: capture.chunks_read == 2)
+        self.assertEqual(gateway.ptt_state(), VoicePttState.CAPTURING)
+        self.assertEqual(asr.requests, [])
+
+        gateway.release_ptt()
+        prompts.get(timeout=1)
+        self._wait_for_state(gateway, VoicePttState.IDLE)
+
+        self.assertEqual(capture.streams_opened, 1)
+        self.assertEqual(capture.streams_closed, 1)
+        self.assertEqual(
+            asr.requests[0].data,
+            b"\x01\x00" * 160 + b"\x02\x00" * 160,
+        )
+
+    def test_streaming_capture_rejects_discontinuity_and_closes_stream(self) -> None:
+        format = PcmStreamFormat(16000)
+        capture = FakeStreamingCaptureProvider(
+            [
+                PcmChunk(b"\x01\x00", format, 0),
+                PcmChunk(b"\x02\x00", format, 2),
+            ]
+        )
+        events: Queue[VoiceEvent] = Queue()
+        gateway = self._gateway(
+            capture,
+            FakeAsrProvider([Transcript("raw", "normalized")]),
+            event_sink=events.put,
+        )
+        gateway.register_prompt_sink(lambda _target, _transcript: None)
+
+        gateway.press_ptt(self.target)
+        self._wait_for_state(gateway, VoicePttState.IDLE)
+
+        emitted = []
+        while not events.empty():
+            emitted.append(events.get_nowait())
+        self.assertEqual(emitted[-1].kind, VoiceEventKind.FAILURE)
+        self.assertEqual(emitted[-1].error_code, "voice_input_failed")
+        self.assertEqual(capture.streams_closed, 1)
+
+    def test_streaming_capture_enforces_gateway_byte_limit(self) -> None:
+        format = PcmStreamFormat(16000)
+        capture = FakeStreamingCaptureProvider(
+            [PcmChunk(b"\x01\x00\x02\x00", format, 0)]
+        )
+        events: Queue[VoiceEvent] = Queue()
+        gateway = self._gateway(
+            capture,
+            FakeAsrProvider([Transcript("raw", "normalized")]),
+            event_sink=events.put,
+            max_capture_bytes=2,
+        )
+        gateway.register_prompt_sink(lambda _target, _transcript: None)
+
+        gateway.press_ptt(self.target)
+        self._wait_for_state(gateway, VoicePttState.IDLE)
+
+        emitted = []
+        while not events.empty():
+            emitted.append(events.get_nowait())
+        self.assertEqual(emitted[-1].kind, VoiceEventKind.FAILURE)
+        self.assertEqual(capture.streams_closed, 1)
+
+    def test_streaming_capture_rejects_end_before_ptt_release(self) -> None:
+        format = PcmStreamFormat(16000)
+        capture = FakeStreamingCaptureProvider(
+            [PcmChunk(b"\x01\x00", format, 0)],
+            end_on_exhaustion=True,
+        )
+        events: Queue[VoiceEvent] = Queue()
+        gateway = self._gateway(
+            capture,
+            FakeAsrProvider([Transcript("raw", "normalized")]),
+            event_sink=events.put,
+        )
+        gateway.register_prompt_sink(lambda _target, _transcript: None)
+
+        gateway.press_ptt(self.target)
+        self._wait_for_state(gateway, VoicePttState.IDLE)
+
+        emitted = []
+        while not events.empty():
+            emitted.append(events.get_nowait())
+        self.assertEqual(emitted[-1].error_code, "voice_input_failed")
+        self.assertEqual(capture.streams_closed, 1)
 
     def test_targeted_release_rejects_other_session_and_stale_activation(self) -> None:
         capture = FakeCaptureProvider([self._audio()])
@@ -157,11 +285,12 @@ class VoiceGatewayTests(unittest.TestCase):
 
     def _gateway(
         self,
-        capture: FakeCaptureProvider,
-        asr: FakeAsrProvider,
+        capture: FakeCaptureProvider | FakeStreamingCaptureProvider,
+        asr,
         *,
         playback: FakePlaybackProvider | None = None,
         event_sink=None,
+        max_capture_bytes: int = 1 << 20,
         max_speech_items: int = 8,
     ) -> VoiceGateway:
         gateway = VoiceGateway(
@@ -169,6 +298,7 @@ class VoiceGatewayTests(unittest.TestCase):
             asr_provider=asr,
             tts_provider=FakeTtsProvider(),
             playback_provider=playback or FakePlaybackProvider(),
+            max_capture_bytes=max_capture_bytes,
             max_speech_items=max_speech_items,
             event_sink=event_sink,
         )

@@ -26,7 +26,7 @@ Represent streaming capture as complete-frame `PcmChunk` values with:
 - contiguous chunks with no implicit resampling, channel conversion, or format
   change inside one stream.
 
-A future streaming capture provider opens an owned `PcmChunkStream`. The caller
+A streaming capture provider opens an owned `PcmChunkStream`. The caller
 reads one bounded chunk at a time with explicit stop and cancellation signals,
 and closes the stream through its context-manager lifecycle.
 
@@ -59,14 +59,17 @@ pretend that offline replay is a live end-to-end latency measurement.
 - Absolute frame positions make segmentation deterministic and independent of
   scheduler timing.
 - Session ownership leaves room for native model state and explicit cleanup.
-- PipeWire streaming capture, real-time pacing, device recovery, and Voice
-  Gateway endpointing remain later composition work.
+- Live VAD composition, real-time endpointing, partial ASR, and device recovery
+  remain later work.
 - Model-specific thresholds, minimum speech/silence duration, padding, and
   resampling remain provider configuration and must be recorded with benchmark
   identity and run metadata.
 
 ## Implementation Status
 
-The chunk/event models, provider protocols, deterministic fake VAD session,
-bounded runner, NDJSON observation format, CLI summary, metrics, and tests are
-implemented without live audio or model dependencies.
+The chunk/event models, provider protocols, deterministic fake capture/VAD
+sessions, bounded runner, NDJSON observation format, CLI summary, metrics, and
+tests are implemented. PipeWire now emits owned frame-positioned chunks, and
+Voice Gateway validates and aggregates them under explicit chunk, byte, and
+duration bounds while preserving the legacy batch capture protocol. PTT release
+still ends capture; VAD is not yet attached to the live Gateway path.

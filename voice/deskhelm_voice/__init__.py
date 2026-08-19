@@ -2,6 +2,7 @@ from .fake_providers import (
     FakeAsrProvider,
     FakeCaptureProvider,
     FakePlaybackProvider,
+    FakeStreamingCaptureProvider,
     FakeTtsProvider,
     FakeVadProvider,
 )
@@ -40,10 +41,13 @@ from .models import (
     VoiceTarget,
 )
 from .providers import (
+    PcmChunkStream,
+    StreamingCaptureProvider,
     StreamingAsrProvider,
     StreamingAsrResult,
     StreamingTtsProvider,
     VoiceCancelled,
+    VoiceNoTranscript,
 )
 from .paraformer import ParaformerStreamingAsrProvider
 from .piper_tts import PiperTtsProvider
@@ -70,6 +74,7 @@ __all__ = [
     "FakeAsrProvider",
     "FakeCaptureProvider",
     "FakePlaybackProvider",
+    "FakeStreamingCaptureProvider",
     "FakeTtsProvider",
     "FakeVadProvider",
     "KokoroTtsProvider",
@@ -80,6 +85,7 @@ __all__ = [
     "LocalVoiceConfig",
     "PcmSampleFormat",
     "PcmChunk",
+    "PcmChunkStream",
     "PcmStreamFormat",
     "ParaformerStreamingAsrProvider",
     "PipeWireCaptureProvider",
@@ -93,10 +99,12 @@ __all__ = [
     "SileroOnnxVadProvider",
     "StreamingAsrProvider",
     "StreamingAsrResult",
+    "StreamingCaptureProvider",
     "StreamingTtsProvider",
     "SynthesizedAudio",
     "Transcript",
     "VoiceCancelled",
+    "VoiceNoTranscript",
     "VoiceEvent",
     "VoiceEventKind",
     "VoiceGateway",

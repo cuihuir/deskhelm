@@ -6,7 +6,7 @@ import time
 from typing import Callable
 
 from .models import CapturedAudio, PcmSampleFormat, Transcript
-from .providers import StreamingAsrResult, VoiceCancelled
+from .providers import StreamingAsrResult, VoiceCancelled, VoiceNoTranscript
 
 
 class ParaformerStreamingAsrProvider:
@@ -154,7 +154,7 @@ class ParaformerStreamingAsrProvider:
             self._inference_lock.release()
         raw_text = "".join(parts).strip()
         if not raw_text:
-            raise RuntimeError("Paraformer returned no transcript")
+            raise VoiceNoTranscript()
         if len(raw_text) > 4096:
             raise RuntimeError("Paraformer transcript exceeds size limit")
         transcript = Transcript(raw_text=raw_text, normalized_text=raw_text)

@@ -60,7 +60,11 @@ or stable-name overrides. The CLI now provides read-only discovery plus
 explicit input/output diagnostics; the Bridge can also compose provisional
 PipeWire, Paraformer, and Piper
 providers only through an explicit disabled-by-default option. Models remain
-lazy and external. A unified ignored Python 3.12 runtime has now completed a
+lazy and external. PipeWire capture now exposes continuous complete-frame PCM
+chunks with absolute frame positions; Voice Gateway validates and aggregates
+that stream under explicit chunk, byte, and duration bounds until PTT release.
+Legacy batch capture providers remain compatible, while VAD and partial ASR are
+still deferred. A unified ignored Python 3.12 runtime has completed a
 real bounded `PTT -> final ASR -> fixed TTS -> PipeWire playback` diagnostic on
 the current USB microphone and computer sink. This is not yet the real
 Codex-response path, live VAD is not integrated, and actual first-speaker-audio
@@ -84,6 +88,7 @@ Bridge state and sessions
   -> text-only Agent gateway
   -> bounded Voice Gateway skeleton
   -> bounded PipeWire audio providers
+  -> frame-positioned streaming capture migration
   -> initial external-audio WebRTC/Silero VAD comparison
   -> initial Paraformer streaming ASR baseline
   -> initial Piper/Kokoro notification TTS comparison
