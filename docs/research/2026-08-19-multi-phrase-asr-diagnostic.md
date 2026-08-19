@@ -126,12 +126,13 @@ mean final latency `430.398 ms`, and mean warm-path latency (phrases 2-4)
 `222.876 ms`. All four records had `status: ok`, no clipped samples, and the
 provisional `within_diagnostic_range` input hint.
 
-The `mixed-number-01` result exposes a metric caveat: its whitespace-insensitive
-CER was exact (`0.0`) while keyword accuracy was zero. CER removes all
-whitespace, but the current keyword metric preserves internal spaces before
-substring matching. This is a scoring inconsistency to resolve before using
-keyword accuracy as a provider-selection gate; it is not evidence that the
-recognized text was printed or retained.
+The `mixed-number-01` result exposed a metric caveat: its whitespace-insensitive
+CER was exact (`0.0`) while keyword accuracy was zero. At capture time, CER
+removed all whitespace but the keyword metric preserved internal spaces before
+substring matching. The implementation has since been corrected to remove
+whitespace for keyword matching as well. The historical live scores cannot be
+recomputed because recognized text was never retained; future gate decisions
+must use observations produced after the fix.
 
 The handshake removes the prompt-transition race, but the run remains a
 separate human recording from the earlier batches and is not paired audio.
@@ -169,7 +170,7 @@ had `status: ok`, no clipped samples, and the provisional
 The handshake-mode evidence favors SenseVoice for this small live set: it had
 lower CER, two exact matches, and substantially lower final latency. Both
 providers still scored zero keywords on the three mixed coding phrases under
-the current spacing-sensitive keyword metric, and neither result is paired
+the pre-fix spacing-sensitive keyword metric, and neither result is paired
 audio. SenseVoice is a provisional next-integration candidate, not a final
-production selection; its model license and the keyword metric normalization
-remain open decisions.
+production selection; its model license remains open and corrected keyword
+scores require a future live rerun if they affect the gate.

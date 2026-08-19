@@ -1514,7 +1514,7 @@ def _word_units(value: str) -> list[str]:
 
 def _normalize_keyword(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value).casefold()
-    return " ".join(normalized.split())
+    return "".join(normalized.split())
 
 
 def _error_rate(reference: Sequence[str], hypothesis: Sequence[str]) -> float:

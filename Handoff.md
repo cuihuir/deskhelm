@@ -125,9 +125,9 @@ phrase capture, with a bounded timeout and fixed `voice_phrase_not_ready`
 failure. The existing immediate mode remains unchanged. A live SenseVoice
 handshake batch completed all four phrases with `ok` status, followed by a
 matching Paraformer handshake batch. The cleaner evidence favors SenseVoice on
-this small live set, but one result exposed a CER/keyword spacing metric
-inconsistency that must be resolved before using keyword accuracy as a
-selection gate.
+this small live set. The CER/keyword spacing inconsistency found in that run is
+now fixed in code; historical live keyword scores remain pre-fix because
+recognized text was not retained.
 
 ## Completed Work
 
@@ -344,6 +344,10 @@ selection gate.
   `0.431913` and mean final latency was `2,267.219 ms`. SenseVoice had lower CER,
   two exact matches, and substantially lower latency in this small set; neither
   provider is a final production selection.
+- Fixed keyword-score normalization to ignore whitespace consistently with CER
+  for code-sensitive matching, and added regression coverage. Historical live
+  handshake keyword scores remain unchanged and cannot be recomputed without
+  retaining recognized text.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -819,8 +823,9 @@ keyword accuracy on the three mixed coding phrases.
 The new handshake mode now has live coverage for both providers. SenseVoice
 mean CER was `0.177557` with `430.398 ms` mean final latency; Paraformer mean
 CER was `0.431913` with `2,267.219 ms` mean final latency. These are separate
-human recordings, not paired audio, and keyword scoring remains qualified by
-the whitespace-normalization caveat.
+human recordings, not paired audio. The reported keyword scores were produced
+before the whitespace-normalization fix and require a future rerun if they
+affect a provider gate.
 
 An additional startup smoke test used the current PipeWire graph and ignored
 prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local
@@ -1007,16 +1012,16 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 - Paraformer is measured on a tiny public set, one synchronized live Chinese
   command, one immediate four-phrase batch, and one handshake four-phrase
   batch. The handshake batch trailed SenseVoice on CER and latency, while mixed
-  coding keyword scores remain affected by the spacing metric caveat; English
-  spacing, isolated digits, about 3.09 GiB peak RSS, and cancellation only
-  between inference calls remain product risks. It is not selected as the sole
-  production ASR.
+  coding keyword scores in the historical run used the pre-fix spacing metric;
+  English spacing, isolated digits, about 3.09 GiB peak RSS, and cancellation
+  only between inference calls remain product risks. It is not selected as the
+  sole production ASR.
 - SenseVoice is final-only and cannot provide partials or cancel its native
   decode midway. It missed most isolated English digit clips, and its custom
   FunASR Model License 1.1 requires review before packaging or production use.
-  Its handshake batch improved CER on the selected phrases, but the current
-  keyword metric preserves internal spaces while CER removes them, so exact
-  mixed-command recognition can still report zero keyword accuracy.
+  Its handshake batch improved CER on the selected phrases. Historical keyword
+  scores reflect the pre-fix whitespace behavior; current code now aligns
+  keyword and CER whitespace normalization.
 - Piper and Kokoro performance, resources, provider-chunk first audio,
   interruption boundaries, and licenses are measured, but human quality and
   actual playback latency are not. Piper produced a very small full-scale
@@ -1024,12 +1029,12 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Next Step
 
-Align the keyword metric's whitespace normalization, then rerun the selected
-handshake phrases only if the corrected score changes the provider gate. After
-that, measure timeout/disconnect/default-device change and provider recovery,
-and retain whisper.cpp as the next licensing/quality fallback before selecting
-a production ASR. Expand live VAD threshold/noise evidence without granting
-endpoint control, and separately define actual speaker-first-audio and
+The keyword metric whitespace normalization is now fixed. Rerun the selected
+handshake phrases only if corrected keyword scores are needed for the provider
+gate. After that, measure timeout/disconnect/default-device change and provider
+recovery, and retain whisper.cpp as the next licensing/quality fallback before
+selecting a production ASR. Expand live VAD threshold/noise evidence without
+granting endpoint control, and separately define actual speaker-first-audio and
 interruption instrumentation. Keep every provider replaceable and obtain the
 repository license decision before packaging models or accepting external
 contributions.

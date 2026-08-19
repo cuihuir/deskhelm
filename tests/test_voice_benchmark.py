@@ -90,6 +90,13 @@ class VoiceBenchmarkTests(unittest.TestCase):
             ),
             1,
         )
+        self.assertEqual(
+            keyword_accuracy(
+                ("300 秒", "容量保持 8"),
+                "300秒，容量保持8。",
+            ),
+            1,
+        )
 
     def test_fake_runners_emit_bounded_provider_neutral_observations(self) -> None:
         utterance = self.corpus.utterances[0]
