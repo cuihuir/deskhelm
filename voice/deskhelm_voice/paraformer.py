@@ -135,6 +135,8 @@ class ParaformerStreamingAsrProvider:
                     decoder_chunk_look_back=self._decoder_chunk_look_back,
                     disable_pbar=True,
                 )
+                if cancel.is_set():
+                    raise VoiceCancelled()
                 text = _extract_text(result)
                 if text:
                     parts.append(text)

@@ -45,6 +45,11 @@ if mode.startswith("capture"):
     if mode == "capture-failure":
         print("private capture failure", file=sys.stderr)
         raise SystemExit(7)
+    if mode == "capture-failure-once":
+        marker = Path(ready_path)
+        if not marker.exists():
+            marker.touch()
+            raise SystemExit(7)
     if mode == "capture-overflow":
         sys.stdout.buffer.write(b"\x00\x00" * 4096)
         sys.stdout.buffer.flush()

@@ -38,3 +38,6 @@
 - [`2026-08-19-sensevoice-second-asr-baseline.md`](2026-08-19-sensevoice-second-asr-baseline.md)
   — SenseVoice/sherpa-onnx 与 whisper.cpp 选择、不可变制品、许可边界和
   首轮公开音频对比。
+- [`2026-08-19-provider-recovery-and-device-change.md`](2026-08-19-provider-recovery-and-device-change.md)
+  — ASR、PipeWire 进程恢复和默认/手工设备变化的确定性证据与未完成的
+  实机验证。

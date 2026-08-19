@@ -99,6 +99,11 @@ isolated English digit clips. A user-confirmed synchronized live run recovered
 both keywords with 0.136364 CER and 1,328.308 ms cold-process final latency,
 improving on the current Paraformer live phrase. Neither provider is selected
 as production ASR; SenseVoice's custom FunASR model license also needs review.
+The recovery phase now has an explicit retry boundary: provider failures release
+their locks for a later request, cancellation is checked at each provider's
+documented boundary, PipeWire sessions can be reopened after disconnect, fresh
+default-device snapshots rebind, and missing manual stable names fail closed.
+Live hot-unplug and hard in-flight cancellation measurements remain open.
 
 ## Completed Work
 
@@ -282,6 +287,10 @@ as production ASR; SenseVoice's custom FunASR model license also needs review.
 - Ran one synchronized user-confirmed SenseVoice microphone diagnostic on the
   same public Chinese phrase. It matched both keywords with 0.136364 CER and
   1,328.308 ms cold-process final latency without saving PCM or recognized text.
+- Accepted ADR 0021 and added deterministic recovery tests for ASR failure and
+  cancellation boundaries, PipeWire process disconnect/retry, and default versus
+  manual device changes. No implicit recognition retry or device fallback is
+  introduced.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -562,6 +571,8 @@ as production ASR; SenseVoice's custom FunASR model license also needs review.
 - `docs/decisions/0020-evaluate-sensevoice-as-second-asr-baseline.md`: selected
   comparison, immutable artifact identity, final-only semantics, and license
   risk.
+- `docs/decisions/0021-bounded-voice-recovery-and-device-rebind.md`: retry,
+  cancellation, process recovery, and strict device rebinding semantics.
 - `docs/decisions/0015-use-piper-as-initial-notification-tts-baseline.md`:
   initial TTS baseline, streaming semantics, licensing, and selection limits.
 - `docs/decisions/0016-explicit-local-audio-selection-and-diagnostics.md`:
@@ -590,6 +601,8 @@ as production ASR; SenseVoice's custom FunASR model license also needs review.
   remaining evidence.
 - `docs/research/2026-08-19-sensevoice-second-asr-baseline.md`: candidate
   comparison, pinned artifacts, public/live results, and licensing boundary.
+- `docs/research/2026-08-19-provider-recovery-and-device-change.md`: recovery
+  matrix, fake-boundary evidence, and outstanding live hot-plug measurements.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -685,17 +698,17 @@ as production ASR; SenseVoice's custom FunASR model license also needs review.
 - `bridge/deskhelm_bridge/interaction_subscription.py`: rich subscription wire
   models, bounded queue, and in-process fan-out hub.
 - `tests/test_pipewire_providers.py`: fake-subprocess PCM, targeting, bounds,
-  failure, cancellation, and process-cleanup coverage.
+  failure, cancellation, process cleanup, and disconnect/retry coverage.
 - `tests/test_vad_benchmark.py`: streaming chunk/session validation, VAD metrics,
   failure records, NDJSON, and CLI summary coverage.
 - `tests/test_vad_providers.py`: manifest, prepared checksum, WebRTC buffering,
   format, and hysteresis coverage.
 - `tests/test_asr_providers.py`: ASR manifest/prepared-set, measured streaming
-  result, lazy loading, input bounds, cancellation, and validation coverage.
+  result, lazy loading, input bounds, cancellation, and failure-reuse coverage.
 - `tests/test_tts_providers.py`: TTS manifest, benchmark metrics, provider
   routing, lazy loading, bounds, and cancellation coverage.
 - `tests/test_audio_config.py`: synthetic discovery, default/manual selection,
-  provider composition, diagnostics, and CLI argument coverage.
+  device rebinding, provider composition, diagnostics, and CLI argument coverage.
 - `tests/test_voice_integration.py`: targeted PTT/speech control composition,
   transcript-to-prompt routing, and speech failure isolation.
 - `tests/test_local_voice_config.py`: disabled-by-default CLI behavior, exact
@@ -718,7 +731,7 @@ Last verified on 2026-08-19:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 212 tests passed under the workstation resource limiter with strict
+Result: 216 tests passed under the workstation resource limiter with strict
 `ResourceWarning` handling. This includes the existing Bridge, protocol,
 adapter, voice, benchmark, and fake-subprocess PipeWire coverage plus streaming
 capture continuity, bounds, premature-end, cleanup, compatibility, empty-ASR
@@ -727,7 +740,9 @@ composition, and privacy-safe live-summary tests. The full unit suite opened no
 live audio device and did not import optional model runtimes. Eight focused
 tests cover controlled ASR diagnostic bounds, corpus selection, signal hints,
 aggregate VAD activity, VAD failure isolation, metric output, provider-output
-suppression, fixed failures, and lazy final-only SenseVoice behavior.
+suppression, fixed failures, lazy final-only SenseVoice behavior, provider
+failure reuse, post-inference cancellation, PipeWire disconnect/retry, and
+device rebinding.
 
 An additional startup smoke test used the current PipeWire graph and ignored
 prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local
@@ -755,6 +770,12 @@ digest plus extracted model/token checksums, recorded 681.488 ms cold load,
 412.512 MiB peak RSS, 0.055813 mean RTF, and the accuracy/latency results in the
 dated report. The wheel, model, raw observations, and local summary remain
 ignored.
+
+After the Paraformer cancellation-boundary change, a one-repetition public
+smoke run passed 8/8. CER and keyword accuracy remained 0.4375/0.4375, final
+latency p50 was 44.473 ms, estimated first-partial p50 was 373.653 ms, and peak
+RSS was 3,088.203 MiB. The run used the constrained `ubuntu24-r23` container;
+its raw observations and summary remain ignored.
 
 The isolated TTS run passed with 36/36 successful observations per candidate,
 and a post-change offline smoke run passed with 12/12 per candidate. The dated

@@ -157,6 +157,11 @@ SenseVoice uses `--asr-provider sensevoice` and a directory containing the
 verified `model.int8.onnx` and `tokens.txt`. It is final-only, so first-partial
 latency remains unavailable.
 
+Provider failures are recoverable at the next explicit request when the runtime
+is still available; recognition is never retried implicitly. Default devices
+are re-resolved from a fresh PipeWire inventory, while a missing manually
+selected stable name fails without fallback.
+
 See
 [`docs/research/2026-08-19-local-voice-runtime-and-live-path.md`](../docs/research/2026-08-19-local-voice-runtime-and-live-path.md)
 for measured results and limitations.

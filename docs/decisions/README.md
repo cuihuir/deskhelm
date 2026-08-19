@@ -34,3 +34,7 @@ release authoritative and isolating VAD failure from final ASR.
 [`0020-evaluate-sensevoice-as-second-asr-baseline.md`](0020-evaluate-sensevoice-as-second-asr-baseline.md)
 selects a compact final-only SenseVoice/sherpa-onnx comparison while recording
 its non-streaming boundary and custom model-license risk.
+
+[`0021-bounded-voice-recovery-and-device-rebind.md`](0021-bounded-voice-recovery-and-device-rebind.md)
+defines retry boundaries, cancellation points, PipeWire session recovery, and
+strict default/manual device rebinding.

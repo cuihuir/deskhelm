@@ -145,6 +145,20 @@ class PipeWireProviderTests(unittest.TestCase):
 
         self.assertNotIn("private", str(caught.exception))
 
+    def test_capture_provider_recovers_after_process_disconnect(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "first-failure"
+            provider = PipeWireCaptureProvider(
+                command_prefix=self._prefix(
+                    "capture-failure-once", "__default__", marker
+                )
+            )
+            with self.assertRaisesRegex(RuntimeError, "capture process failed"):
+                provider.capture(Event(), Event())
+            audio = provider.capture(Event(), Event())
+
+        self.assertEqual(len(audio.data), 640)
+
     def test_capture_rejects_invalid_pcm_and_startup_failure(self) -> None:
         invalid_pcm = PipeWireCaptureProvider(
             command_prefix=self._prefix("capture-odd-frame")

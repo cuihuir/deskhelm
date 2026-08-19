@@ -119,6 +119,8 @@ Status: In Progress
 - [x] Add advisory speech-active segment, duration, and ratio measurements to
   that diagnostic without allowing VAD to gate ASR.
 - [ ] Record disconnect, timeout, device-change, and provider-failure recovery.
+- [x] Define deterministic provider retry, cancellation, process-disconnect,
+  and default/manual device-change semantics with fake-boundary tests.
 
 Acceptance criteria:
 

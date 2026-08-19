@@ -4,8 +4,10 @@ import unittest
 
 from deskhelm_bridge.cli import build_parser
 from voice.deskhelm_voice.audio_config import (
+    AudioNode,
     AudioNodeKind,
     LocalAudioConfig,
+    PipeWireAudioInventory,
     create_test_tone,
     discover_pipewire_audio,
     measure_audio_signal,
@@ -141,6 +143,43 @@ class AudioConfigTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "too large"):
             discover_pipewire_audio(command_runner=oversized)
+
+    def test_default_selection_rebinds_after_device_change(self) -> None:
+        source_old = AudioNode(
+            AudioNodeKind.SOURCE,
+            "source.old",
+            "Old Microphone",
+            "Audio/Source",
+        )
+        source_new = AudioNode(
+            AudioNodeKind.SOURCE,
+            "source.new",
+            "New Microphone",
+            "Audio/Source",
+        )
+        sink = AudioNode(
+            AudioNodeKind.SINK,
+            "sink.internal",
+            "Internal Speakers",
+            "Audio/Sink",
+        )
+        first = PipeWireAudioInventory(
+            (source_old,), (sink,), "source.old", "sink.internal"
+        )
+        second = PipeWireAudioInventory(
+            (source_new,), (sink,), "source.new", "sink.internal"
+        )
+
+        self.assertEqual(
+            LocalAudioConfig().resolve(first).source.name,
+            "source.old",
+        )
+        self.assertEqual(
+            LocalAudioConfig().resolve(second).source.name,
+            "source.new",
+        )
+        with self.assertRaisesRegex(ValueError, "source is unavailable"):
+            LocalAudioConfig(source_name="source.old").resolve(second)
 
     @staticmethod
     def _runner():

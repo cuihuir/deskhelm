@@ -271,6 +271,11 @@ Keep third-party reference files outside version control under
   Treat SenseVoice as final-only, serialize the shared recognizer, report no
   first partial, and do not describe VAD-segmented offline decode as streaming.
   Review FunASR Model License 1.1 before packaging or production selection.
+- Treat a new ASR request as the retry boundary: release provider locks on
+  failures, never retry recognition implicitly, and check cancellation at each
+  provider's documented inference boundary. Re-resolve default audio devices
+  from fresh inventory snapshots; manual stable device names fail closed when
+  unavailable and never fall back silently.
 - Keep Piper and Kokoro dependencies lazy and outside Bridge requirements. Pin
   runtime/model revisions, licenses, artifact sizes, and checksums. Piper is the
   initial low-latency notification baseline; Kokoro remains the quality

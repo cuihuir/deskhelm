@@ -176,6 +176,42 @@ class AsrProviderTests(unittest.TestCase):
 
         self.assertEqual(str(caught.exception), "")
 
+    def test_paraformer_recovers_after_failure_and_cancels_after_chunk(self) -> None:
+        class RecoveringModel:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def generate(self, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("private model failure")
+                return [{"text": "运行测试"}]
+
+        model = RecoveringModel()
+        provider = ParaformerStreamingAsrProvider(
+            "/model",
+            model_factory=lambda _path, _threads: model,
+        )
+        audio = CapturedAudio(b"\x00\x00" * 160, sample_rate_hz=16000)
+        with self.assertRaisesRegex(RuntimeError, "private model failure"):
+            provider.transcribe(audio, Event())
+        transcript = provider.transcribe(audio, Event())
+        self.assertEqual(transcript.normalized_text, "运行测试")
+
+        cancelled = Event()
+
+        class CancellingModel:
+            def generate(self, **_kwargs):
+                cancelled.set()
+                return [{"text": "运行测试"}]
+
+        cancelling = ParaformerStreamingAsrProvider(
+            "/model",
+            model_factory=lambda _path, _threads: CancellingModel(),
+        )
+        with self.assertRaises(VoiceCancelled):
+            cancelling.transcribe(audio, cancelled)
+
     def test_sensevoice_is_lazy_final_only_and_bounded(self) -> None:
         created = []
 
@@ -258,6 +294,57 @@ class AsrProviderTests(unittest.TestCase):
         cancelled.set()
         with self.assertRaises(VoiceCancelled):
             provider.transcribe(audio, cancelled)
+
+    def test_sensevoice_recovers_after_failure_and_cancels_at_boundary(self) -> None:
+        cancelled = Event()
+
+        class Result:
+            text = "运行测试"
+
+        class Stream:
+            result = Result()
+
+            def accept_waveform(self, _sample_rate, _samples):
+                pass
+
+        class RecoveringRecognizer:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def create_stream(self):
+                return Stream()
+
+            def decode_stream(self, _stream):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("private decode failure")
+
+        recognizer = RecoveringRecognizer()
+        provider = SenseVoiceOfflineAsrProvider(
+            "/model",
+            recognizer_factory=lambda **_kwargs: recognizer,
+        )
+        audio = CapturedAudio(b"\x00\x00" * 160, sample_rate_hz=16000)
+        with self.assertRaisesRegex(RuntimeError, "private decode failure"):
+            provider.transcribe(audio, Event())
+        self.assertEqual(
+            provider.transcribe(audio, Event()).normalized_text,
+            "运行测试",
+        )
+
+        class CancellingRecognizer:
+            def create_stream(self):
+                return Stream()
+
+            def decode_stream(self, _stream):
+                cancelled.set()
+
+        cancelling = SenseVoiceOfflineAsrProvider(
+            "/model",
+            recognizer_factory=lambda **_kwargs: CancellingRecognizer(),
+        )
+        with self.assertRaises(VoiceCancelled):
+            cancelling.transcribe(audio, cancelled)
 
 
 if __name__ == "__main__":
