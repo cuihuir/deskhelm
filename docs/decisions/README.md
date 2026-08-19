@@ -22,3 +22,7 @@ audio diagnostics without prematurely activating production voice models.
 [`0017-correlate-external-ptt-press-and-release.md`](0017-correlate-external-ptt-press-and-release.md)
 adds targeted external PTT controls and prevents stale or cross-session release
 commands from stopping an unrelated capture.
+
+[`0018-opt-in-provisional-local-voice-composition.md`](0018-opt-in-provisional-local-voice-composition.md)
+composes PipeWire, Paraformer, and Piper behind an explicit Bridge opt-in while
+deferring VAD until the gateway has a real streaming capture path.

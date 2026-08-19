@@ -30,6 +30,9 @@ It never opens a live microphone or speaker.
 to verify default/manual selection, stable-name failures, provider composition,
 signal-only input reports, bounded test tones, and CLI arguments without
 opening live audio.
+`test_local_voice_config.py` verifies opt-in CLI parsing, exact device/artifact
+preflight, lazy Paraformer/Piper construction, and bounded PipeWire composition
+without importing model runtimes or opening audio.
 `test_voice_benchmark.py` validates the versioned synthetic corpus, bounded
 NDJSON observations, fake-provider runners, CER/WER and keyword metrics,
 resource fields, privacy-preserving failure records, and unknown-input rejection.

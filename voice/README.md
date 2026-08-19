@@ -50,9 +50,17 @@ selected by the Voice Gateway yet. Paraformer remains a Chinese candidate, not
 the sole production ASR for mixed coding commands. `piper_tts.py` and
 `kokoro_tts.py` provide the first lazy, bounded streaming TTS adapters. Piper
 Chaowen is the initial low-latency notification baseline; Kokoro remains the
-quality candidate. Neither is selected as production TTS, and neither is wired
-into the Voice Gateway composition yet. Keep model weights and
-provider-specific heavyweight dependencies outside the repository and Bridge.
+quality candidate. Neither is selected as production TTS. The opt-in local
+composition currently uses Piper; Kokoro remains benchmark-only. Keep model
+weights and provider-specific heavyweight dependencies outside the repository
+and Bridge.
+
+`local_gateway.py` provides the first opt-in application composition. It
+preflights PipeWire selection plus required Paraformer/Piper artifact files,
+then constructs lazy model providers without opening audio or loading weights.
+It intentionally does not attach a VAD provider: the current Gateway capture
+contract is batch-oriented, while the VAD contract requires frame-positioned
+streaming input and explicit flushing.
 
 ## Benchmarks
 
@@ -133,5 +141,5 @@ PYTHONPATH=bridge python3 -m unittest \
   tests.test_pipewire_providers tests.test_voice_benchmark \
   tests.test_vad_benchmark tests.test_vad_providers tests.test_asr_providers \
   tests.test_tts_providers tests.test_voice_gateway \
-  tests.test_voice_integration -v
+  tests.test_voice_integration tests.test_local_voice_config -v
 ```

@@ -21,6 +21,12 @@ from .audio_config import (
 )
 from .gateway import VoiceGateway
 from .kokoro_tts import KokoroTtsProvider
+from .local_gateway import (
+    LocalAsrProviderKind,
+    LocalTtsProviderKind,
+    LocalVoiceComposition,
+    LocalVoiceConfig,
+)
 from .models import (
     CapturedAudio,
     PcmSampleFormat,
@@ -67,7 +73,11 @@ __all__ = [
     "FakeTtsProvider",
     "FakeVadProvider",
     "KokoroTtsProvider",
+    "LocalAsrProviderKind",
     "LocalAudioConfig",
+    "LocalTtsProviderKind",
+    "LocalVoiceComposition",
+    "LocalVoiceConfig",
     "PcmSampleFormat",
     "PcmChunk",
     "PcmStreamFormat",

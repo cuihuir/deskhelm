@@ -53,6 +53,35 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("read-only", "workspace-write"),
         default="read-only",
     )
+    bridge.add_argument(
+        "--voice-provider",
+        choices=("none", "local"),
+        default="none",
+        help="enable an explicit provisional local Voice Gateway",
+    )
+    bridge.add_argument(
+        "--voice-asr-provider",
+        choices=("paraformer",),
+        default="paraformer",
+    )
+    bridge.add_argument(
+        "--voice-tts-provider",
+        choices=("piper",),
+        default="piper",
+    )
+    bridge.add_argument("--voice-source", help="stable PipeWire source node name")
+    bridge.add_argument("--voice-sink", help="stable PipeWire sink node name")
+    bridge.add_argument("--voice-latency", default="20ms")
+    bridge.add_argument("--voice-asr-model-directory", type=Path)
+    bridge.add_argument("--voice-tts-model", type=Path)
+    bridge.add_argument("--voice-tts-config", type=Path)
+    bridge.add_argument("--voice-tts-resource-directory", type=Path)
+    bridge.add_argument("--voice-cpu-threads", type=int, default=4)
+    bridge.add_argument("--voice-max-capture-seconds", type=float, default=30.0)
+    bridge.add_argument("--voice-max-capture-bytes", type=int, default=1 << 20)
+    bridge.add_argument("--voice-max-speech-items", type=int, default=8)
+    bridge.add_argument("--voice-pw-dump-executable", default="pw-dump")
+    bridge.add_argument("--voice-wpctl-executable", default="wpctl")
 
     audio = subparsers.add_parser(
         "audio",
@@ -310,6 +339,65 @@ def _print_audio_result(payload: dict[str, Any], use_json: bool) -> None:
             print(f"sink name={node['name']} description={node['description']}")
 
 
+def _compose_local_voice(args: argparse.Namespace, *, inventory=None):
+    try:
+        from deskhelm_voice import (
+            AudioProviderKind,
+            LocalAsrProviderKind,
+            LocalAudioConfig,
+            LocalTtsProviderKind,
+            LocalVoiceConfig,
+            discover_pipewire_audio,
+        )
+    except ModuleNotFoundError as error:
+        if error.name != "deskhelm_voice":
+            raise
+        from voice.deskhelm_voice import (
+            AudioProviderKind,
+            LocalAsrProviderKind,
+            LocalAudioConfig,
+            LocalTtsProviderKind,
+            LocalVoiceConfig,
+            discover_pipewire_audio,
+        )
+
+    required = (
+        (args.voice_asr_model_directory, "--voice-asr-model-directory"),
+        (args.voice_tts_model, "--voice-tts-model"),
+        (args.voice_tts_config, "--voice-tts-config"),
+        (args.voice_tts_resource_directory, "--voice-tts-resource-directory"),
+    )
+    missing = [name for value, name in required if value is None]
+    if missing:
+        raise ValueError("local voice requires " + ", ".join(missing))
+    audio = LocalAudioConfig(
+        capture_provider=AudioProviderKind.PIPEWIRE,
+        playback_provider=AudioProviderKind.PIPEWIRE,
+        source_name=args.voice_source,
+        sink_name=args.voice_sink,
+        latency=args.voice_latency,
+    )
+    config = LocalVoiceConfig(
+        audio=audio,
+        asr_provider=LocalAsrProviderKind(args.voice_asr_provider),
+        asr_model_directory=args.voice_asr_model_directory,
+        tts_provider=LocalTtsProviderKind(args.voice_tts_provider),
+        tts_model_path=args.voice_tts_model,
+        tts_config_path=args.voice_tts_config,
+        tts_resource_directory=args.voice_tts_resource_directory,
+        cpu_threads=args.voice_cpu_threads,
+        max_capture_seconds=args.voice_max_capture_seconds,
+        max_capture_bytes=args.voice_max_capture_bytes,
+        max_speech_items=args.voice_max_speech_items,
+    )
+    if inventory is None:
+        inventory = discover_pipewire_audio(
+            pw_dump_executable=args.voice_pw_dump_executable,
+            wpctl_executable=args.voice_wpctl_executable,
+        )
+    return config.compose(inventory)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -317,6 +405,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.slots < 1:
                 raise ValueError("--slots must be at least 1")
             agent_provider = None
+            voice_composition = None
             if args.agent_provider == "codex":
                 try:
                     from deskhelm_codex_adapter import CodexExecProvider
@@ -332,26 +421,37 @@ def main(argv: list[str] | None = None) -> int:
                     sandbox=args.codex_sandbox,
                     timeout_seconds=args.agent_run_timeout_seconds,
                 )
-            return_code = run_bridge(
-                socket_path=args.socket,
-                slot_count=args.slots,
-                stream=sys.stdout,
-                color=not args.no_color,
-                live=not args.plain,
-                max_events=args.max_events,
-                max_connections=args.max_connections,
-                max_subscribers=args.max_subscribers,
-                subscriber_queue_frames=args.subscriber_queue_frames,
-                control_idempotency_entries=args.control_idempotency_entries,
-                control_idempotency_retention_ms=(
-                    args.control_idempotency_retention_ms
-                ),
-                control_approval_records=args.control_approval_records,
-                agent_provider=agent_provider,
-                agent_working_directory=args.agent_workdir,
-                agent_max_active_runs=args.agent_max_active_runs,
-                agent_session_records=args.agent_session_records,
-            )
+            if args.voice_provider == "local":
+                voice_composition = _compose_local_voice(args)
+            try:
+                return_code = run_bridge(
+                    socket_path=args.socket,
+                    slot_count=args.slots,
+                    stream=sys.stdout,
+                    color=not args.no_color,
+                    live=not args.plain,
+                    max_events=args.max_events,
+                    max_connections=args.max_connections,
+                    max_subscribers=args.max_subscribers,
+                    subscriber_queue_frames=args.subscriber_queue_frames,
+                    control_idempotency_entries=args.control_idempotency_entries,
+                    control_idempotency_retention_ms=(
+                        args.control_idempotency_retention_ms
+                    ),
+                    control_approval_records=args.control_approval_records,
+                    agent_provider=agent_provider,
+                    agent_working_directory=args.agent_workdir,
+                    agent_max_active_runs=args.agent_max_active_runs,
+                    agent_session_records=args.agent_session_records,
+                    voice_gateway=(
+                        voice_composition.gateway
+                        if voice_composition is not None
+                        else None
+                    ),
+                )
+            finally:
+                if voice_composition is not None:
+                    voice_composition.gateway.close()
             return 0 if return_code >= 0 else 1
         if args.command == "emit":
             emit_event(args)

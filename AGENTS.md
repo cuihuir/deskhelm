@@ -223,6 +223,9 @@ Keep third-party reference files outside version control under
 - External PTT release must copy the matching press command ID and match the
   complete active session target. A stale, idle, or cross-session release must
   fail without changing capture state; do not model external PTT as a toggle.
+- Keep model-backed local voice disabled by default. Validate selected audio
+  devices and required external artifacts before Bridge startup, keep model
+  imports/weights lazy, and do not describe batch PTT capture as VAD integration.
 - Preserve raw and normalized transcripts separately. Ordinary lifecycle and
   failure events must not contain audio, transcript, prompt, or speech text.
 - Keep voice benchmark corpora and observation formats versioned. Bound each
@@ -307,12 +310,17 @@ Current commands:
 - `PYTHONPATH=bridge:adapters/codex python3 -m deskhelm_bridge bridge
   --agent-provider codex --agent-workdir "$PWD"`: run the opt-in text-only Codex
   gateway with its default read-only sandbox.
+- `PYTHONPATH=bridge:voice python3 -m deskhelm_bridge bridge --voice-provider
+  local <explicit-model-and-resource-options>`: run the provisional local voice
+  composition from an environment containing its optional runtimes.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_voice_gateway
   tests.test_voice_integration -v`: run the no-hardware Voice Gateway tests.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_pipewire_providers -v`: run
   deterministic PipeWire provider tests without opening audio devices.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_audio_config -v`: run
   deterministic audio discovery, selection, and diagnostic tests.
+- `PYTHONPATH=bridge python3 -m unittest tests.test_local_voice_config -v`: run
+  local voice composition preflight tests without audio or model runtimes.
 - `PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr --corpus
   voice/benchmarks/utterances-v1.json --observations <results.ndjson>`: score a
   bounded ASR benchmark run.

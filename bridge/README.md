@@ -49,10 +49,10 @@ accepted by the fixed-capacity gateway; completion arrives separately as an
 interaction terminal event.
 
 Python composition can pass an isolated `VoiceGateway` to `run_bridge`. The
-Bridge then registers targeted `speak` and `stop_speaking` handlers, converts
-normalized final transcripts into `submit_prompt` commands, and queues complete
-assistant messages for speech. No production audio or model provider is enabled
-by the CLI yet; the current full pipeline uses deterministic fake providers.
+Bridge then registers targeted speech and PTT handlers, converts normalized
+final transcripts into `submit_prompt` commands, and queues complete assistant
+messages for speech. The CLI can now compose the provisional local candidates,
+but they remain disabled by default.
 
 The separate application-level audio diagnostics resolve PipeWire defaults or
 manual stable node names without implying that Bridge voice is enabled:
@@ -67,6 +67,31 @@ PYTHONPATH=bridge:voice python3 -m deskhelm_bridge audio test-output
 PCM in memory only long enough to calculate signal metadata; `test-output`
 plays a bounded low-volume tone. A missing manual target fails instead of
 falling back to another device.
+
+Start the provisional local voice composition only from an environment that
+contains the optional FunASR/PyTorch and Piper/ONNX runtimes. Model artifacts
+must remain under ignored storage or another external directory:
+
+```bash
+PYTHONPATH=bridge:voice:adapters/codex python3 -m deskhelm_bridge bridge --plain \
+  --agent-provider codex \
+  --agent-workdir "$PWD" \
+  --voice-provider local \
+  --voice-asr-provider paraformer \
+  --voice-asr-model-directory /ignored/paraformer-snapshot \
+  --voice-tts-provider piper \
+  --voice-tts-model /ignored/piper/voice.onnx \
+  --voice-tts-config /ignored/piper/voice.onnx.json \
+  --voice-tts-resource-directory /ignored/piper/resources
+```
+
+Startup resolves the configured PipeWire devices and checks required artifact
+files without loading models or opening audio. The first ASR/TTS request loads
+its runtime lazily. This path uses PTT release as the capture endpoint; VAD and
+partial transcript publication are not integrated yet.
+If `--agent-provider codex` is omitted, speech controls remain available but a
+completed PTT transcript cannot be dispatched and fails recoverably because no
+prompt handler is registered.
 
 Run the Bridge with the text-only Codex provider:
 

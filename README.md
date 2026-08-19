@@ -54,11 +54,13 @@ session-targeted PTT press/release controls when that gateway is composed;
 stale releases cannot stop a newer capture. Voice benchmarking now has a
 versioned Chinese, English, and mixed-language corpus plus bounded
 provider-neutral accuracy, latency, resource, and licensing observations. The
-first real local audio
-boundary is now available as bounded PipeWire capture/playback providers using
-explicit raw PCM, the current default devices or stable-name overrides. The
-CLI now provides read-only discovery plus explicit input/output diagnostics;
-the Bridge service does not yet activate a full model-backed voice path. A
+first real local audio boundary is now available as bounded PipeWire
+capture/playback providers using explicit raw PCM, the current default devices
+or stable-name overrides. The CLI now provides read-only discovery plus
+explicit input/output diagnostics; the Bridge can also compose provisional
+PipeWire, Paraformer, and Piper
+providers only through an explicit disabled-by-default option. Models remain
+lazy and external, and live VAD is not yet integrated. A
 frame-positioned streaming PCM/VAD session contract and bounded
 provider-neutral VAD benchmark are also implemented. The
 first pinned FSDD comparison now runs WebRTC and Silero ONNX adapters outside
@@ -108,6 +110,11 @@ PYTHONPATH=bridge:adapters/codex python3 -m deskhelm_bridge bridge --plain \
 
 The provider is disabled by default and uses the Codex read-only sandbox unless
 `--codex-sandbox workspace-write` is selected explicitly.
+
+The provisional model-backed Voice Gateway is also disabled by default. See
+[`bridge/README.md`](bridge/README.md) for its explicit artifact and runtime
+configuration; it currently uses PTT release rather than VAD as the capture
+endpoint.
 
 Inspect the current PipeWire defaults without opening audio:
 

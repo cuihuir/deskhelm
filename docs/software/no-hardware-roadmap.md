@@ -95,6 +95,8 @@ Status: In Progress
   explicit input/output diagnostics.
 - [x] Add targeted external PTT press/release controls with per-activation
   correlation.
+- [x] Compose provisional PipeWire, Paraformer, and Piper providers behind an
+  explicit disabled-by-default Bridge option.
 - [x] Define the streaming PCM and provider-neutral VAD benchmark boundary.
 - [x] Benchmark initial WebRTC and Silero ONNX VAD candidates on a pinned public
   audio set.
@@ -122,7 +124,7 @@ Acceptance criteria:
    live PipeWire latency before selecting a default.
 3. Expand ASR coverage to consented Chinese/mixed coding commands, compare an
    alternative ASR, and measure live capture/recovery before selecting a default.
-4. Compose provisional VAD/ASR/TTS providers with the application audio
-   boundary behind an explicit opt-in Bridge configuration.
+4. Migrate the Voice Gateway to streaming capture and integrate provisional VAD
+   without weakening chunk, endpoint, cancellation, or flushing semantics.
 5. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.
