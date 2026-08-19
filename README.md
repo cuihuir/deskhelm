@@ -131,6 +131,8 @@ The pinned optional Python 3.12 runtime is documented in
 The live diagnostic and its privacy limits are documented in
 [`voice/README.md`](voice/README.md) and the dated
 [`research report`](docs/research/2026-08-19-local-voice-runtime-and-live-path.md).
+The separate controlled ASR diagnostic uses a versioned public phrase and
+reports only signal, matching, and latency metrics without speaker playback.
 
 Inspect the current PipeWire defaults without opening audio:
 

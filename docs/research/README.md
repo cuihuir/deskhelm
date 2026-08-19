@@ -32,3 +32,6 @@
 - [`2026-08-19-local-voice-runtime-and-live-path.md`](2026-08-19-local-voice-runtime-and-live-path.md)
   — Paraformer/Piper 统一运行时、容器 PipeWire 边界与真实 PTT-ASR-TTS
   播放链路测量。
+- [`2026-08-19-controlled-live-asr-diagnostic.md`](2026-08-19-controlled-live-asr-diagnostic.md)
+  — 公开短语麦克风/ASR 诊断契约，以及健康信号下仍返回
+  `voice_no_transcript` 的首轮实机证据。

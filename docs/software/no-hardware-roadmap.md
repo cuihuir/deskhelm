@@ -113,6 +113,8 @@ Status: In Progress
 - [x] Add fixed Chinese, English, and mixed-language test utterances.
 - [x] Define versioned latency, accuracy, resource, and licensing observations.
 - [x] Record initial real provider and live-device measurements.
+- [x] Add a controlled public-phrase ASR diagnostic that correlates privacy-safe
+  input signal, accuracy, and latency metadata without playback.
 - [ ] Record disconnect, timeout, device-change, and provider-failure recovery.
 
 Acceptance criteria:

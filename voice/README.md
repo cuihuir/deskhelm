@@ -113,6 +113,27 @@ PYTHONPATH=voice /ignored/py312/bin/python tools/run-local-voice-live.py \
 Omit `--vad-provider webrtc` to keep VAD disabled. A VAD miss or runtime
 failure never trims the recording or prevents final ASR.
 
+`tools/run-local-asr-diagnostic.py` isolates microphone input and Paraformer
+from TTS/playback. It prompts one versioned public corpus utterance, captures a
+bounded in-memory recording, suppresses provider output, and reports only:
+
+- duration, peak, RMS, clipped-sample, and near-silence measurements;
+- a provisional input-level hint that never changes system gain;
+- transcript character count, exact match, CER, keyword accuracy, and latency;
+- fixed capture, empty-transcript, or ASR failure codes.
+
+It neither saves PCM nor prints recognized text. Example:
+
+```bash
+PYTHONPATH=voice /ignored/py312/bin/python \
+  tools/run-local-asr-diagnostic.py \
+  --live-audio \
+  --asr-model-directory /ignored/paraformer-snapshot \
+  --pw-cat-command-prefix "host-spawn -no-pty pw-cat" \
+  --utterance-id zh-repeat-01 \
+  --capture-seconds 6 --lead-in-seconds 3 --cpu-threads 4
+```
+
 See
 [`docs/research/2026-08-19-local-voice-runtime-and-live-path.md`](../docs/research/2026-08-19-local-voice-runtime-and-live-path.md)
 for measured results and limitations.

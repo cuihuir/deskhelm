@@ -79,6 +79,12 @@ is now attached as an explicit disabled-by-default advisory observer. It emits
 bounded frame-positioned input activity, while PTT release remains authoritative
 and final ASR always receives the complete bounded recording. VAD failures emit
 one fixed non-terminal event and fall back to the unchanged PTT path.
+The controlled microphone-only ASR diagnostic now pairs one versioned public
+phrase with signal, accuracy, and latency metadata while suppressing provider
+output and retaining neither PCM nor recognized text. Its first real run found
+a healthy unclipped input signal but another `voice_no_transcript`, narrowing
+the next investigation toward speech-active coverage, model/domain fit,
+streaming parameters, and an alternative ASR rather than simple input level.
 
 ## Completed Work
 
@@ -552,6 +558,9 @@ one fixed non-terminal event and fall back to the unchanged PTT path.
   inventory, live default/manual tests, signal metadata, and startup gap.
 - `docs/research/2026-08-19-local-voice-runtime-and-live-path.md`: combined
   runtime identity, PipeWire host boundary, live timings, and limitations.
+- `docs/research/2026-08-19-controlled-live-asr-diagnostic.md`: controlled
+  public-phrase contract, first real signal/ASR metrics, interpretation, and
+  remaining evidence.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -634,6 +643,8 @@ one fixed non-terminal event and fall back to the unchanged PTT path.
   interruption probe, observations, and summary output.
 - `tools/run-local-voice-live.py`: explicit privacy-safe live capture, ASR,
   fixed-response TTS, playback, and timing diagnostic.
+- `tools/run-local-asr-diagnostic.py`: controlled public-phrase microphone and
+  Paraformer diagnostic with privacy-safe signal, accuracy, and latency output.
 - `bridge/deskhelm_bridge/voice_integration.py`: transcript, interaction, and
   control composition between Bridge and Voice.
 - `adapters/codex/deskhelm_codex_adapter/provider.py`: Codex command, stdin,
@@ -660,6 +671,8 @@ one fixed non-terminal event and fall back to the unchanged PTT path.
   preflight failures, lazy provider composition, and gateway ownership cleanup.
 - `tests/test_local_voice_live_tool.py`: explicit live-audio bounds and
   transcript/audio-free summary coverage.
+- `tests/test_local_asr_diagnostic_tool.py`: controlled phrase selection,
+  signal hints, privacy suppression, fixed failures, and metric coverage.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
 - `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
   connection role dispatch.
@@ -674,13 +687,15 @@ Last verified on 2026-08-19:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 202 tests passed under the workstation resource limiter with strict
+Result: 208 tests passed under the workstation resource limiter with strict
 `ResourceWarning` handling. This includes the existing Bridge, protocol,
 adapter, voice, benchmark, and fake-subprocess PipeWire coverage plus streaming
 capture continuity, bounds, premature-end, cleanup, compatibility, empty-ASR
 classification, advisory VAD ordering/fallback/cancellation, explicit local VAD
 composition, and privacy-safe live-summary tests. The full unit suite opened no
-live audio device and did not import optional model runtimes.
+live audio device and did not import optional model runtimes. Six new tests
+cover controlled ASR diagnostic bounds, corpus selection, signal hints, metric
+output, provider-output suppression, and fixed failures.
 
 An additional startup smoke test used the current PipeWire graph and ignored
 prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local
@@ -734,6 +749,14 @@ saved nor printed. The 80 ms activity region validates live event plumbing and
 fallback only; it does not prove detection of the intended utterance or
 acceptable VAD/ASR quality.
 
+The controlled `zh-repeat-01` microphone-only run captured 223,178 bytes over
+6,974.312 ms at 16 kHz mono S16LE. Peak was 0.506927, RMS was 0.035902, clipped
+sample fraction was zero, and the provisional level hint was
+`within_diagnostic_range`. Paraformer returned `voice_no_transcript` after
+11,329.329 ms. PCM and recognized text were neither saved nor printed. This
+makes low level and clipping less likely primary causes, but speech-active
+duration was not measured and remains an explicit gap.
+
 Live local audio diagnostics resolved three sources and three sinks. Two-second
 default and manual USB-source tests each captured about 1.98 seconds of 16 kHz
 mono S16LE PCM and discarded it after signal measurement. The default internal
@@ -759,9 +782,9 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
 2. Run blinded Piper/Kokoro listening, actual speaker-first-audio measurement,
-   and live PipeWire interruption tests. Expand ASR to consented Chinese/mixed
-   coding commands with controlled gain and an alternative model before
-   selecting production defaults.
+   and live PipeWire interruption tests. Add speech-active duration to the
+   controlled ASR diagnostic, repeat with controlled distance/gain, and compare
+   an alternative model before selecting production defaults.
 3. Expand VAD to noisy/conversational labeled audio and live-device threshold
    measurements.
 4. Repeat controlled live VAD utterances and test threshold, disconnect,
@@ -788,11 +811,11 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   playback-to-speaker first audio, mid-inference interruption, and recovery
   timing remain unmeasured.
 - Basic live default/manual input, default output, streaming PCM capture, and one
-  earlier ASR/TTS playback path are verified. The latest stream had healthy
-  signal metadata but two Paraformer attempts returned no final text. A prior
-  one-second USB test returned no PCM while longer tests succeeded. Startup,
-  input calibration, empty recognition, hot unplug, default-device changes, and
-  actual speaker-first-audio latency need explicit product behavior.
+  earlier ASR/TTS playback path are verified. Multiple Paraformer attempts,
+  including a controlled healthy-signal and zero-clipping run, returned no final
+  text. Speech-active duration, alternative-ASR comparison, startup calibration,
+  hot unplug, default-device changes, and actual speaker-first-audio latency
+  need explicit product behavior.
 - Adapter registrations are process-local and must be re-established after a
   Bridge restart. No durable session history or replay is promised.
 - Approval tracking is bounded. When its capacity is exhausted, new approval

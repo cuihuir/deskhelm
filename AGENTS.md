@@ -231,6 +231,10 @@ Keep third-party reference files outside version control under
   ignored or external storage. Do not add it to Bridge dependencies.
 - Preserve raw and normalized transcripts separately. Ordinary lifecycle and
   failure events must not contain audio, transcript, prompt, or speech text.
+- Controlled live ASR diagnostics must use versioned public reference phrases,
+  suppress provider stdout/stderr, retain PCM and recognized text only in
+  memory, and publish only signal, accuracy, length, timing, and fixed failure
+  metadata. Input-level hints are provisional and must not change system gain.
 - Keep voice benchmark corpora and observation formats versioned. Bound each
   NDJSON observation to 1 MiB, each result file to 64 MiB, and each run to
   10,000 observations. Record exact provider/model versions and licenses plus
@@ -338,6 +342,10 @@ Current commands:
   local voice composition preflight tests without audio or model runtimes.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_local_voice_live_tool -v`:
   validate live diagnostic bounds and privacy-safe summaries without audio.
+- `PYTHONPATH=voice /ignored/py312/bin/python
+  tools/run-local-asr-diagnostic.py --live-audio --asr-model-directory
+  <ignored-model> --utterance-id zh-repeat-01 <audio-options>`: run one bounded
+  public-phrase microphone/ASR diagnostic without playback or transcript output.
 - `PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr --corpus
   voice/benchmarks/utterances-v1.json --observations <results.ndjson>`: score a
   bounded ASR benchmark run.
