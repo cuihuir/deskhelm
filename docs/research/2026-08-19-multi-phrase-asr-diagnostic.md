@@ -107,3 +107,31 @@ prints one phrase, waits for an exact bounded `ready` line on stdin, and only
 then opens that phrase's capture session. Immediate capture remains available
 for unattended or direct-terminal use; the two modes are labeled separately in
 the privacy-safe output. A live handshake-mode rerun is still pending.
+
+### SenseVoice Handshake Batch
+
+The first live handshake-mode rerun used the same four phrase IDs, source,
+12-second capture bound, and advisory WebRTC VAD. The user confirmed all four
+phrases after capture. No PCM or recognized text was saved or printed.
+
+| ID | Active (ms) | Chars | CER | Keyword accuracy | Final ASR (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `zh-negation-01` | 4260.000 | 21 | 0.000000 | 1.000000 | 1052.962 |
+| `mixed-command-01` | 7320.000 | 64 | 0.272727 | 0.000000 | 217.519 |
+| `mixed-path-01` | 8930.312 | 48 | 0.437500 | 0.000000 | 222.499 |
+| `mixed-number-01` | 4660.000 | 28 | 0.000000 | 0.000000 | 228.611 |
+
+Aggregate results were mean CER `0.177557`, mean keyword accuracy `0.250000`,
+mean final latency `430.398 ms`, and mean warm-path latency (phrases 2-4)
+`222.876 ms`. All four records had `status: ok`, no clipped samples, and the
+provisional `within_diagnostic_range` input hint.
+
+The `mixed-number-01` result exposes a metric caveat: its whitespace-insensitive
+CER was exact (`0.0`) while keyword accuracy was zero. CER removes all
+whitespace, but the current keyword metric preserves internal spaces before
+substring matching. This is a scoring inconsistency to resolve before using
+keyword accuracy as a provider-selection gate; it is not evidence that the
+recognized text was printed or retained.
+
+The handshake removes the prompt-transition race, but the run remains a
+separate human recording from the earlier batches and is not paired audio.

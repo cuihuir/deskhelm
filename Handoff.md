@@ -120,8 +120,11 @@ timing caveat. Paraformer had lower mean CER but much higher final latency, and
 neither provider recovered the mixed coding keywords reliably.
 ADR 0023 now adds an opt-in one-by-one `ready` stdin handshake before each
 phrase capture, with a bounded timeout and fixed `voice_phrase_not_ready`
-failure. The existing immediate mode remains unchanged; a live handshake-mode
-rerun is pending.
+failure. The existing immediate mode remains unchanged. A live SenseVoice
+handshake batch completed all four phrases with `ok` status; a Paraformer
+handshake batch remains pending. One result also exposed a CER/keyword spacing
+metric inconsistency that must be resolved before using keyword accuracy as a
+selection gate.
 
 ## Completed Work
 
@@ -328,6 +331,11 @@ rerun is pending.
   Each bounded stdin wait requires an exact `ready` line, reports its mode in
   the privacy-safe output, and fails with `voice_phrase_not_ready` on timeout
   or EOF without opening capture.
+- Ran the first live SenseVoice handshake batch. All four captures completed
+  with `ok` status after separate readiness confirmations; mean CER was
+  `0.177557` and mean final latency was `430.398 ms`. The `mixed-number-01`
+  result had exact whitespace-insensitive CER but zero keyword accuracy,
+  exposing a scoring-normalization caveat.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -801,7 +809,8 @@ versus SenseVoice `0.809943`, while mean final latency was `2,158.430 ms` versus
 keyword accuracy on the three mixed coding phrases.
 
 The new handshake mode has deterministic coverage only; no live microphone run
-has used the per-phrase `ready` gate yet.
+has used the per-phrase `ready` gate for Paraformer yet. SenseVoice has now
+completed one live handshake batch.
 
 An additional startup smoke test used the current PipeWire graph and ignored
 prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local
@@ -994,6 +1003,9 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 - SenseVoice is final-only and cannot provide partials or cancel its native
   decode midway. It missed most isolated English digit clips, and its custom
   FunASR Model License 1.1 requires review before packaging or production use.
+  Its handshake batch improved CER on the selected phrases, but the current
+  keyword metric preserves internal spaces while CER removes them, so exact
+  mixed-command recognition can still report zero keyword accuracy.
 - Piper and Kokoro performance, resources, provider-chunk first audio,
   interruption boundaries, and licenses are measured, but human quality and
   actual playback latency are not. Piper produced a very small full-scale
@@ -1001,11 +1013,12 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Next Step
 
-The multi-phrase ASR comparison is complete as qualified live evidence. Next,
-run selected phrases with the new one-by-one readiness handshake, then measure
-timeout/disconnect/default-device change and provider recovery, and retain
-whisper.cpp as the next licensing/quality fallback before selecting a production
-ASR. Expand live VAD threshold/noise evidence without granting endpoint control,
-and separately define actual speaker-first-audio and interruption
-instrumentation. Keep every provider replaceable and obtain the repository
-license decision before packaging models or accepting external contributions.
+Run the same selected phrases with the one-by-one readiness handshake using
+Paraformer, then align the keyword metric's whitespace normalization before
+comparing provider gates. After that, measure timeout/disconnect/default-device
+change and provider recovery, and retain whisper.cpp as the next
+licensing/quality fallback before selecting a production ASR. Expand live VAD
+threshold/noise evidence without granting endpoint control, and separately
+define actual speaker-first-audio and interruption instrumentation. Keep every
+provider replaceable and obtain the repository license decision before
+packaging models or accepting external contributions.
