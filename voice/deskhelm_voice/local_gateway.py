@@ -12,6 +12,7 @@ from .audio_config import (
 from .gateway import VoiceGateway
 from .paraformer import ParaformerStreamingAsrProvider
 from .piper_tts import PiperTtsProvider
+from .webrtc_vad import WebRtcVadProvider
 
 
 class LocalAsrProviderKind(StrEnum):
@@ -20,6 +21,11 @@ class LocalAsrProviderKind(StrEnum):
 
 class LocalTtsProviderKind(StrEnum):
     PIPER = "piper"
+
+
+class LocalVadProviderKind(StrEnum):
+    NONE = "none"
+    WEBRTC = "webrtc"
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +47,7 @@ class LocalVoiceConfig:
     max_capture_seconds: float = 30.0
     max_capture_bytes: int = 1 << 20
     max_speech_items: int = 8
+    vad_provider: LocalVadProviderKind = LocalVadProviderKind.NONE
 
     def __post_init__(self) -> None:
         if not isinstance(self.audio, LocalAudioConfig):
@@ -51,6 +58,8 @@ class LocalVoiceConfig:
             raise ValueError("local ASR provider is invalid")
         if not isinstance(self.tts_provider, LocalTtsProviderKind):
             raise ValueError("local TTS provider is invalid")
+        if not isinstance(self.vad_provider, LocalVadProviderKind):
+            raise ValueError("local VAD provider is invalid")
         for path, name in (
             (self.asr_model_directory, "ASR model directory"),
             (self.tts_model_path, "TTS model path"),
@@ -108,6 +117,11 @@ class LocalVoiceConfig:
                 max_output_bytes=16 << 20,
             ),
             playback_provider=self.audio.create_playback_provider(),
+            vad_provider=(
+                WebRtcVadProvider()
+                if self.vad_provider is LocalVadProviderKind.WEBRTC
+                else None
+            ),
             max_capture_seconds=self.max_capture_seconds,
             max_capture_bytes=self.max_capture_bytes,
             max_speech_items=self.max_speech_items,

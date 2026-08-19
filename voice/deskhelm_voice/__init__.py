@@ -25,6 +25,7 @@ from .kokoro_tts import KokoroTtsProvider
 from .local_gateway import (
     LocalAsrProviderKind,
     LocalTtsProviderKind,
+    LocalVadProviderKind,
     LocalVoiceComposition,
     LocalVoiceConfig,
 )
@@ -83,6 +84,7 @@ __all__ = [
     "LocalTtsProviderKind",
     "LocalVoiceComposition",
     "LocalVoiceConfig",
+    "LocalVadProviderKind",
     "PcmSampleFormat",
     "PcmChunk",
     "PcmChunkStream",

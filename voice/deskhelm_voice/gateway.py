@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import ExitStack
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from threading import Condition, Event, RLock
@@ -22,21 +23,34 @@ from .providers import (
     PlaybackProvider,
     StreamingCaptureProvider,
     TtsProvider,
+    VadProvider,
+    VadSession,
     VoiceCancelled,
     VoiceNoTranscript,
 )
-from .streaming import PcmStreamFormat
+from .streaming import PcmChunk, PcmStreamFormat, VadEvent, VadEventKind
 
 
 PromptSink = Callable[[VoiceTarget, Transcript], None]
 VoiceEventSink = Callable[[VoiceEvent], None]
 MAX_CAPTURE_CHUNKS = 10_000
+MAX_VAD_EVENTS = 256
 
 
 @dataclass(frozen=True, slots=True)
 class _QueuedSpeech:
     sequence: int
     item: SpeechItem
+
+
+@dataclass(slots=True)
+class _VadObservation:
+    session: VadSession | None = None
+    attempted: bool = False
+    failed: bool = False
+    event_count: int = 0
+    last_frame: int = -1
+    active_start: int | None = None
 
 
 @dataclass(slots=True)
@@ -49,6 +63,7 @@ class VoiceGateway:
     max_capture_bytes: int = 1 << 20
     max_speech_items: int = 8
     event_sink: VoiceEventSink | None = None
+    vad_provider: VadProvider | None = None
     _prompt_sink: PromptSink | None = field(default=None, init=False, repr=False)
     _ptt_state: VoicePttState = field(
         default=VoicePttState.IDLE, init=False
@@ -271,7 +286,7 @@ class VoiceGateway:
         self, target: VoiceTarget, stop: Event, cancel: Event
     ) -> None:
         try:
-            audio = self._capture_audio(stop, cancel)
+            audio = self._capture_audio(target, stop, cancel)
             if cancel.is_set():
                 raise VoiceCancelled()
             with self._condition:
@@ -319,10 +334,17 @@ class VoiceGateway:
                     self._clear_ptt_locked()
                 self._condition.notify_all()
 
-    def _capture_audio(self, stop: Event, cancel: Event) -> CapturedAudio:
+    def _capture_audio(
+        self,
+        target: VoiceTarget,
+        stop: Event,
+        cancel: Event,
+    ) -> CapturedAudio:
         open_stream = getattr(self.capture_provider, "open_stream", None)
         if callable(open_stream):
-            return self._collect_stream(open_stream(), stop, cancel)
+            return self._collect_stream(target, open_stream(), stop, cancel)
+        if self.vad_provider is not None:
+            self._emit_vad_failure(target)
         capture = getattr(self.capture_provider, "capture", None)
         if not callable(capture):
             raise RuntimeError("voice capture provider is invalid")
@@ -332,6 +354,7 @@ class VoiceGateway:
 
     def _collect_stream(
         self,
+        target: VoiceTarget,
         stream: PcmChunkStream,
         stop: Event,
         cancel: Event,
@@ -342,7 +365,9 @@ class VoiceGateway:
         stream_format: PcmStreamFormat | None = None
         next_frame = 0
         chunk_count = 0
-        with stream:
+        vad = _VadObservation()
+        with ExitStack() as stack:
+            stack.enter_context(stream)
             while True:
                 chunk = stream.read(stop, cancel)
                 if chunk is None:
@@ -367,6 +392,15 @@ class VoiceGateway:
                     > self.max_capture_seconds
                 ):
                     raise RuntimeError("voice capture duration limit exceeded")
+                self._observe_vad_chunk(
+                    target,
+                    vad,
+                    stream_format,
+                    chunk,
+                    cancel,
+                    stack,
+                )
+            self._finish_vad(target, vad, next_frame, cancel)
         if stream_format is None or not captured:
             raise RuntimeError("voice capture produced no audio")
         return CapturedAudio(
@@ -383,6 +417,164 @@ class VoiceGateway:
             raise RuntimeError("voice capture byte limit exceeded")
         if audio.duration_seconds > self.max_capture_seconds:
             raise RuntimeError("voice capture duration limit exceeded")
+
+    def _observe_vad_chunk(
+        self,
+        target: VoiceTarget,
+        state: _VadObservation,
+        stream_format: PcmStreamFormat,
+        chunk: PcmChunk,
+        cancel: Event,
+        stack: ExitStack,
+    ) -> None:
+        provider = self.vad_provider
+        if provider is None or state.failed:
+            return
+        if not state.attempted:
+            state.attempted = True
+            try:
+                owned_session = provider.open_session(stream_format)
+                state.session = owned_session.__enter__()
+                stack.push(
+                    lambda exc_type, exc_value, traceback: self._close_vad_session(
+                        target,
+                        state,
+                        owned_session,
+                        exc_type,
+                        exc_value,
+                        traceback,
+                    )
+                )
+            except VoiceCancelled:
+                raise
+            except Exception:
+                self._disable_vad(target, state)
+                return
+        session = state.session
+        if session is None:
+            return
+        try:
+            events = session.process(chunk, cancel)
+            self._emit_vad_events(target, state, events, chunk.end_frame)
+        except VoiceCancelled:
+            raise
+        except Exception:
+            self._disable_vad(target, state)
+
+    def _close_vad_session(
+        self,
+        target: VoiceTarget,
+        state: _VadObservation,
+        session: VadSession,
+        exc_type,
+        exc_value,
+        traceback,
+    ) -> bool:
+        try:
+            session.__exit__(exc_type, exc_value, traceback)
+        except VoiceCancelled:
+            raise
+        except Exception:
+            self._disable_vad(target, state)
+        return False
+
+    def _finish_vad(
+        self,
+        target: VoiceTarget,
+        state: _VadObservation,
+        available_frame: int,
+        cancel: Event,
+    ) -> None:
+        session = state.session
+        if session is None or state.failed:
+            return
+        try:
+            events = session.finish(cancel)
+            self._emit_vad_events(
+                target,
+                state,
+                events,
+                available_frame,
+                require_closed=True,
+            )
+        except VoiceCancelled:
+            raise
+        except Exception:
+            self._disable_vad(target, state)
+
+    def _emit_vad_events(
+        self,
+        target: VoiceTarget,
+        state: _VadObservation,
+        events: object,
+        available_frame: int,
+        *,
+        require_closed: bool = False,
+    ) -> None:
+        if not isinstance(events, tuple):
+            raise RuntimeError("VAD returned invalid events")
+        if state.event_count + len(events) > MAX_VAD_EVENTS:
+            raise RuntimeError("VAD event limit exceeded")
+        last_frame = state.last_frame
+        active_start = state.active_start
+        validated: list[tuple[VoiceEventKind, int]] = []
+        for event in events:
+            if not isinstance(event, VadEvent):
+                raise RuntimeError("VAD returned an invalid event")
+            if (
+                event.frame_index < last_frame
+                or event.frame_index > available_frame
+            ):
+                raise RuntimeError("VAD event frame is invalid")
+            if active_start is None:
+                if event.kind is not VadEventKind.SPEECH_STARTED:
+                    raise RuntimeError("VAD event order is invalid")
+                active_start = event.frame_index
+                kind = VoiceEventKind.INPUT_SPEECH_STARTED
+            else:
+                if (
+                    event.kind is not VadEventKind.SPEECH_ENDED
+                    or event.frame_index <= active_start
+                ):
+                    raise RuntimeError("VAD event order is invalid")
+                active_start = None
+                kind = VoiceEventKind.INPUT_SPEECH_ENDED
+            last_frame = event.frame_index
+            validated.append((kind, event.frame_index))
+        if require_closed and active_start is not None:
+            raise RuntimeError("VAD did not close active speech")
+
+        state.last_frame = last_frame
+        state.active_start = active_start
+        state.event_count += len(validated)
+        for kind, frame_index in validated:
+            self._emit(
+                VoiceEvent(
+                    kind,
+                    target,
+                    audio_frame_index=frame_index,
+                )
+            )
+
+    def _disable_vad(
+        self,
+        target: VoiceTarget,
+        state: _VadObservation,
+    ) -> None:
+        if state.failed:
+            return
+        state.failed = True
+        state.session = None
+        self._emit_vad_failure(target)
+
+    def _emit_vad_failure(self, target: VoiceTarget) -> None:
+        self._emit(
+            VoiceEvent(
+                VoiceEventKind.INPUT_ACTIVITY_FAILED,
+                target,
+                error_code="voice_vad_failed",
+            )
+        )
 
     def _capture_after_start(
         self,

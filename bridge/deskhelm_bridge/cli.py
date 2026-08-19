@@ -70,6 +70,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("piper",),
         default="piper",
     )
+    bridge.add_argument(
+        "--voice-vad-provider",
+        choices=("none", "webrtc"),
+        default="none",
+    )
     bridge.add_argument("--voice-source", help="stable PipeWire source node name")
     bridge.add_argument("--voice-sink", help="stable PipeWire sink node name")
     bridge.add_argument("--voice-latency", default="20ms")
@@ -373,6 +378,7 @@ def _compose_local_voice(args: argparse.Namespace, *, inventory=None):
             LocalAsrProviderKind,
             LocalAudioConfig,
             LocalTtsProviderKind,
+            LocalVadProviderKind,
             LocalVoiceConfig,
             discover_pipewire_audio,
         )
@@ -384,6 +390,7 @@ def _compose_local_voice(args: argparse.Namespace, *, inventory=None):
             LocalAsrProviderKind,
             LocalAudioConfig,
             LocalTtsProviderKind,
+            LocalVadProviderKind,
             LocalVoiceConfig,
             discover_pipewire_audio,
         )
@@ -416,6 +423,7 @@ def _compose_local_voice(args: argparse.Namespace, *, inventory=None):
         tts_model_path=args.voice_tts_model,
         tts_config_path=args.voice_tts_config,
         tts_resource_directory=args.voice_tts_resource_directory,
+        vad_provider=LocalVadProviderKind(args.voice_vad_provider),
         cpu_threads=args.voice_cpu_threads,
         max_capture_seconds=args.voice_max_capture_seconds,
         max_capture_bytes=args.voice_max_capture_bytes,

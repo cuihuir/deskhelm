@@ -11,12 +11,14 @@ from voice.deskhelm_voice import (
     LocalAsrProviderKind,
     LocalAudioConfig,
     LocalTtsProviderKind,
+    LocalVadProviderKind,
     LocalVoiceConfig,
     ParaformerStreamingAsrProvider,
     PipeWireAudioInventory,
     PipeWireCaptureProvider,
     PipeWirePlaybackProvider,
     PiperTtsProvider,
+    WebRtcVadProvider,
 )
 
 
@@ -59,6 +61,7 @@ class LocalVoiceConfigTests(unittest.TestCase):
                 self.assertEqual(composition.audio_selection.source.name, "source.usb")
                 self.assertIsNone(gateway.asr_provider._model)
                 self.assertIsNone(gateway.tts_provider._voice)
+                self.assertIsNone(gateway.vad_provider)
             finally:
                 composition.gateway.close()
 
@@ -118,6 +121,8 @@ class LocalVoiceConfigTests(unittest.TestCase):
                     str(paths["tts_resources"]),
                     "--voice-pw-cat-command-prefix",
                     "host-spawn -no-pty pw-cat",
+                    "--voice-vad-provider",
+                    "webrtc",
                 ]
             )
             composition = _compose_local_voice(
@@ -127,10 +132,34 @@ class LocalVoiceConfigTests(unittest.TestCase):
             composition.gateway.close()
             self.assertEqual(local.voice_asr_provider, "paraformer")
             self.assertEqual(local.voice_tts_provider, "piper")
+            self.assertEqual(local.voice_vad_provider, "webrtc")
+            self.assertIsInstance(
+                composition.gateway.vad_provider,
+                WebRtcVadProvider,
+            )
             self.assertEqual(
                 local.voice_pw_cat_command_prefix,
                 "host-spawn -no-pty pw-cat",
             )
+
+    def test_local_vad_configuration_is_explicit_and_validated(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["bridge", "--plain"])
+        self.assertEqual(args.voice_vad_provider, "none")
+
+        with tempfile.TemporaryDirectory() as directory:
+            paths = self._artifacts(Path(directory))
+            with self.assertRaisesRegex(ValueError, "VAD provider"):
+                LocalVoiceConfig(
+                    audio=LocalAudioConfig(),
+                    asr_provider=LocalAsrProviderKind.PARAFORMER,
+                    asr_model_directory=paths["asr"],
+                    tts_provider=LocalTtsProviderKind.PIPER,
+                    tts_model_path=paths["tts_model"],
+                    tts_config_path=paths["tts_config"],
+                    tts_resource_directory=paths["tts_resources"],
+                    vad_provider="webrtc",
+                )
 
     def test_bridge_main_passes_opt_in_gateway_and_closes_it(self) -> None:
         gateway = Mock()

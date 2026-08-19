@@ -82,7 +82,8 @@ PYTHONPATH=bridge:voice:adapters/codex python3 -m deskhelm_bridge bridge --plain
   --voice-tts-provider piper \
   --voice-tts-model /ignored/piper/voice.onnx \
   --voice-tts-config /ignored/piper/voice.onnx.json \
-  --voice-tts-resource-directory /ignored/piper/resources
+  --voice-tts-resource-directory /ignored/piper/resources \
+  --voice-vad-provider webrtc
 ```
 
 When Bridge runs in a Distrobox whose `pw-cat` lacks compatible raw-PCM
@@ -93,8 +94,10 @@ Startup resolves the configured PipeWire devices and checks required artifact
 files without loading models or opening audio. The first ASR/TTS request loads
 its runtime lazily. PipeWire audio reaches Voice Gateway as contiguous
 frame-positioned chunks and is aggregated under fixed bounds until PTT release.
-PTT release remains the capture endpoint; VAD and partial transcript publication
-are not integrated yet.
+`--voice-vad-provider webrtc` optionally publishes advisory, frame-positioned
+input activity. It is disabled by default, cannot stop or trim capture, and
+falls back to the unchanged PTT/final-ASR path on any VAD failure. Partial
+transcript publication is not integrated.
 If `--agent-provider codex` is omitted, speech controls remain available but a
 completed PTT transcript cannot be dispatched and fails recoverably because no
 prompt handler is registered.

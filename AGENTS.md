@@ -241,8 +241,12 @@ Keep third-party reference files outside version control under
   boundaries, and flush it explicitly at end of stream.
 - Voice Gateway capture prefers `StreamingCaptureProvider`, validates format and
   continuity, and aggregates under fixed chunk, byte, and duration bounds until
-  PTT release. Preserve legacy batch provider compatibility. Do not call this
-  VAD or partial ASR until live sessions consume chunks before final aggregation.
+  PTT release. Preserve legacy batch provider compatibility.
+- Keep live VAD optional, disabled by default, and advisory until a later ADR.
+  It may publish bounded alternating speech boundaries with absolute frame
+  positions, but must not stop or trim capture, skip final ASR, or publish
+  partial transcripts. Emit one privacy-safe fixed failure and continue the
+  PTT path when VAD startup, processing, validation, flushing, or cleanup fails.
 - Keep VAD samples bounded to 100,000 chunks, 256 segments, and 64 MiB PCM.
   Persist only derived segmentation/timing/resource observations, never raw PCM
   or provider exception text, unless separately approved under corpus rules.
@@ -321,8 +325,9 @@ Current commands:
   --agent-provider codex --agent-workdir "$PWD"`: run the opt-in text-only Codex
   gateway with its default read-only sandbox.
 - `PYTHONPATH=bridge:voice python3 -m deskhelm_bridge bridge --voice-provider
-  local <explicit-model-and-resource-options>`: run the provisional local voice
-  composition from an environment containing its optional runtimes.
+  local <explicit-model-and-resource-options> [--voice-vad-provider webrtc]`:
+  run the provisional local voice composition from an environment containing
+  its optional runtimes; live VAD remains disabled unless selected explicitly.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_voice_gateway
   tests.test_voice_integration -v`: run the no-hardware Voice Gateway tests.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_pipewire_providers -v`: run

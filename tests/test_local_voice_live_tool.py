@@ -51,6 +51,22 @@ class LocalVoiceLiveToolTests(unittest.TestCase):
                 VoiceEvent(VoiceEventKind.TRANSCRIBING, target),
                 2_100_000_000,
             ),
+            TOOL._TimedEvent(
+                VoiceEvent(
+                    VoiceEventKind.INPUT_SPEECH_STARTED,
+                    target,
+                    audio_frame_index=1600,
+                ),
+                2_200_000_000,
+            ),
+            TOOL._TimedEvent(
+                VoiceEvent(
+                    VoiceEventKind.INPUT_SPEECH_ENDED,
+                    target,
+                    audio_frame_index=4800,
+                ),
+                2_400_000_000,
+            ),
             transcript,
             TOOL._TimedEvent(
                 VoiceEvent(
@@ -77,12 +93,28 @@ class LocalVoiceLiveToolTests(unittest.TestCase):
             transcript_chars=18,
             source_name="source",
             sink_name="sink",
+            sample_rate_hz=16000,
         )
 
         self.assertEqual(summary["status"], "ok")
         self.assertEqual(summary["release_to_transcript_ms"], 1000.0)
         self.assertEqual(summary["speech_start_to_complete_ms"], 900.0)
         self.assertEqual(summary["transcript_chars"], 18)
+        self.assertEqual(
+            summary["input_activity"],
+            [
+                {
+                    "kind": "input_speech_started",
+                    "frame_index": 1600,
+                    "audio_ms": 100.0,
+                },
+                {
+                    "kind": "input_speech_ended",
+                    "frame_index": 4800,
+                    "audio_ms": 300.0,
+                },
+            ],
+        )
         serialized = TOOL.json.dumps(summary)
         self.assertNotIn("private", serialized)
         self.assertNotIn("audio_payload", serialized)

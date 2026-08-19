@@ -122,8 +122,9 @@ The provider is disabled by default and uses the Codex read-only sandbox unless
 
 The provisional model-backed Voice Gateway is also disabled by default. See
 [`bridge/README.md`](bridge/README.md) for its explicit artifact and runtime
-configuration; it currently uses PTT release rather than VAD as the capture
-endpoint.
+configuration. Optional WebRTC VAD can publish advisory input-activity events,
+but PTT release remains the only capture endpoint and VAD is disabled by
+default.
 
 The pinned optional Python 3.12 runtime is documented in
 [`voice/runtime/requirements-local-voice-py312.txt`](voice/runtime/requirements-local-voice-py312.txt).

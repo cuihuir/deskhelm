@@ -67,10 +67,11 @@ and Bridge.
 `local_gateway.py` provides the first opt-in application composition. It
 preflights PipeWire selection plus required Paraformer/Piper artifact files,
 then constructs lazy model providers without opening audio or loading weights.
-It intentionally does not attach a VAD provider yet. The Gateway now consumes
-the frame-positioned stream, but PTT release still ends capture and the complete
-bounded recording is passed to final ASR. VAD endpointing, partial transcripts,
-and live VAD session flushing remain the next composition phase.
+The Gateway can attach optional advisory WebRTC VAD to the frame-positioned
+stream. It publishes only bounded speech start/end frame positions and a fixed
+failure code; PTT release still ends capture and the complete bounded recording
+is passed to final ASR. VAD endpointing and partial transcripts are not
+implemented.
 
 Paraformer returning no text is reported as the fixed safe error
 `voice_no_transcript`, distinct from capture, format, runtime, or model failures
@@ -105,8 +106,12 @@ PYTHONPATH=voice /ignored/py312/bin/python tools/run-local-voice-live.py \
   --tts-config /ignored/piper/voice.onnx.json \
   --tts-resource-directory /ignored/piper/resources \
   --pw-cat-command-prefix "host-spawn -no-pty pw-cat" \
-  --capture-seconds 4 --cpu-threads 4
+  --capture-seconds 4 --cpu-threads 4 \
+  --vad-provider webrtc
 ```
+
+Omit `--vad-provider webrtc` to keep VAD disabled. A VAD miss or runtime
+failure never trims the recording or prevents final ASR.
 
 See
 [`docs/research/2026-08-19-local-voice-runtime-and-live-path.md`](../docs/research/2026-08-19-local-voice-runtime-and-live-path.md)

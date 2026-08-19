@@ -129,6 +129,9 @@ class VoicePttState(StrEnum):
 
 class VoiceEventKind(StrEnum):
     PTT_STARTED = "ptt_started"
+    INPUT_SPEECH_STARTED = "input_speech_started"
+    INPUT_SPEECH_ENDED = "input_speech_ended"
+    INPUT_ACTIVITY_FAILED = "input_activity_failed"
     TRANSCRIBING = "transcribing"
     TRANSCRIPT_READY = "transcript_ready"
     PTT_CANCELLED = "ptt_cancelled"
@@ -144,6 +147,7 @@ class VoiceEvent:
     target: VoiceTarget
     speech_id: str = ""
     error_code: str = ""
+    audio_frame_index: int | None = None
     transcript: Transcript | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
@@ -155,11 +159,27 @@ class VoiceEvent:
             raise ValueError("speech_id must be a string")
         if not isinstance(self.error_code, str):
             raise ValueError("error_code must be a string")
+        activity_kinds = {
+            VoiceEventKind.INPUT_SPEECH_STARTED,
+            VoiceEventKind.INPUT_SPEECH_ENDED,
+        }
+        if self.kind in activity_kinds:
+            if (
+                not isinstance(self.audio_frame_index, int)
+                or isinstance(self.audio_frame_index, bool)
+                or self.audio_frame_index < 0
+            ):
+                raise ValueError("input speech event requires an audio frame")
+        elif self.audio_frame_index is not None:
+            raise ValueError("audio_frame_index is only valid for input speech")
         if self.transcript is not None and not isinstance(
             self.transcript, Transcript
         ):
             raise ValueError("voice event transcript is invalid")
-        if self.kind is VoiceEventKind.FAILURE and not self.error_code:
+        if self.kind in {
+            VoiceEventKind.FAILURE,
+            VoiceEventKind.INPUT_ACTIVITY_FAILED,
+        } and not self.error_code:
             raise ValueError("failure event error_code must not be empty")
         if self.kind is VoiceEventKind.TRANSCRIPT_READY and self.transcript is None:
             raise ValueError("transcript_ready event requires a transcript")

@@ -15,6 +15,7 @@ try:
         LocalAsrProviderKind,
         LocalAudioConfig,
         LocalTtsProviderKind,
+        LocalVadProviderKind,
         LocalVoiceConfig,
         SpeechItem,
         VoiceEvent,
@@ -30,6 +31,7 @@ except ModuleNotFoundError as error:
         LocalAsrProviderKind,
         LocalAudioConfig,
         LocalTtsProviderKind,
+        LocalVadProviderKind,
         LocalVoiceConfig,
         SpeechItem,
         VoiceEvent,
@@ -67,6 +69,7 @@ def main() -> int:
         tts_model_path=args.tts_model,
         tts_config_path=args.tts_config,
         tts_resource_directory=args.tts_resource_directory,
+        vad_provider=LocalVadProviderKind(args.vad_provider),
         cpu_threads=args.cpu_threads,
         max_capture_seconds=max(30.0, args.capture_seconds + 5.0),
     )
@@ -124,6 +127,7 @@ def main() -> int:
             transcript_chars=transcript_chars,
             source_name=composition.audio_selection.source.name,
             sink_name=composition.audio_selection.sink.name,
+            sample_rate_hz=audio.sample_rate_hz,
         )
         print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
         return 0 if summary["status"] == "ok" else 1
@@ -152,6 +156,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--capture-seconds", type=float, default=4.0)
     parser.add_argument("--timeout-seconds", type=float, default=120.0)
     parser.add_argument("--cpu-threads", type=int, default=4)
+    parser.add_argument(
+        "--vad-provider",
+        choices=("none", "webrtc"),
+        default="none",
+    )
     parser.add_argument("--response-text", default=DEFAULT_RESPONSE_TEXT)
     return parser
 
@@ -200,13 +209,17 @@ def _summarize(
     transcript_chars: int,
     source_name: str,
     sink_name: str,
+    sample_rate_hz: int,
 ) -> dict[str, object]:
     times: dict[VoiceEventKind, int] = {}
     failure_code = ""
+    vad_failure_code = ""
     for item in events:
         times.setdefault(item.event.kind, item.occurred_ns)
         if item.event.kind is VoiceEventKind.FAILURE:
             failure_code = item.event.error_code
+        if item.event.kind is VoiceEventKind.INPUT_ACTIVITY_FAILED:
+            vad_failure_code = item.event.error_code
     completed_ns = times.get(VoiceEventKind.SPEECH_COMPLETED)
     failure_ns = times.get(VoiceEventKind.FAILURE)
     terminal_ns = completed_ns or failure_ns
@@ -218,6 +231,7 @@ def _summarize(
     summary: dict[str, object] = {
         "status": status,
         "failure_code": failure_code,
+        "vad_failure_code": vad_failure_code,
         "source": source_name,
         "sink": sink_name,
         "transcript_chars": transcript_chars,
@@ -226,6 +240,22 @@ def _summarize(
         "first_audio_measured": False,
         "speech_started_semantics": "before TTS synthesis",
         "privacy": "PCM and transcript text were not saved or printed",
+        "input_activity": [
+            {
+                "kind": item.event.kind.value,
+                "frame_index": item.event.audio_frame_index,
+                "audio_ms": _milliseconds(
+                    item.event.audio_frame_index * 1_000_000_000
+                    // sample_rate_hz
+                ),
+            }
+            for item in events
+            if item.event.kind
+            in {
+                VoiceEventKind.INPUT_SPEECH_STARTED,
+                VoiceEventKind.INPUT_SPEECH_ENDED,
+            }
+        ],
     }
     _add_delta(
         summary,

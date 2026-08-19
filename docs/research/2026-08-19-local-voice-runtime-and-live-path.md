@@ -33,6 +33,7 @@ The environment is stored outside version control at
 | unicode-rbnf | 2.4.0 |
 | g2pw | 0.1.1 |
 | sentence-stream | 1.3.0 |
+| webrtcvad-wheels | 2.0.14 |
 
 Piper Chinese synthesis did not work with only the previously documented core
 packages. Runtime execution established that `g2pw==0.1.1` and
@@ -126,8 +127,8 @@ tool and must not be relabeled as first-speaker-audio latency.
    boundary rather than inferring it from lifecycle events.
 3. Add disconnect, default-device change, timeout, and provider-failure recovery
    runs without persisting private audio or text.
-4. Migrate capture to frame-positioned streaming PCM before attaching WebRTC or
-   Silero VAD and publishing partial transcripts.
+4. Repeat live VAD with controlled utterances and threshold sweeps; keep
+   endpointing and partial transcripts deferred.
 5. Exercise the real `PTT -> ASR -> Codex -> TTS` composition separately; this
    diagnostic intentionally substituted a fixed public response for Codex.
 
@@ -149,3 +150,22 @@ now maps an explicit empty recognition to `voice_no_transcript`, while other
 capture/runtime/model failures remain `voice_input_failed`; this distinction is
 unit-tested but still needs a subsequent live confirmation. The result reinforces
 the existing decision not to select Paraformer as the sole production ASR.
+
+## Advisory Live VAD Follow-Up
+
+The migrated stream was later exercised with optional WebRTC VAD mode 2 while
+retaining PTT release as the endpoint. The privacy-safe event sequence was:
+
+```text
+ptt_started -> input_speech_started -> input_speech_ended -> transcribing -> failure
+```
+
+VAD opened, processed, flushed, and emitted no `voice_vad_failed` event. It
+marked frames 0-1,280, or 0-80 ms at 16 kHz. Final ASR returned
+`voice_no_transcript` after PTT release. PCM and transcript text were neither
+saved nor printed.
+
+This validates the live advisory event path and VAD-independent ASR fallback,
+not the intended utterance or detector quality. The short opening region may be
+an onset transient or a miss; repeated consented speech, threshold sweeps, and
+controlled gain are still required before selecting a VAD or ASR default.

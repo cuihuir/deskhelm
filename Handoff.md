@@ -47,8 +47,8 @@ the Bridge CLI. A unified ignored Python 3.12 runtime has now executed the
 pinned Paraformer and Piper providers together, and a real four-second PTT run
 completed capture, final ASR, fixed-response TTS, and playback through the
 current USB microphone and computer sink without saving PCM or transcript
-text. The diagnostic does not call Codex, integrate VAD, publish partials, or
-measure actual first-speaker-audio. PipeWire and Voice Gateway capture now use
+text. The diagnostic does not call Codex, publish partials, or measure actual
+first-speaker-audio. PipeWire and Voice Gateway capture now use
 the frame-positioned streaming boundary: chunks retain one format and
 contiguous absolute frame positions, and the Gateway aggregates them under
 fixed chunk, byte, and duration limits until PTT release. Legacy batch capture
@@ -74,9 +74,11 @@ release copies its matching press command ID, so stale or cross-session
 releases cannot stop the active capture. The Bridge CLI can now explicitly
 compose provisional PipeWire capture/playback, Paraformer ASR, and Piper TTS.
 The path remains disabled by default, validates devices and artifact files
-before startup, and loads model runtimes only on first use. VAD is not attached
-to the migrated streaming PTT capture path; final ASR still receives the
-complete bounded recording after release.
+before startup, and loads model runtimes only on first use. Optional WebRTC VAD
+is now attached as an explicit disabled-by-default advisory observer. It emits
+bounded frame-positioned input activity, while PTT release remains authoritative
+and final ASR always receives the complete bounded recording. VAD failures emit
+one fixed non-terminal event and fall back to the unchanged PTT path.
 
 ## Completed Work
 
@@ -672,22 +674,22 @@ Last verified on 2026-08-19:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 193 tests passed under the workstation resource limiter with strict
+Result: 202 tests passed under the workstation resource limiter with strict
 `ResourceWarning` handling. This includes the existing Bridge, protocol,
 adapter, voice, benchmark, and fake-subprocess PipeWire coverage plus streaming
-capture continuity, bounds, premature-end, cleanup, compatibility, and empty-ASR
-classification tests. The full unit suite opened no live audio device and did
-not import optional model runtimes.
+capture continuity, bounds, premature-end, cleanup, compatibility, empty-ASR
+classification, advisory VAD ordering/fallback/cancellation, explicit local VAD
+composition, and privacy-safe live-summary tests. The full unit suite opened no
+live audio device and did not import optional model runtimes.
 
 An additional startup smoke test used the current PipeWire graph and ignored
 prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local
 gateway, accepted one event, exited cleanly, and removed its socket without
 opening audio or loading model runtimes.
 
-The current focused suite passed 39/39 tests covering streaming and legacy
-capture, PipeWire split-frame buffering, Gateway stream bounds and cleanup,
-ASR empty-result classification, local composition, Voice integration, and the
-live diagnostic summary.
+The current Voice Gateway focused suite passed 18/18 tests covering streaming
+and legacy capture, advisory activity ordering, output bounds, fallback,
+cancellation, and event metadata validation.
 
 The isolated real-candidate run also passed with 35/35 successful observations
 for both WebRTC and Silero. Downloaded FSDD audio, prepared WAV files, the ONNX
@@ -723,6 +725,15 @@ text were not saved. The healthy signal makes capture failure less likely, but
 the exact Paraformer failure still requires a live rerun after the new
 `voice_no_transcript` classification.
 
+The subsequent advisory WebRTC VAD run used the pinned
+`webrtcvad-wheels==2.0.14` runtime. It emitted `input_speech_started` at frame 0
+and `input_speech_ended` at frame 1,280 before `transcribing`, with no VAD
+failure. PTT release still ended capture and final ASR returned the now-confirmed
+`voice_no_transcript` classification. PCM and transcript text were neither
+saved nor printed. The 80 ms activity region validates live event plumbing and
+fallback only; it does not prove detection of the intended utterance or
+acceptable VAD/ASR quality.
+
 Live local audio diagnostics resolved three sources and three sinks. Two-second
 default and manual USB-source tests each captured about 1.98 seconds of 16 kHz
 mono S16LE PCM and discarded it after signal measurement. The default internal
@@ -753,8 +764,8 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
    selecting production defaults.
 3. Expand VAD to noisy/conversational labeled audio and live-device threshold
    measurements.
-4. Integrate provisional VAD into the migrated streaming capture path and test
-   endpoint, disconnect, and reconnect recovery.
+4. Repeat controlled live VAD utterances and test threshold, disconnect,
+   runtime-failure, and reconnect behavior without enabling auto-endpointing.
 5. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.
 
@@ -767,9 +778,10 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   Approval and rejection remain unavailable; speech handlers exist only when a
   Voice Gateway is explicitly composed into the Bridge.
 - PipeWire discovery, diagnostics, external PTT, streaming capture, an opt-in
-  Paraformer/Piper composition, combined-runtime execution, and one earlier
-  successful full path exist. VAD, partial transcript publication, real Codex
-  use in the live path, and live recovery are not implemented or tested.
+  Paraformer/Piper composition, combined-runtime execution, advisory WebRTC
+  VAD, and one earlier successful full path exist. Automatic VAD endpointing,
+  partial transcript publication, real Codex use in the live path, and live
+  recovery are not implemented or tested.
 - The benchmark runner records VAD compute/detection timing, batch ASR final
   latency, Paraformer offline first-partial estimates, and provider-chunk TTS
   first audio/interruption. Live capture-to-decision/partial,

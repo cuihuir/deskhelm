@@ -26,3 +26,7 @@ commands from stopping an unrelated capture.
 [`0018-opt-in-provisional-local-voice-composition.md`](0018-opt-in-provisional-local-voice-composition.md)
 composes PipeWire, Paraformer, and Piper behind an explicit Bridge opt-in while
 deferring VAD until the gateway has a real streaming capture path.
+
+[`0019-advisory-live-vad-with-ptt-fallback.md`](0019-advisory-live-vad-with-ptt-fallback.md)
+attaches optional live VAD as bounded activity observation while keeping PTT
+release authoritative and isolating VAD failure from final ASR.
