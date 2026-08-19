@@ -116,14 +116,17 @@ than a tightly synchronized provider comparison.
 The repeated Paraformer batch also completed all four captures with `ok` status.
 The user described the prompt cadence as faster than comfortable natural speech
 and asked to begin analysis; the four records are treated as spoken with that
-timing caveat. Paraformer had lower mean CER but much higher final latency, and
-neither provider recovered the mixed coding keywords reliably.
+timing caveat. In that immediate batch Paraformer had lower mean CER but much
+higher final latency, and neither provider recovered the mixed coding keywords
+reliably. The later handshake batches favored SenseVoice on both CER and
+latency, but remain separate human recordings.
 ADR 0023 now adds an opt-in one-by-one `ready` stdin handshake before each
 phrase capture, with a bounded timeout and fixed `voice_phrase_not_ready`
 failure. The existing immediate mode remains unchanged. A live SenseVoice
-handshake batch completed all four phrases with `ok` status; a Paraformer
-handshake batch remains pending. One result also exposed a CER/keyword spacing
-metric inconsistency that must be resolved before using keyword accuracy as a
+handshake batch completed all four phrases with `ok` status, followed by a
+matching Paraformer handshake batch. The cleaner evidence favors SenseVoice on
+this small live set, but one result exposed a CER/keyword spacing metric
+inconsistency that must be resolved before using keyword accuracy as a
 selection gate.
 
 ## Completed Work
@@ -336,6 +339,11 @@ selection gate.
   `0.177557` and mean final latency was `430.398 ms`. The `mixed-number-01`
   result had exact whitespace-insensitive CER but zero keyword accuracy,
   exposing a scoring-normalization caveat.
+- Ran the matching live Paraformer handshake batch. All four captures completed
+  with `ok` status after separate readiness confirmations; mean CER was
+  `0.431913` and mean final latency was `2,267.219 ms`. SenseVoice had lower CER,
+  two exact matches, and substantially lower latency in this small set; neither
+  provider is a final production selection.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -808,9 +816,11 @@ versus SenseVoice `0.809943`, while mean final latency was `2,158.430 ms` versus
 `442.620 ms`. Both providers had `0.166667` mean keyword accuracy and zero
 keyword accuracy on the three mixed coding phrases.
 
-The new handshake mode has deterministic coverage only; no live microphone run
-has used the per-phrase `ready` gate for Paraformer yet. SenseVoice has now
-completed one live handshake batch.
+The new handshake mode now has live coverage for both providers. SenseVoice
+mean CER was `0.177557` with `430.398 ms` mean final latency; Paraformer mean
+CER was `0.431913` with `2,267.219 ms` mean final latency. These are separate
+human recordings, not paired audio, and keyword scoring remains qualified by
+the whitespace-normalization caveat.
 
 An additional startup smoke test used the current PipeWire graph and ignored
 prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local
@@ -995,11 +1005,12 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   but the corpus lacks conversational speech, Chinese, noise, music, keyboard
   sounds, distant microphones, and live recovery. Production VAD is unselected.
 - Paraformer is measured on a tiny public set, one synchronized live Chinese
-  command, and one qualified four-phrase live batch. The batch had lower mean
-  CER than SenseVoice but zero keyword accuracy on the three mixed coding
-  phrases; English spacing, isolated digits, about 3.09 GiB peak RSS, and
-  cancellation only between inference calls remain product risks. It is not
-  selected as the sole production ASR.
+  command, one immediate four-phrase batch, and one handshake four-phrase
+  batch. The handshake batch trailed SenseVoice on CER and latency, while mixed
+  coding keyword scores remain affected by the spacing metric caveat; English
+  spacing, isolated digits, about 3.09 GiB peak RSS, and cancellation only
+  between inference calls remain product risks. It is not selected as the sole
+  production ASR.
 - SenseVoice is final-only and cannot provide partials or cancel its native
   decode midway. It missed most isolated English digit clips, and its custom
   FunASR Model License 1.1 requires review before packaging or production use.
@@ -1013,12 +1024,12 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Next Step
 
-Run the same selected phrases with the one-by-one readiness handshake using
-Paraformer, then align the keyword metric's whitespace normalization before
-comparing provider gates. After that, measure timeout/disconnect/default-device
-change and provider recovery, and retain whisper.cpp as the next
-licensing/quality fallback before selecting a production ASR. Expand live VAD
-threshold/noise evidence without granting endpoint control, and separately
-define actual speaker-first-audio and interruption instrumentation. Keep every
-provider replaceable and obtain the repository license decision before
-packaging models or accepting external contributions.
+Align the keyword metric's whitespace normalization, then rerun the selected
+handshake phrases only if the corrected score changes the provider gate. After
+that, measure timeout/disconnect/default-device change and provider recovery,
+and retain whisper.cpp as the next licensing/quality fallback before selecting
+a production ASR. Expand live VAD threshold/noise evidence without granting
+endpoint control, and separately define actual speaker-first-audio and
+interruption instrumentation. Keep every provider replaceable and obtain the
+repository license decision before packaging models or accepting external
+contributions.

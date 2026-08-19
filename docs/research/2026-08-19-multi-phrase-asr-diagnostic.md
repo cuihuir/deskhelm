@@ -135,3 +135,41 @@ recognized text was printed or retained.
 
 The handshake removes the prompt-transition race, but the run remains a
 separate human recording from the earlier batches and is not paired audio.
+
+### Paraformer Handshake Batch
+
+The matching Paraformer run used the same four phrase IDs, source, capture
+bound, advisory VAD, and per-phrase readiness workflow. The user confirmed all
+four phrases after capture. No PCM or recognized text was saved or printed.
+
+| ID | Active (ms) | Chars | CER | Keyword accuracy | First partial (ms) | Final ASR (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `zh-negation-01` | 3900.000 | 19 | 0.095238 | 1.000000 | 3054.725 | 6277.194 |
+| `mixed-command-01` | 5610.312 | 31 | 0.581818 | 0.000000 | 4848.667 | 952.005 |
+| `mixed-path-01` | 6168.938 | 21 | 0.729167 | 0.000000 | 4848.308 | 943.105 |
+| `mixed-number-01` | 4740.000 | 24 | 0.321429 | 0.000000 | 1867.569 | 896.573 |
+
+Aggregate results were mean CER `0.431913`, mean keyword accuracy `0.250000`,
+mean final latency `2,267.219 ms`, mean warm-path final latency (phrases 2-4)
+`930.561 ms`, and mean first-partial latency `3,654.817 ms`. All four records
+had `status: ok`, no clipped samples, and the provisional
+`within_diagnostic_range` input hint.
+
+### Handshake Comparison
+
+| Metric | SenseVoice | Paraformer |
+| --- | ---: | ---: |
+| Mean CER | 0.177557 | 0.431913 |
+| Exact matches | 2/4 | 0/4 |
+| Mean keyword accuracy | 0.250000 | 0.250000 |
+| Mean final ASR latency | 430.398 ms | 2,267.219 ms |
+| Mean warm-path final latency | 222.876 ms | 930.561 ms |
+| Mean advisory speech-active fraction | 0.523661 | 0.424702 |
+
+The handshake-mode evidence favors SenseVoice for this small live set: it had
+lower CER, two exact matches, and substantially lower final latency. Both
+providers still scored zero keywords on the three mixed coding phrases under
+the current spacing-sensitive keyword metric, and neither result is paired
+audio. SenseVoice is a provisional next-integration candidate, not a final
+production selection; its model license and the keyword metric normalization
+remain open decisions.
