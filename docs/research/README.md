@@ -29,3 +29,6 @@
   — Piper 与 Kokoro 的首轮延迟、资源、中断、许可和 ASR 可懂度代理对比。
 - [`2026-08-19-local-audio-diagnostics.md`](2026-08-19-local-audio-diagnostics.md)
   — PipeWire 默认/手工设备选择、隐私安全实机输入输出诊断与启动边界。
+- [`2026-08-19-local-voice-runtime-and-live-path.md`](2026-08-19-local-voice-runtime-and-live-path.md)
+  — Paraformer/Piper 统一运行时、容器 PipeWire 边界与真实 PTT-ASR-TTS
+  播放链路测量。

@@ -104,9 +104,12 @@ Status: In Progress
   then select the production default.
 - [x] Benchmark Paraformer for streaming ASR.
 - [x] Benchmark Piper and Kokoro for notification TTS.
+- [x] Build one isolated Paraformer/Piper runtime and verify a real bounded
+  `PTT -> final ASR -> fixed TTS -> PipeWire playback` diagnostic.
 - [x] Add fixed Chinese, English, and mixed-language test utterances.
 - [x] Define versioned latency, accuracy, resource, and licensing observations.
-- [ ] Record recovery results and real provider measurements.
+- [x] Record initial real provider and live-device measurements.
+- [ ] Record disconnect, timeout, device-change, and provider-failure recovery.
 
 Acceptance criteria:
 
@@ -118,12 +121,13 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Run blinded TTS listening and live PipeWire playback/interruption tests
-   before selecting a production voice.
+1. Run blinded TTS listening and measure actual speaker-first-audio plus live
+   PipeWire interruption before selecting a production voice.
 2. Expand VAD coverage to noisy/conversational speech, threshold sweeps, and
    live PipeWire latency before selecting a default.
-3. Expand ASR coverage to consented Chinese/mixed coding commands, compare an
-   alternative ASR, and measure live capture/recovery before selecting a default.
+3. Expand ASR coverage to consented Chinese/mixed coding commands with
+   controlled input gain, compare an alternative ASR, and measure recovery
+   before selecting a default.
 4. Migrate the Voice Gateway to streaming capture and integrate provisional VAD
    without weakening chunk, endpoint, cancellation, or flushing semantics.
 5. Add a multi-project working-directory registry before one Bridge process

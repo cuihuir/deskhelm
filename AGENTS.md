@@ -226,6 +226,9 @@ Keep third-party reference files outside version control under
 - Keep model-backed local voice disabled by default. Validate selected audio
   devices and required external artifacts before Bridge startup, keep model
   imports/weights lazy, and do not describe batch PTT capture as VAD integration.
+- Keep the reproducible optional Paraformer/Piper CPU environment pinned in
+  `voice/runtime/requirements-local-voice-py312.txt` and install it only under
+  ignored or external storage. Do not add it to Bridge dependencies.
 - Preserve raw and normalized transcripts separately. Ordinary lifecycle and
   failure events must not contain audio, transcript, prompt, or speech text.
 - Keep voice benchmark corpora and observation formats versioned. Bound each
@@ -268,6 +271,9 @@ Keep third-party reference files outside version control under
   explicit rate and channel count. Keep `pw-cat` providers bounded by bytes and
   duration, own their process group, suppress private stderr, and terminate then
   kill within a bounded grace period.
+- Allow a validated `pw-cat` command prefix at the composition boundary. The
+  verified Distrobox prefix is `host-spawn -no-pty pw-cat`; native execution
+  defaults to `pw-cat`.
 - Keep local audio discovery bounded and read-only. Resolve defaults through
   PipeWire/WirePlumber, persist only stable node names, and fail rather than
   fall back when a manual source or sink is unavailable.
@@ -321,6 +327,8 @@ Current commands:
   deterministic audio discovery, selection, and diagnostic tests.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_local_voice_config -v`: run
   local voice composition preflight tests without audio or model runtimes.
+- `PYTHONPATH=bridge python3 -m unittest tests.test_local_voice_live_tool -v`:
+  validate live diagnostic bounds and privacy-safe summaries without audio.
 - `PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr --corpus
   voice/benchmarks/utterances-v1.json --observations <results.ndjson>`: score a
   bounded ASR benchmark run.

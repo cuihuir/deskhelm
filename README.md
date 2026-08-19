@@ -60,7 +60,11 @@ or stable-name overrides. The CLI now provides read-only discovery plus
 explicit input/output diagnostics; the Bridge can also compose provisional
 PipeWire, Paraformer, and Piper
 providers only through an explicit disabled-by-default option. Models remain
-lazy and external, and live VAD is not yet integrated. A
+lazy and external. A unified ignored Python 3.12 runtime has now completed a
+real bounded `PTT -> final ASR -> fixed TTS -> PipeWire playback` diagnostic on
+the current USB microphone and computer sink. This is not yet the real
+Codex-response path, live VAD is not integrated, and actual first-speaker-audio
+latency remains unmeasured. A
 frame-positioned streaming PCM/VAD session contract and bounded
 provider-neutral VAD benchmark are also implemented. The
 first pinned FSDD comparison now runs WebRTC and Silero ONNX adapters outside
@@ -115,6 +119,12 @@ The provisional model-backed Voice Gateway is also disabled by default. See
 [`bridge/README.md`](bridge/README.md) for its explicit artifact and runtime
 configuration; it currently uses PTT release rather than VAD as the capture
 endpoint.
+
+The pinned optional Python 3.12 runtime is documented in
+[`voice/runtime/requirements-local-voice-py312.txt`](voice/runtime/requirements-local-voice-py312.txt).
+The live diagnostic and its privacy limits are documented in
+[`voice/README.md`](voice/README.md) and the dated
+[`research report`](docs/research/2026-08-19-local-voice-runtime-and-live-path.md).
 
 Inspect the current PipeWire defaults without opening audio:
 

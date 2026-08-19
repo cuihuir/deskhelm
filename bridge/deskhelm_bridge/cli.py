@@ -4,6 +4,7 @@ import argparse
 from dataclasses import asdict
 import json
 from pathlib import Path
+import shlex
 import sys
 from threading import Event
 import time
@@ -82,6 +83,11 @@ def build_parser() -> argparse.ArgumentParser:
     bridge.add_argument("--voice-max-speech-items", type=int, default=8)
     bridge.add_argument("--voice-pw-dump-executable", default="pw-dump")
     bridge.add_argument("--voice-wpctl-executable", default="wpctl")
+    bridge.add_argument(
+        "--voice-pw-cat-command-prefix",
+        default="pw-cat",
+        metavar="COMMAND",
+    )
 
     audio = subparsers.add_parser(
         "audio",
@@ -145,6 +151,11 @@ def _add_audio_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--latency", default="20ms")
     parser.add_argument("--pw-dump-executable", default="pw-dump")
     parser.add_argument("--wpctl-executable", default="wpctl")
+    parser.add_argument(
+        "--pw-cat-command-prefix",
+        default="pw-cat",
+        metavar="COMMAND",
+    )
 
 
 def emit_event(args: argparse.Namespace) -> None:
@@ -215,6 +226,10 @@ def audio_command(args: argparse.Namespace) -> None:
         source_name=args.source,
         sink_name=args.sink,
         latency=args.latency,
+        pw_cat_command_prefix=_parse_command_prefix(
+            args.pw_cat_command_prefix,
+            "pw-cat",
+        ),
     )
     inventory = discover_pipewire_audio(
         pw_dump_executable=args.pw_dump_executable,
@@ -339,6 +354,18 @@ def _print_audio_result(payload: dict[str, Any], use_json: bool) -> None:
             print(f"sink name={node['name']} description={node['description']}")
 
 
+def _parse_command_prefix(value: str, name: str) -> tuple[str, ...]:
+    if not isinstance(value, str):
+        raise ValueError(f"{name} command prefix is invalid")
+    try:
+        command = tuple(shlex.split(value))
+    except ValueError as error:
+        raise ValueError(f"{name} command prefix is invalid") from error
+    if not command:
+        raise ValueError(f"{name} command prefix is invalid")
+    return command
+
+
 def _compose_local_voice(args: argparse.Namespace, *, inventory=None):
     try:
         from deskhelm_voice import (
@@ -376,6 +403,10 @@ def _compose_local_voice(args: argparse.Namespace, *, inventory=None):
         source_name=args.voice_source,
         sink_name=args.voice_sink,
         latency=args.voice_latency,
+        pw_cat_command_prefix=_parse_command_prefix(
+            args.voice_pw_cat_command_prefix,
+            "pw-cat",
+        ),
     )
     config = LocalVoiceConfig(
         audio=audio,

@@ -53,6 +53,7 @@ class AudioConfigTests(unittest.TestCase):
             source_name="source.usb",
             sink_name="sink.internal",
             latency="30ms",
+            pw_cat_command_prefix=("host-spawn", "-no-pty", "pw-cat"),
         )
 
         capture = config.create_capture_provider(
@@ -61,6 +62,10 @@ class AudioConfigTests(unittest.TestCase):
         )
         playback = config.create_playback_provider()
 
+        self.assertEqual(
+            capture.command()[:3],
+            ("host-spawn", "-no-pty", "pw-cat"),
+        )
         self.assertIn("source.usb", capture.command())
         self.assertIn("30ms", capture.command())
         tone = create_test_tone()
@@ -108,12 +113,21 @@ class AudioConfigTests(unittest.TestCase):
                 "--sink",
                 "sink.internal",
                 "--json",
+                "--pw-cat-command-prefix",
+                "host-spawn -no-pty pw-cat",
             ]
         )
         self.assertEqual(args.command, "audio")
         self.assertEqual(args.audio_command, "status")
         self.assertEqual(args.source, "source.usb")
         self.assertTrue(args.json)
+        self.assertEqual(
+            args.pw_cat_command_prefix,
+            "host-spawn -no-pty pw-cat",
+        )
+
+        with self.assertRaisesRegex(ValueError, "command prefix"):
+            LocalAudioConfig(pw_cat_command_prefix=())
 
     def test_discovery_rejects_invalid_or_missing_default_data(self) -> None:
         def invalid_json(command: tuple[str, ...]) -> str:

@@ -122,6 +122,7 @@ class LocalAudioConfig:
     sample_rate_hz: int = 16_000
     channels: int = 1
     latency: str = "20ms"
+    pw_cat_command_prefix: tuple[str, ...] = ("pw-cat",)
 
     def __post_init__(self) -> None:
         if not isinstance(self.capture_provider, AudioProviderKind):
@@ -143,6 +144,15 @@ class LocalAudioConfig:
             or len(self.latency) > 64
         ):
             raise ValueError("audio latency is invalid")
+        if (
+            not isinstance(self.pw_cat_command_prefix, tuple)
+            or not self.pw_cat_command_prefix
+            or not all(
+                isinstance(part, str) and part
+                for part in self.pw_cat_command_prefix
+            )
+        ):
+            raise ValueError("pw-cat command prefix is invalid")
 
     def resolve(
         self,
@@ -168,6 +178,7 @@ class LocalAudioConfig:
         if self.capture_provider is not AudioProviderKind.PIPEWIRE:
             raise ValueError("unsupported capture provider")
         return PipeWireCaptureProvider(
+            command_prefix=self.pw_cat_command_prefix,
             source_name=self.source_name,
             sample_rate_hz=self.sample_rate_hz,
             channels=self.channels,
@@ -180,6 +191,7 @@ class LocalAudioConfig:
         if self.playback_provider is not AudioProviderKind.PIPEWIRE:
             raise ValueError("unsupported playback provider")
         return PipeWirePlaybackProvider(
+            command_prefix=self.pw_cat_command_prefix,
             sink_name=self.sink_name,
             latency=self.latency,
         )

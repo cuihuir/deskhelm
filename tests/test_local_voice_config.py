@@ -28,6 +28,7 @@ class LocalVoiceConfigTests(unittest.TestCase):
                 audio=LocalAudioConfig(
                     source_name="source.usb",
                     sink_name="sink.internal",
+                    pw_cat_command_prefix=("host-spawn", "-no-pty", "pw-cat"),
                 ),
                 asr_provider=LocalAsrProviderKind.PARAFORMER,
                 asr_model_directory=paths["asr"],
@@ -50,6 +51,10 @@ class LocalVoiceConfigTests(unittest.TestCase):
                 self.assertIsInstance(gateway.tts_provider, PiperTtsProvider)
                 self.assertIsInstance(
                     gateway.playback_provider, PipeWirePlaybackProvider
+                )
+                self.assertEqual(
+                    gateway.capture_provider.command()[:3],
+                    ("host-spawn", "-no-pty", "pw-cat"),
                 )
                 self.assertEqual(composition.audio_selection.source.name, "source.usb")
                 self.assertIsNone(gateway.asr_provider._model)
@@ -111,6 +116,8 @@ class LocalVoiceConfigTests(unittest.TestCase):
                     str(paths["tts_config"]),
                     "--voice-tts-resource-directory",
                     str(paths["tts_resources"]),
+                    "--voice-pw-cat-command-prefix",
+                    "host-spawn -no-pty pw-cat",
                 ]
             )
             composition = _compose_local_voice(
@@ -120,6 +127,10 @@ class LocalVoiceConfigTests(unittest.TestCase):
             composition.gateway.close()
             self.assertEqual(local.voice_asr_provider, "paraformer")
             self.assertEqual(local.voice_tts_provider, "piper")
+            self.assertEqual(
+                local.voice_pw_cat_command_prefix,
+                "host-spawn -no-pty pw-cat",
+            )
 
     def test_bridge_main_passes_opt_in_gateway_and_closes_it(self) -> None:
         gateway = Mock()

@@ -85,6 +85,10 @@ PYTHONPATH=bridge:voice:adapters/codex python3 -m deskhelm_bridge bridge --plain
   --voice-tts-resource-directory /ignored/piper/resources
 ```
 
+When Bridge runs in a Distrobox whose `pw-cat` lacks compatible raw-PCM
+options, add `--voice-pw-cat-command-prefix "host-spawn -no-pty pw-cat"` to use
+the host PipeWire client. Native host execution keeps the default `pw-cat`.
+
 Startup resolves the configured PipeWire devices and checks required artifact
 files without loading models or opening audio. The first ASR/TTS request loads
 its runtime lazily. This path uses PTT release as the capture endpoint; VAD and

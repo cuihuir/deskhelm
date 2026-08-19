@@ -62,6 +62,41 @@ It intentionally does not attach a VAD provider: the current Gateway capture
 contract is batch-oriented, while the VAD contract requires frame-positioned
 streaming input and explicit flushing.
 
+`LocalAudioConfig.pw_cat_command_prefix` allows an application to execute a
+compatible host `pw-cat` when a container's version lacks required raw-PCM
+options. Native execution defaults to `pw-cat`; the verified Distrobox path is
+`host-spawn -no-pty pw-cat`.
+
+## Unified Local Runtime and Live Diagnostic
+
+`runtime/requirements-local-voice-py312.txt` pins the optional CPU runtime used
+to execute Paraformer and Piper together. It includes Piper's Chinese runtime
+dependencies `g2pw` and `sentence-stream`. Install it only into ignored or
+external storage; do not add these dependencies to Bridge.
+
+`tools/run-local-voice-live.py` is an explicit bounded microphone/speaker
+diagnostic. It requires `--live-audio`, captures for 2-15 seconds, discards PCM,
+does not print transcript text, synthesizes a fixed public response, and emits
+privacy-safe JSON timings. It does not call Codex and does not measure actual
+speaker-first-audio because `SPEECH_STARTED` currently precedes synthesis.
+
+The verified container invocation uses:
+
+```bash
+PYTHONPATH=voice /ignored/py312/bin/python tools/run-local-voice-live.py \
+  --live-audio \
+  --asr-model-directory /ignored/paraformer-snapshot \
+  --tts-model /ignored/piper/voice.onnx \
+  --tts-config /ignored/piper/voice.onnx.json \
+  --tts-resource-directory /ignored/piper/resources \
+  --pw-cat-command-prefix "host-spawn -no-pty pw-cat" \
+  --capture-seconds 4 --cpu-threads 4
+```
+
+See
+[`docs/research/2026-08-19-local-voice-runtime-and-live-path.md`](../docs/research/2026-08-19-local-voice-runtime-and-live-path.md)
+for measured results and limitations.
+
 ## Benchmarks
 
 [`benchmarks/`](benchmarks/) contains the versioned synthetic utterance corpus
@@ -141,5 +176,6 @@ PYTHONPATH=bridge python3 -m unittest \
   tests.test_pipewire_providers tests.test_voice_benchmark \
   tests.test_vad_benchmark tests.test_vad_providers tests.test_asr_providers \
   tests.test_tts_providers tests.test_voice_gateway \
-  tests.test_voice_integration tests.test_local_voice_config -v
+  tests.test_voice_integration tests.test_local_voice_config \
+  tests.test_local_voice_live_tool -v
 ```
