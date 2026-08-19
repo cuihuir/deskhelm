@@ -115,6 +115,8 @@ Status: In Progress
 - [x] Record initial real provider and live-device measurements.
 - [x] Add a controlled public-phrase ASR diagnostic that correlates privacy-safe
   input signal, accuracy, and latency metadata without playback.
+- [x] Add advisory speech-active segment, duration, and ratio measurements to
+  that diagnostic without allowing VAD to gate ASR.
 - [ ] Record disconnect, timeout, device-change, and provider-failure recovery.
 
 Acceptance criteria:

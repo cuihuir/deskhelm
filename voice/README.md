@@ -118,6 +118,8 @@ from TTS/playback. It prompts one versioned public corpus utterance, captures a
 bounded in-memory recording, suppresses provider output, and reports only:
 
 - duration, peak, RMS, clipped-sample, and near-silence measurements;
+- optional advisory VAD segment count, active duration/fraction, and first/last
+  activity times;
 - a provisional input-level hint that never changes system gain;
 - transcript character count, exact match, CER, keyword accuracy, and latency;
 - fixed capture, empty-transcript, or ASR failure codes.
@@ -134,8 +136,18 @@ PYTHONPATH=voice /ignored/py312/bin/python \
   --asr-model-directory /ignored/paraformer-snapshot \
   --pw-cat-command-prefix "host-spawn -no-pty pw-cat" \
   --utterance-id zh-repeat-01 \
-  --capture-seconds 6 --lead-in-seconds 3 --cpu-threads 4
+  --capture-seconds 12 --lead-in-seconds 0 --cpu-threads 4 \
+  --vad-provider webrtc
 ```
+
+WebRTC VAD is enabled by default for this diagnostic and can be disabled with
+`--vad-provider none`. Its failure is reported as `voice_vad_failed` but never
+gates or changes final ASR.
+
+Capture starts immediately by default. In chat-driven operation, fixed unseen
+countdowns can place the spoken phrase before the actual capture window. Use a
+long enough capture and explicit pre-run readiness plus post-run confirmation;
+do not rely on a speaker cue or infer participation from VAD alone.
 
 See
 [`docs/research/2026-08-19-local-voice-runtime-and-live-path.md`](../docs/research/2026-08-19-local-voice-runtime-and-live-path.md)

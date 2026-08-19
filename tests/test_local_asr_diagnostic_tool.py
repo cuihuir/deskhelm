@@ -10,8 +10,11 @@ import unittest
 
 from voice.deskhelm_voice import (
     CapturedAudio,
+    FakeVadProvider,
     StreamingAsrResult,
     Transcript,
+    VadEvent,
+    VadEventKind,
     VoiceNoTranscript,
 )
 from voice.deskhelm_voice.benchmark import BenchmarkCorpus
@@ -48,8 +51,23 @@ class _NoisyProvider:
         return StreamingAsrResult(Transcript(UTTERANCE.text, UTTERANCE.text))
 
 
+class _NoisyVadProvider:
+    def __init__(self, events) -> None:
+        self.provider = FakeVadProvider(events)
+
+    def open_session(self, stream_format):
+        print("private VAD output")
+        return self.provider.open_session(stream_format)
+
+
 class LocalAsrDiagnosticToolTests(unittest.TestCase):
     def test_live_audio_requires_explicit_confirmation_and_bounds(self) -> None:
+        parsed = TOOL._parser().parse_args(
+            ["--asr-model-directory", "/model"]
+        )
+        self.assertEqual(parsed.lead_in_seconds, 0.0)
+        self.assertEqual(parsed.vad_provider, "webrtc")
+
         args = argparse.Namespace(
             live_audio=False,
             capture_seconds=6.0,
@@ -102,6 +120,56 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
         self.assertEqual(summary["input_level_hint"], "too_quiet")
         self.assertEqual(summary["transcript_chars"], 0)
         self.assertIsNone(summary["character_error_rate"])
+
+    def test_vad_activity_is_aggregated_without_gating_asr(self) -> None:
+        audio = CapturedAudio(b"\x00\x10" * 1600, 16000)
+        output = StringIO()
+        with redirect_stdout(output):
+            summary = TOOL._diagnose_audio(
+                audio,
+                _StreamingProvider(UTTERANCE.text),
+                UTTERANCE,
+                vad_provider=_NoisyVadProvider(
+                    [
+                        VadEvent(VadEventKind.SPEECH_STARTED, 160),
+                        VadEvent(VadEventKind.SPEECH_ENDED, 640),
+                        VadEvent(VadEventKind.SPEECH_STARTED, 800),
+                        VadEvent(VadEventKind.SPEECH_ENDED, 1440),
+                    ]
+                ),
+            )
+        self.assertEqual(output.getvalue(), "")
+
+        self.assertEqual(summary["status"], "ok")
+        self.assertEqual(summary["speech_activity_status"], "ok")
+        self.assertEqual(summary["speech_segment_count"], 2)
+        self.assertEqual(summary["speech_active_ms"], 70.0)
+        self.assertEqual(summary["speech_active_fraction"], 0.7)
+        self.assertEqual(summary["first_speech_start_ms"], 10.0)
+        self.assertEqual(summary["last_speech_end_ms"], 90.0)
+
+    def test_vad_failure_is_fixed_and_asr_still_completes(self) -> None:
+        audio = CapturedAudio(b"\x00\x10" * 1600, 16000)
+        providers = (
+            FakeVadProvider([], fail=True),
+            FakeVadProvider([VadEvent(VadEventKind.SPEECH_ENDED, 100)]),
+        )
+        for vad_provider in providers:
+            with self.subTest(vad_provider=vad_provider):
+                summary = TOOL._diagnose_audio(
+                    audio,
+                    _StreamingProvider(UTTERANCE.text),
+                    UTTERANCE,
+                    vad_provider=vad_provider,
+                )
+
+                self.assertEqual(summary["status"], "ok")
+                self.assertEqual(summary["speech_activity_status"], "failed")
+                self.assertEqual(
+                    summary["speech_activity_error_code"],
+                    "voice_vad_failed",
+                )
+                self.assertIsNone(summary["speech_active_ms"])
 
     def test_provider_output_is_suppressed_and_capture_failure_is_fixed(self) -> None:
         audio = CapturedAudio(b"\x00\x10" * 1600, 16000)

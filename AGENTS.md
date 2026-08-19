@@ -233,8 +233,9 @@ Keep third-party reference files outside version control under
   failure events must not contain audio, transcript, prompt, or speech text.
 - Controlled live ASR diagnostics must use versioned public reference phrases,
   suppress provider stdout/stderr, retain PCM and recognized text only in
-  memory, and publish only signal, accuracy, length, timing, and fixed failure
-  metadata. Input-level hints are provisional and must not change system gain.
+  memory, and publish only signal, aggregate speech activity, accuracy, length,
+  timing, and fixed failure metadata. Input-level hints are provisional and
+  must not change system gain. Diagnostic VAD must never gate or alter ASR.
   Do not interpret a live ASR result until the user confirms whether they spoke
   the prompted phrase during that capture.
 - Keep voice benchmark corpora and observation formats versioned. Bound each

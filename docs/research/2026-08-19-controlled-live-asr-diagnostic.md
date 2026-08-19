@@ -21,6 +21,11 @@ keywords present, but character error rate was 0.545455. Paraformer can recover
 the core command intent on this source, while its current literal accuracy is
 not sufficient for code-sensitive commands or production selection.
 
+The best synchronized run started capture immediately after an explicit
+readiness handshake. It detected 6,970.312 ms of advisory activity and reduced
+CER to 0.181818 while retaining full keyword accuracy. This is the current live
+Paraformer baseline, although exact code-sensitive accuracy remains inadequate.
+
 ## Diagnostic Contract
 
 `tools/run-local-asr-diagnostic.py`:
@@ -37,6 +42,8 @@ not sufficient for code-sensitive commands or production selection.
 - labels input-level guidance as provisional and never changes system gain;
 - marks every result as requiring post-run confirmation that the user actually
   spoke before anyone interprets signal or recognition quality.
+- starts capture immediately by default; optional lead-in exists for direct
+  terminal use but is unreliable as an unseen chat countdown.
 
 The current signal hints are intentionally conservative:
 
@@ -134,9 +141,65 @@ Interpretation:
   commands. This supports keeping Paraformer provisional and comparing a second
   ASR under the same privacy-safe contract.
 
+## Advisory Activity and Capture Synchronization
+
+Adding WebRTC VAD aggregate metrics exposed two important controls:
+
+- An unspoken eight-second run still produced five activity segments totaling
+  739.625 ms, or 9.2227% of the capture. VAD can mistake background/transients
+  for speech and must not prove participation or gate ASR.
+- A user-confirmed attempt with a ten-second unseen lead-in produced only
+  180 ms of activity and no transcript. The likely timing mismatch means this
+  run cannot evaluate the model even though the user did speak around the test.
+
+The workflow therefore changed to an explicit readiness handshake, immediate
+capture, a long recording window, and mandatory post-run confirmation. Audible
+cues are also unsuitable because the attempted speaker cue was not heard.
+
+## Immediate-Capture Confirmed Run
+
+The user confirmed readiness before launch and confirmed complete speech after
+the 12-second immediate-capture run.
+
+| Measurement | Result |
+|---|---:|
+| Captured duration | 12,030.312 ms |
+| Captured bytes | 384,970 |
+| Peak | 0.779144 |
+| RMS | 0.091119 |
+| Clipped sample fraction | 0 |
+| Near-silence fraction | 0.007362 |
+| VAD status | `ok` |
+| Speech segments | 7 |
+| Speech-active duration | 6,970.312 ms |
+| Speech-active fraction | 0.579396 |
+| Transcript characters | 18 |
+| Exact match | No |
+| Character error rate | 0.181818 |
+| Keyword accuracy | 1.0 |
+| First partial latency | 4,850.187 ms |
+| Final ASR latency | 8,008.233 ms |
+| Transcript text retained or printed | No |
+
+Verified facts:
+
+- The user confirmed complete speech within the actual capture window.
+- VAD observed substantial activity, but remained independent of ASR.
+- Paraformer recovered both expected keywords with materially better CER than
+  the earlier spoken run.
+- PCM, VAD frame detail, and recognized text were not persisted or printed.
+
+Limitations:
+
+- A 0.181818 CER is still too high for exact paths, symbols, numbers, negation,
+  or commands with irreversible effects.
+- The 0.579396 activity fraction is detector output, not ground-truth labeling;
+  the unspoken false positives show it cannot select endpoint policy alone.
+- First partial remains about 4.85 seconds from available audio plus processing,
+  and final ASR remains about 8 seconds after capture.
+
 Unknowns:
 
-- speech-active duration and whether the entire prompted phrase is present;
 - effects of WebRTC/Silero activity thresholds on this live source;
 - performance of a second Chinese or multilingual ASR on the same controlled
   procedure;
@@ -144,9 +207,8 @@ Unknowns:
 
 ## Next Evidence
 
-1. Add privacy-safe speech-active duration and segment counts to the controlled
-   diagnostic, without allowing VAD to gate ASR.
-2. Repeat several short Chinese and mixed commands with post-run confirmation.
-3. Run at least one alternative ASR through the same diagnostic contract before
+1. Repeat several short Chinese and mixed commands with readiness and post-run
+   confirmation.
+2. Run at least one alternative ASR through the same diagnostic contract before
    selecting a production model.
-4. Test source disconnect, inference timeout, and device-change recovery.
+3. Test source disconnect, inference timeout, and device-change recovery.

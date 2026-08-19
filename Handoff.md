@@ -86,7 +86,11 @@ output and retaining neither PCM nor recognized text. Its first run produced
 result is retained only as an unspoken negative control. A later user-confirmed
 spoken run produced 27 characters, matched both expected keywords, and had
 0.545455 CER. This verifies basic recognition and command-intent recovery, but
-literal accuracy remains inadequate for code-sensitive commands.
+literal accuracy remains inadequate for code-sensitive commands. The controlled
+diagnostic now also reports advisory speech segment count, active duration, and
+active fraction without allowing VAD to gate ASR. An immediate-capture,
+user-confirmed run improved CER to 0.181818 with full keyword accuracy and
+0.579396 speech-active fraction; it is the current live baseline.
 
 ## Completed Work
 
@@ -689,15 +693,16 @@ Last verified on 2026-08-19:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 208 tests passed under the workstation resource limiter with strict
+Result: 210 tests passed under the workstation resource limiter with strict
 `ResourceWarning` handling. This includes the existing Bridge, protocol,
 adapter, voice, benchmark, and fake-subprocess PipeWire coverage plus streaming
 capture continuity, bounds, premature-end, cleanup, compatibility, empty-ASR
 classification, advisory VAD ordering/fallback/cancellation, explicit local VAD
 composition, and privacy-safe live-summary tests. The full unit suite opened no
-live audio device and did not import optional model runtimes. Six new tests
-cover controlled ASR diagnostic bounds, corpus selection, signal hints, metric
-output, provider-output suppression, and fixed failures.
+live audio device and did not import optional model runtimes. Eight focused
+tests cover controlled ASR diagnostic bounds, corpus selection, signal hints,
+aggregate VAD activity, VAD failure isolation, metric output, provider-output
+suppression, and fixed failures.
 
 An additional startup smoke test used the current PipeWire graph and ignored
 prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local
@@ -767,6 +772,19 @@ reported 0.545455 CER, first partial at 1,850.498 ms, and final output at
 did not hear the attempted speaker cue, so future interpretation requires
 explicit post-run speech confirmation rather than relying on an audible cue.
 
+The advisory-activity phase found that an unspoken eight-second negative control
+still produced five VAD segments and 739.625 ms of false activity. A separate
+user-confirmed attempt with a ten-second unseen lead-in captured only 180 ms of
+activity and no transcript, indicating a likely synchronization miss rather
+than model failure. The workflow now defaults to immediate capture after an
+explicit readiness handshake.
+
+The final confirmed immediate-capture run recorded 384,970 bytes over
+12,030.312 ms. WebRTC reported seven segments totaling 6,970.312 ms
+(`0.579396` active fraction). Paraformer returned 18 characters with both
+keywords, 0.181818 CER, first partial at 4,850.187 ms, and final output at
+8,008.233 ms. Peak was 0.779144, RMS was 0.091119, and no samples clipped.
+
 Live local audio diagnostics resolved three sources and three sinks. Two-second
 default and manual USB-source tests each captured about 1.98 seconds of 16 kHz
 mono S16LE PCM and discarded it after signal measurement. The default internal
@@ -792,9 +810,8 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 1. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
 2. Run blinded Piper/Kokoro listening, actual speaker-first-audio measurement,
-   and live PipeWire interruption tests. Add speech-active duration to the
-   controlled ASR diagnostic, repeat with controlled distance/gain, and compare
-   an alternative model before selecting production defaults.
+   and live PipeWire interruption tests. Repeat controlled Chinese/mixed
+   commands and compare an alternative ASR before selecting production defaults.
 3. Expand VAD to noisy/conversational labeled audio and live-device threshold
    measurements.
 4. Repeat controlled live VAD utterances and test threshold, disconnect,
@@ -821,12 +838,11 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   playback-to-speaker first audio, mid-inference interruption, and recovery
   timing remain unmeasured.
 - Basic live default/manual input, default output, streaming PCM capture, and one
-  earlier ASR/TTS playback path are verified. A user-confirmed spoken run
-  recovered all expected keywords but had 0.545455 CER, so Paraformer remains
-  unsuitable as a production default. Speech-active duration, repeated command
-  coverage, alternative-ASR comparison, startup calibration, hot unplug,
-  default-device changes, and actual speaker-first-audio latency need explicit
-  product behavior.
+  earlier ASR/TTS playback path are verified. The best synchronized spoken run
+  recovered all expected keywords with 0.181818 CER, which is improved but still
+  unsuitable for exact code-sensitive commands. Repeated command coverage,
+  alternative-ASR comparison, startup calibration, hot unplug, default-device
+  changes, and actual speaker-first-audio latency need explicit product behavior.
 - Adapter registrations are process-local and must be re-established after a
   Bridge restart. No durable session history or replay is promised.
 - Approval tracking is bounded. When its capacity is exhausted, new approval
@@ -850,10 +866,11 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 - Initial WebRTC and Silero VAD replay quality/latency and licenses are measured,
   but the corpus lacks conversational speech, Chinese, noise, music, keyboard
   sounds, distant microphones, and live recovery. Production VAD is unselected.
-- Paraformer is measured only on a tiny public set. Its Chinese example was
-  exact, but English spacing and four of six isolated digits failed; about
-  3.09 GiB peak RSS and cancellation only between inference calls also remain
-  product risks. It is not selected as the sole production ASR.
+- Paraformer is measured on a tiny public set plus one synchronized live Chinese
+  command. The live run matched all keywords but had 0.181818 CER; English
+  spacing, isolated digits, about 3.09 GiB peak RSS, and cancellation only
+  between inference calls also remain product risks. It is not selected as the
+  sole production ASR.
 - Piper and Kokoro performance, resources, provider-chunk first audio,
   interruption boundaries, and licenses are measured, but human quality and
   actual playback latency are not. Piper produced a very small full-scale
@@ -861,12 +878,11 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Next Step
 
-Attach one provisional provider-owned VAD session to the migrated streaming
-capture path, with explicit final flush, bounded endpoint state, cancellation,
-and failure cleanup. Keep PTT as the safe fallback while measuring live speech
-start/end behavior; do not publish partial transcripts until ordering and
-recovery are defined. In parallel, confirm `voice_no_transcript` live, compare
-an alternative ASR on consented Chinese/mixed commands, and define actual
-speaker-first-audio/interruption instrumentation. Keep every provider
-replaceable and obtain the repository license decision before packaging Piper
-or accepting external contributions.
+Select and integrate one alternative Chinese or multilingual ASR behind the
+same controlled diagnostic contract, then compare synchronized Chinese and
+mixed commands on keyword accuracy, CER, latency, memory, cancellation, and
+licensing. Expand live VAD threshold/noise evidence and recovery tests without
+granting it endpoint control. Separately define actual speaker-first-audio and
+interruption instrumentation. Keep every provider replaceable and obtain the
+repository license decision before packaging Piper or accepting external
+contributions.

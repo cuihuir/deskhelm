@@ -18,8 +18,13 @@ try:
         CapturedAudio,
         LocalAudioConfig,
         ParaformerStreamingAsrProvider,
+        PcmChunk,
+        PcmStreamFormat,
         StreamingAsrResult,
+        VadEvent,
+        VadEventKind,
         VoiceNoTranscript,
+        WebRtcVadProvider,
         discover_pipewire_audio,
         measure_audio_signal,
     )
@@ -37,8 +42,13 @@ except ModuleNotFoundError as error:
         CapturedAudio,
         LocalAudioConfig,
         ParaformerStreamingAsrProvider,
+        PcmChunk,
+        PcmStreamFormat,
         StreamingAsrResult,
+        VadEvent,
+        VadEventKind,
         VoiceNoTranscript,
+        WebRtcVadProvider,
         discover_pipewire_audio,
         measure_audio_signal,
     )
@@ -59,6 +69,7 @@ PARAFORMER_ARTIFACTS = (
     "am.mvn",
     "seg_dict",
 )
+MAX_VAD_EVENTS = 256
 
 
 def main() -> int:
@@ -86,6 +97,9 @@ def main() -> int:
         cpu_threads=args.cpu_threads,
         max_audio_seconds=args.capture_seconds + 2.0,
     )
+    vad_provider = (
+        WebRtcVadProvider() if args.vad_provider == "webrtc" else None
+    )
     print(
         f"deskhelm: speak this public diagnostic phrase: {utterance.text}",
         file=sys.stderr,
@@ -97,7 +111,12 @@ def main() -> int:
     except Exception:
         summary = _capture_failure_summary()
     else:
-        summary = _diagnose_audio(audio, provider, utterance)
+        summary = _diagnose_audio(
+            audio,
+            provider,
+            utterance,
+            vad_provider=vad_provider,
+        )
     summary.update(
         {
             "source": selection.source.name,
@@ -126,8 +145,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--pw-dump-executable", default="pw-dump")
     parser.add_argument("--wpctl-executable", default="wpctl")
     parser.add_argument("--capture-seconds", type=float, default=6.0)
-    parser.add_argument("--lead-in-seconds", type=float, default=3.0)
+    parser.add_argument("--lead-in-seconds", type=float, default=0.0)
     parser.add_argument("--cpu-threads", type=int, default=4)
+    parser.add_argument(
+        "--vad-provider",
+        choices=("none", "webrtc"),
+        default="webrtc",
+    )
     return parser
 
 
@@ -189,10 +213,12 @@ def _diagnose_audio(
     provider,
     utterance: BenchmarkUtterance,
     *,
+    vad_provider=None,
     monotonic_ns=time.monotonic_ns,
 ) -> dict[str, object]:
     summary = {
         **_signal_summary(audio),
+        **_speech_activity_summary(audio, vad_provider),
         "status": "failed",
         "error_code": "",
         "transcript_chars": 0,
@@ -271,6 +297,13 @@ def _capture_failure_summary() -> dict[str, object]:
         "near_silence_fraction": None,
         "input_level_hint": "unavailable",
         "input_level_hint_is_provisional": True,
+        "speech_activity_status": "unavailable",
+        "speech_activity_error_code": "",
+        "speech_segment_count": None,
+        "speech_active_ms": None,
+        "speech_active_fraction": None,
+        "first_speech_start_ms": None,
+        "last_speech_end_ms": None,
         "transcript_chars": 0,
         "exact_match": False,
         "character_error_rate": None,
@@ -280,6 +313,101 @@ def _capture_failure_summary() -> dict[str, object]:
         "requires_post_run_speech_confirmation": True,
         "privacy": "PCM and recognized text were not saved or printed",
     }
+
+
+def _speech_activity_summary(
+    audio: CapturedAudio,
+    provider,
+) -> dict[str, object]:
+    if provider is None:
+        return {
+            "speech_activity_status": "disabled",
+            "speech_activity_error_code": "",
+            "speech_segment_count": None,
+            "speech_active_ms": None,
+            "speech_active_fraction": None,
+            "first_speech_start_ms": None,
+            "last_speech_end_ms": None,
+        }
+    stream_format = PcmStreamFormat(
+        audio.sample_rate_hz,
+        channels=audio.channels,
+        sample_format=audio.sample_format,
+    )
+    chunk = PcmChunk(audio.data, stream_format, 0)
+    try:
+        with open(os.devnull, "w", encoding="utf-8") as private_output:
+            with redirect_stdout(private_output), redirect_stderr(private_output):
+                with provider.open_session(stream_format) as session:
+                    events = session.process(chunk, Event()) + session.finish(
+                        Event()
+                    )
+        segments = _validate_vad_events(events, chunk.end_frame)
+    except Exception:
+        return {
+            "speech_activity_status": "failed",
+            "speech_activity_error_code": "voice_vad_failed",
+            "speech_segment_count": None,
+            "speech_active_ms": None,
+            "speech_active_fraction": None,
+            "first_speech_start_ms": None,
+            "last_speech_end_ms": None,
+        }
+    active_frames = sum(end - start for start, end in segments)
+    return {
+        "speech_activity_status": "ok",
+        "speech_activity_error_code": "",
+        "speech_segment_count": len(segments),
+        "speech_active_ms": round(
+            active_frames * 1000 / audio.sample_rate_hz,
+            3,
+        ),
+        "speech_active_fraction": round(active_frames / chunk.end_frame, 6),
+        "first_speech_start_ms": (
+            round(segments[0][0] * 1000 / audio.sample_rate_hz, 3)
+            if segments
+            else None
+        ),
+        "last_speech_end_ms": (
+            round(segments[-1][1] * 1000 / audio.sample_rate_hz, 3)
+            if segments
+            else None
+        ),
+    }
+
+
+def _validate_vad_events(
+    events: object,
+    total_frames: int,
+) -> tuple[tuple[int, int], ...]:
+    if not isinstance(events, tuple) or len(events) > MAX_VAD_EVENTS:
+        raise ValueError("VAD events are invalid")
+    segments = []
+    active_start = None
+    last_frame = -1
+    for event in events:
+        if (
+            not isinstance(event, VadEvent)
+            or event.frame_index < last_frame
+            or event.frame_index > total_frames
+        ):
+            raise ValueError("VAD event is invalid")
+        if active_start is None:
+            if event.kind is not VadEventKind.SPEECH_STARTED:
+                raise ValueError("VAD event order is invalid")
+            active_start = event.frame_index
+        else:
+            if (
+                event.kind is not VadEventKind.SPEECH_ENDED
+                or event.frame_index <= active_start
+            ):
+                raise ValueError("VAD event order is invalid")
+            segments.append((active_start, event.frame_index))
+            active_start = None
+        last_frame = event.frame_index
+    if active_start is not None:
+        raise ValueError("VAD speech segment is incomplete")
+    return tuple(segments)
 
 
 def _signal_summary(audio: CapturedAudio) -> dict[str, object]:
