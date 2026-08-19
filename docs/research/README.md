@@ -41,3 +41,5 @@
 - [`2026-08-19-provider-recovery-and-device-change.md`](2026-08-19-provider-recovery-and-device-change.md)
   — ASR、PipeWire 进程恢复和默认/手工设备变化的确定性证据与未完成的
   实机验证。
+- [`2026-08-19-multi-phrase-asr-diagnostic.md`](2026-08-19-multi-phrase-asr-diagnostic.md)
+  — 多条中文/中英混合编码命令的批量诊断边界、隐私契约和实测待办。

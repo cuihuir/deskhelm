@@ -104,6 +104,11 @@ their locks for a later request, cancellation is checked at each provider's
 documented boundary, PipeWire sessions can be reopened after disconnect, fresh
 default-device snapshots rebind, and missing manual stable names fail closed.
 Live hot-unplug and hard in-flight cancellation measurements remain open.
+The multi-phrase diagnostic phase is now implemented under ADR 0022. It accepts
+up to eight repeated `--utterance-id` values, opens a fresh capture for each,
+reuses one lazy provider for warm-path behavior, and marks each result as
+requiring separate post-run confirmation. Four Chinese/mixed coding phrases are
+queued for the next synchronized Paraformer/SenseVoice comparison.
 
 ## Completed Work
 
@@ -291,6 +296,9 @@ Live hot-unplug and hard in-flight cancellation measurements remain open.
   cancellation boundaries, PipeWire process disconnect/retry, and default versus
   manual device changes. No implicit recognition retry or device fallback is
   introduced.
+- Accepted ADR 0022 and added a bounded multi-phrase microphone diagnostic for
+  repeated Chinese/mixed coding commands. Batch output contains only per-phrase
+  privacy-safe metrics and fixed statuses; live measurements remain pending.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -573,6 +581,8 @@ Live hot-unplug and hard in-flight cancellation measurements remain open.
   risk.
 - `docs/decisions/0021-bounded-voice-recovery-and-device-rebind.md`: retry,
   cancellation, process recovery, and strict device rebinding semantics.
+- `docs/decisions/0022-bounded-multi-phrase-asr-diagnostic.md`: bounded batch
+  capture, per-phrase confirmation, and privacy-safe comparison output.
 - `docs/decisions/0015-use-piper-as-initial-notification-tts-baseline.md`:
   initial TTS baseline, streaming semantics, licensing, and selection limits.
 - `docs/decisions/0016-explicit-local-audio-selection-and-diagnostics.md`:
@@ -603,6 +613,8 @@ Live hot-unplug and hard in-flight cancellation measurements remain open.
   comparison, pinned artifacts, public/live results, and licensing boundary.
 - `docs/research/2026-08-19-provider-recovery-and-device-change.md`: recovery
   matrix, fake-boundary evidence, and outstanding live hot-plug measurements.
+- `docs/research/2026-08-19-multi-phrase-asr-diagnostic.md`: phrase set,
+  privacy bounds, and pending synchronized measurements.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -731,18 +743,17 @@ Last verified on 2026-08-19:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 216 tests passed under the workstation resource limiter with strict
+Result: 218 tests passed under the workstation resource limiter with strict
 `ResourceWarning` handling. This includes the existing Bridge, protocol,
 adapter, voice, benchmark, and fake-subprocess PipeWire coverage plus streaming
 capture continuity, bounds, premature-end, cleanup, compatibility, empty-ASR
 classification, advisory VAD ordering/fallback/cancellation, explicit local VAD
-composition, and privacy-safe live-summary tests. The full unit suite opened no
-live audio device and did not import optional model runtimes. Eight focused
-tests cover controlled ASR diagnostic bounds, corpus selection, signal hints,
-aggregate VAD activity, VAD failure isolation, metric output, provider-output
-suppression, fixed failures, lazy final-only SenseVoice behavior, provider
-failure reuse, post-inference cancellation, PipeWire disconnect/retry, and
-device rebinding.
+composition, privacy-safe live-summary tests, and the bounded multi-phrase
+diagnostic path. The full unit suite opened no live audio device and did not
+import optional model runtimes. The focused local ASR diagnostic module has 10
+tests covering corpus selection, signal/VAD metrics, provider-output
+suppression, fixed failures, lazy final-only behavior, recovery boundaries, and
+batch phrase selection/privacy output.
 
 An additional startup smoke test used the current PipeWire graph and ignored
 prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local

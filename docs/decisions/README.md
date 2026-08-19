@@ -38,3 +38,7 @@ its non-streaming boundary and custom model-license risk.
 [`0021-bounded-voice-recovery-and-device-rebind.md`](0021-bounded-voice-recovery-and-device-rebind.md)
 defines retry boundaries, cancellation points, PipeWire session recovery, and
 strict default/manual device rebinding.
+
+[`0022-bounded-multi-phrase-asr-diagnostic.md`](0022-bounded-multi-phrase-asr-diagnostic.md)
+defines repeatable phrase selection, fresh captures, per-phrase confirmation,
+and privacy-safe batch output for coding-command comparisons.

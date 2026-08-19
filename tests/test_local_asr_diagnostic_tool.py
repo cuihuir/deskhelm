@@ -1,5 +1,5 @@
 import argparse
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 from io import StringIO
 import json
@@ -7,8 +7,11 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from voice.deskhelm_voice import (
+    AudioNode,
+    AudioNodeKind,
     CapturedAudio,
     FakeVadProvider,
     StreamingAsrResult,
@@ -17,6 +20,7 @@ from voice.deskhelm_voice import (
     VadEventKind,
     VoiceNoTranscript,
 )
+from voice.deskhelm_voice.audio_config import PipeWireAudioInventory
 from voice.deskhelm_voice.benchmark import BenchmarkCorpus
 
 
@@ -66,6 +70,8 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
             ["--asr-model-directory", "/model"]
         )
         self.assertEqual(parsed.lead_in_seconds, 0.0)
+        self.assertIsNone(parsed.utterance_ids)
+        self.assertEqual(parsed.between_utterances_seconds, 0.0)
         self.assertEqual(parsed.asr_provider, "paraformer")
         self.assertEqual(parsed.vad_provider, "webrtc")
 
@@ -101,6 +107,10 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
         self.assertEqual(summary["first_partial_latency_ms"], 12.5)
         self.assertEqual(summary["final_asr_latency_ms"], 25.0)
         self.assertTrue(summary["requires_post_run_speech_confirmation"])
+        self.assertEqual(
+            summary["post_run_confirmation_scope"],
+            "this utterance",
+        )
         serialized = json.dumps(summary, ensure_ascii=False)
         self.assertNotIn(UTTERANCE.text, serialized)
         self.assertNotIn("audio_data", serialized)
@@ -220,6 +230,97 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
                 Path("voice/benchmarks/utterances-v1.json"),
                 "missing",
             )
+
+    def test_loads_bounded_batch_without_duplicates(self) -> None:
+        loaded = TOOL._load_utterances(
+            Path("voice/benchmarks/utterances-v1.json"),
+            ["zh-repeat-01", "mixed-command-01", "zh-negation-01"],
+        )
+        self.assertEqual(
+            [item.utterance_id for item in loaded],
+            ["zh-repeat-01", "mixed-command-01", "zh-negation-01"],
+        )
+        with self.assertRaisesRegex(ValueError, "duplicates"):
+            TOOL._load_utterances(
+                Path("voice/benchmarks/utterances-v1.json"),
+                ["zh-repeat-01", "zh-repeat-01"],
+            )
+
+    def test_batch_main_reports_per_phrase_results_without_text(self) -> None:
+        audio = CapturedAudio(b"\x00\x10" * 1600, 16000)
+        inventory = PipeWireAudioInventory(
+            (
+                AudioNode(
+                    AudioNodeKind.SOURCE,
+                    "source.usb",
+                    "USB Microphone",
+                    "Audio/Source",
+                ),
+            ),
+            (
+                AudioNode(
+                    AudioNodeKind.SINK,
+                    "sink.internal",
+                    "Internal Speakers",
+                    "Audio/Sink",
+                ),
+            ),
+            "source.usb",
+            "sink.internal",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory)
+            for name in TOOL.SENSEVOICE_ARTIFACTS:
+                (model / name).write_bytes(b"test")
+            argv = [
+                "run-local-asr-diagnostic.py",
+                "--live-audio",
+                "--asr-provider",
+                "sensevoice",
+                "--asr-model-directory",
+                str(model),
+                "--utterance-id",
+                "zh-repeat-01",
+                "--utterance-id",
+                "mixed-command-01",
+                "--vad-provider",
+                "none",
+            ]
+            output = StringIO()
+            error = StringIO()
+            with patch.object(sys, "argv", argv):
+                with patch.object(
+                    TOOL,
+                    "discover_pipewire_audio",
+                    return_value=inventory,
+                ):
+                    with patch.object(
+                        TOOL,
+                        "_capture_for_duration",
+                        return_value=audio,
+                    ):
+                        with patch.object(
+                            TOOL,
+                            "_create_asr_provider",
+                            return_value=_StreamingProvider(UTTERANCE.text),
+                        ):
+                            with redirect_stdout(output), redirect_stderr(error):
+                                code = TOOL.main()
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["utterance_count"], 2)
+        self.assertEqual(
+            payload["post_run_confirmation_scope"],
+            "each utterance",
+        )
+        self.assertEqual(
+            [item["utterance_id"] for item in payload["results"]],
+            ["zh-repeat-01", "mixed-command-01"],
+        )
+        self.assertNotIn(UTTERANCE.text, output.getvalue())
+        self.assertIn(UTTERANCE.text, error.getvalue())
 
 
 if __name__ == "__main__":

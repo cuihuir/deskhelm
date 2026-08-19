@@ -358,6 +358,8 @@ Current commands:
   tools/run-local-asr-diagnostic.py --live-audio --asr-model-directory
   <ignored-model> --utterance-id zh-repeat-01 <audio-options>`: run one bounded
   public-phrase microphone/ASR diagnostic without playback or transcript output.
+  Repeat `--utterance-id` at most eight times for a fresh-capture batch; confirm
+  every phrase separately after the run.
 - `PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr --corpus
   voice/benchmarks/utterances-v1.json --observations <results.ndjson>`: score a
   bounded ASR benchmark run.

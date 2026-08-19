@@ -73,12 +73,14 @@ PARAFORMER_ARTIFACTS = (
 )
 SENSEVOICE_ARTIFACTS = ("model.int8.onnx", "tokens.txt")
 MAX_VAD_EVENTS = 256
+MAX_BATCH_UTTERANCES = 8
 
 
 def main() -> int:
     args = _parser().parse_args()
     _validate_args(args)
-    utterance = _load_utterance(args.corpus, args.utterance_id)
+    utterance_ids = args.utterance_ids or [DEFAULT_UTTERANCE_ID]
+    utterances = _load_utterances(args.corpus, utterance_ids)
     _validate_model_directory(args.asr_model_directory, args.asr_provider)
     audio_config = LocalAudioConfig(
         capture_provider=AudioProviderKind.PIPEWIRE,
@@ -99,39 +101,66 @@ def main() -> int:
     vad_provider = (
         WebRtcVadProvider() if args.vad_provider == "webrtc" else None
     )
-    print(
-        f"deskhelm: speak this public diagnostic phrase: {utterance.text}",
-        file=sys.stderr,
-    )
-    if args.lead_in_seconds:
-        time.sleep(args.lead_in_seconds)
-    try:
-        audio = _capture_for_duration(capture, args.capture_seconds)
-    except Exception:
-        summary = _capture_failure_summary()
-    else:
-        summary = _diagnose_audio(
-            audio,
-            provider,
-            utterance,
-            vad_provider=vad_provider,
+    results = []
+    for index, utterance in enumerate(utterances):
+        if index:
+            if args.between_utterances_seconds:
+                time.sleep(args.between_utterances_seconds)
+        elif args.lead_in_seconds:
+            time.sleep(args.lead_in_seconds)
+        print(
+            f"deskhelm: speak diagnostic phrase {index + 1}/{len(utterances)}: "
+            f"{utterance.text}",
+            file=sys.stderr,
         )
-    summary.update(
-        {
-            "source": selection.source.name,
-            "source_description": selection.source.description,
+        try:
+            audio = _capture_for_duration(capture, args.capture_seconds)
+        except Exception:
+            summary = _capture_failure_summary()
+        else:
+            summary = _diagnose_audio(
+                audio,
+                provider,
+                utterance,
+                vad_provider=vad_provider,
+            )
+        summary.update(
+            {
+                "source": selection.source.name,
+                "source_description": selection.source.description,
+                "asr_provider": args.asr_provider,
+                "utterance_id": utterance.utterance_id,
+                "post_run_confirmation_scope": "this utterance",
+            }
+        )
+        results.append(summary)
+    if len(results) == 1:
+        output = results[0]
+        status = output["status"]
+    else:
+        status = (
+            "ok"
+            if all(item["status"] == "ok" for item in results)
+            else "failed"
+        )
+        output = {
+            "status": status,
             "asr_provider": args.asr_provider,
-            "utterance_id": utterance.utterance_id,
+            "utterance_count": len(results),
+            "results": results,
+            "requires_post_run_speech_confirmation": True,
+            "post_run_confirmation_scope": "each utterance",
+            "privacy": "PCM and recognized text were not saved or printed",
         }
-    )
-    print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
-    return 0 if summary["status"] == "ok" else 1
+    print(json.dumps(output, ensure_ascii=False, sort_keys=True))
+    return 0 if status == "ok" else 1
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Capture one bounded public diagnostic phrase and report signal and "
+            "Capture one or more bounded public diagnostic phrases and report "
+            "signal and "
             "ASR metrics without saving PCM or printing recognized text."
         )
     )
@@ -143,7 +172,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--asr-model-directory", type=Path, required=True)
     parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
-    parser.add_argument("--utterance-id", default=DEFAULT_UTTERANCE_ID)
+    parser.add_argument(
+        "--utterance-id",
+        dest="utterance_ids",
+        action="append",
+        help="repeat to run a bounded batch of named corpus phrases",
+    )
     parser.add_argument("--source")
     parser.add_argument("--latency", default="20ms")
     parser.add_argument("--pw-cat-command-prefix", default="pw-cat")
@@ -151,6 +185,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--wpctl-executable", default="wpctl")
     parser.add_argument("--capture-seconds", type=float, default=6.0)
     parser.add_argument("--lead-in-seconds", type=float, default=0.0)
+    parser.add_argument("--between-utterances-seconds", type=float, default=0.0)
     parser.add_argument("--cpu-threads", type=int, default=4)
     parser.add_argument(
         "--vad-provider",
@@ -167,6 +202,16 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("capture duration must be between 2 and 15 seconds")
     if not 0.0 <= args.lead_in_seconds <= 10.0:
         raise ValueError("lead-in duration must be between 0 and 10 seconds")
+    between_seconds = getattr(args, "between_utterances_seconds", 0.0)
+    if not 0.0 <= between_seconds <= 10.0:
+        raise ValueError(
+            "between-utterances duration must be between 0 and 10 seconds"
+        )
+    utterance_ids = getattr(args, "utterance_ids", None)
+    if utterance_ids is not None and not (
+        1 <= len(utterance_ids) <= MAX_BATCH_UTTERANCES
+    ):
+        raise ValueError("utterance batch must contain between 1 and 8 phrases")
     if not 1 <= args.cpu_threads <= 32:
         raise ValueError("CPU thread count must be between 1 and 32")
 
@@ -191,6 +236,17 @@ def _load_utterance(path: Path, utterance_id: str) -> BenchmarkUtterance:
     if len(matches) != 1:
         raise ValueError("diagnostic utterance is unavailable")
     return matches[0]
+
+
+def _load_utterances(
+    path: Path,
+    utterance_ids: list[str],
+) -> tuple[BenchmarkUtterance, ...]:
+    if not utterance_ids or len(utterance_ids) > MAX_BATCH_UTTERANCES:
+        raise ValueError("utterance batch is invalid")
+    if len(set(utterance_ids)) != len(utterance_ids):
+        raise ValueError("utterance batch contains duplicates")
+    return tuple(_load_utterance(path, item) for item in utterance_ids)
 
 
 def _validate_model_directory(path: Path, provider: str) -> None:
@@ -254,6 +310,7 @@ def _diagnose_audio(
         "first_partial_latency_ms": None,
         "final_asr_latency_ms": None,
         "requires_post_run_speech_confirmation": True,
+        "post_run_confirmation_scope": "this utterance",
         "privacy": "PCM and recognized text were not saved or printed",
     }
     started_ns = monotonic_ns()
@@ -337,6 +394,7 @@ def _capture_failure_summary() -> dict[str, object]:
         "first_partial_latency_ms": None,
         "final_asr_latency_ms": None,
         "requires_post_run_speech_confirmation": True,
+        "post_run_confirmation_scope": "this utterance",
         "privacy": "PCM and recognized text were not saved or printed",
     }
 

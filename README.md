@@ -134,7 +134,8 @@ The live diagnostic and its privacy limits are documented in
 The separate controlled ASR diagnostic uses a versioned public phrase and
 reports only signal, matching, and latency metrics without speaker playback.
 It supports explicit Paraformer and final-only SenseVoice selection; neither is
-the production default.
+the production default. The same diagnostic can run a bounded batch by
+repeating `--utterance-id`; each phrase remains separately confirmation-gated.
 
 Inspect the current PipeWire defaults without opening audio:
 

@@ -157,6 +157,11 @@ SenseVoice uses `--asr-provider sensevoice` and a directory containing the
 verified `model.int8.onnx` and `tokens.txt`. It is final-only, so first-partial
 latency remains unavailable.
 
+Repeat `--utterance-id` up to eight times for a bounded Chinese/mixed-command
+batch. Each phrase gets a fresh capture session and its own post-run
+confirmation scope; the batch output contains aggregate status and per-phrase
+privacy-safe metrics only.
+
 Provider failures are recoverable at the next explicit request when the runtime
 is still available; recognition is never retried implicitly. Default devices
 are re-resolved from a fresh PipeWire inventory, while a missing manually
