@@ -66,6 +66,7 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
             ["--asr-model-directory", "/model"]
         )
         self.assertEqual(parsed.lead_in_seconds, 0.0)
+        self.assertEqual(parsed.asr_provider, "paraformer")
         self.assertEqual(parsed.vad_provider, "webrtc")
 
         args = argparse.Namespace(
@@ -195,10 +196,18 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             model = Path(directory)
             with self.assertRaisesRegex(ValueError, "model.pt"):
-                TOOL._validate_model_directory(model)
+                TOOL._validate_model_directory(model, "paraformer")
             for name in TOOL.PARAFORMER_ARTIFACTS:
                 (model / name).write_bytes(b"test")
-            TOOL._validate_model_directory(model)
+            TOOL._validate_model_directory(model, "paraformer")
+
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory)
+            with self.assertRaisesRegex(ValueError, "model.int8.onnx"):
+                TOOL._validate_model_directory(model, "sensevoice")
+            for name in TOOL.SENSEVOICE_ARTIFACTS:
+                (model / name).write_bytes(b"test")
+            TOOL._validate_model_directory(model, "sensevoice")
 
     def test_loads_only_named_public_utterance(self) -> None:
         loaded = TOOL._load_utterance(

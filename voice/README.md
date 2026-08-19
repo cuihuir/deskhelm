@@ -54,9 +54,11 @@ The fake providers include a deterministic streaming VAD session for benchmark
 and lifecycle tests. `webrtc_vad.py` and `silero_onnx_vad.py` provide the first
 real VAD benchmark adapters with lazy optional imports. `paraformer.py` provides
 the first real streaming ASR benchmark adapter, pinned to a verified model
-revision and the official 600 ms chunk configuration. These providers are not
-selected by the Voice Gateway yet. Paraformer remains a Chinese candidate, not
-the sole production ASR for mixed coding commands. `piper_tts.py` and
+revision and the official 600 ms chunk configuration. `sensevoice.py` provides
+the second, final-only ASR baseline through a compact INT8 sherpa-onnx runtime.
+These providers are not selected by the Voice Gateway yet. Paraformer and
+SenseVoice remain candidates, not production ASR for mixed coding commands.
+`piper_tts.py` and
 `kokoro_tts.py` provide the first lazy, bounded streaming TTS adapters. Piper
 Chaowen is the initial low-latency notification baseline; Kokoro remains the
 quality candidate. Neither is selected as production TTS. The opt-in local
@@ -86,9 +88,9 @@ options. Native execution defaults to `pw-cat`; the verified Distrobox path is
 ## Unified Local Runtime and Live Diagnostic
 
 `runtime/requirements-local-voice-py312.txt` pins the optional CPU runtime used
-to execute Paraformer and Piper together. It includes Piper's Chinese runtime
-dependencies `g2pw` and `sentence-stream`. Install it only into ignored or
-external storage; do not add these dependencies to Bridge.
+to execute Paraformer, SenseVoice, and Piper together. It includes Piper's
+Chinese runtime dependencies `g2pw` and `sentence-stream`. Install it only into
+ignored or external storage; do not add these dependencies to Bridge.
 
 `tools/run-local-voice-live.py` is an explicit bounded microphone/speaker
 diagnostic. It requires `--live-audio`, captures for 2-15 seconds, discards PCM,
@@ -113,8 +115,9 @@ PYTHONPATH=voice /ignored/py312/bin/python tools/run-local-voice-live.py \
 Omit `--vad-provider webrtc` to keep VAD disabled. A VAD miss or runtime
 failure never trims the recording or prevents final ASR.
 
-`tools/run-local-asr-diagnostic.py` isolates microphone input and Paraformer
-from TTS/playback. It prompts one versioned public corpus utterance, captures a
+`tools/run-local-asr-diagnostic.py` isolates microphone input and an explicitly
+selected Paraformer or SenseVoice provider from TTS/playback. It prompts one
+versioned public corpus utterance, captures a
 bounded in-memory recording, suppresses provider output, and reports only:
 
 - duration, peak, RMS, clipped-sample, and near-silence measurements;
@@ -133,6 +136,7 @@ actually spoke during that capture.
 PYTHONPATH=voice /ignored/py312/bin/python \
   tools/run-local-asr-diagnostic.py \
   --live-audio \
+  --asr-provider paraformer \
   --asr-model-directory /ignored/paraformer-snapshot \
   --pw-cat-command-prefix "host-spawn -no-pty pw-cat" \
   --utterance-id zh-repeat-01 \
@@ -148,6 +152,10 @@ Capture starts immediately by default. In chat-driven operation, fixed unseen
 countdowns can place the spoken phrase before the actual capture window. Use a
 long enough capture and explicit pre-run readiness plus post-run confirmation;
 do not rely on a speaker cue or infer participation from VAD alone.
+
+SenseVoice uses `--asr-provider sensevoice` and a directory containing the
+verified `model.int8.onnx` and `tokens.txt`. It is final-only, so first-partial
+latency remains unavailable.
 
 See
 [`docs/research/2026-08-19-local-voice-runtime-and-live-path.md`](../docs/research/2026-08-19-local-voice-runtime-and-live-path.md)
@@ -199,6 +207,7 @@ PYTHONPATH=voice python tools/prepare-asr-benchmark.py \
   --artifact-root references/vendor/paraformer-bench/run-v1
 
 PYTHONPATH=voice python tools/run-asr-benchmark.py \
+  --provider paraformer \
   --manifest voice/benchmarks/asr-external-v1.json \
   --prepared references/vendor/paraformer-bench/run-v1/prepared \
   --model-directory /ignored/pinned/model/snapshot \
@@ -206,6 +215,9 @@ PYTHONPATH=voice python tools/run-asr-benchmark.py \
   --summary voice/benchmarks/results/paraformer-v1-summary.json \
   --repetitions 3 --cpu-threads 4
 ```
+
+Use `--provider sensevoice` with the verified SenseVoice model directory to run
+the same prepared public set and observation contract.
 
 Prepare and run a pinned TTS candidate from an isolated Python 3.12 environment
 containing its optional runtime:

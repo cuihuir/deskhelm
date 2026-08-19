@@ -133,6 +133,8 @@ The live diagnostic and its privacy limits are documented in
 [`research report`](docs/research/2026-08-19-local-voice-runtime-and-live-path.md).
 The separate controlled ASR diagnostic uses a versioned public phrase and
 reports only signal, matching, and latency metrics without speaker playback.
+It supports explicit Paraformer and final-only SenseVoice selection; neither is
+the production default.
 
 Inspect the current PipeWire defaults without opening audio:
 

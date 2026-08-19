@@ -21,6 +21,7 @@ try:
         PcmChunk,
         PcmStreamFormat,
         StreamingAsrResult,
+        SenseVoiceOfflineAsrProvider,
         VadEvent,
         VadEventKind,
         VoiceNoTranscript,
@@ -45,6 +46,7 @@ except ModuleNotFoundError as error:
         PcmChunk,
         PcmStreamFormat,
         StreamingAsrResult,
+        SenseVoiceOfflineAsrProvider,
         VadEvent,
         VadEventKind,
         VoiceNoTranscript,
@@ -69,6 +71,7 @@ PARAFORMER_ARTIFACTS = (
     "am.mvn",
     "seg_dict",
 )
+SENSEVOICE_ARTIFACTS = ("model.int8.onnx", "tokens.txt")
 MAX_VAD_EVENTS = 256
 
 
@@ -76,7 +79,7 @@ def main() -> int:
     args = _parser().parse_args()
     _validate_args(args)
     utterance = _load_utterance(args.corpus, args.utterance_id)
-    _validate_model_directory(args.asr_model_directory)
+    _validate_model_directory(args.asr_model_directory, args.asr_provider)
     audio_config = LocalAudioConfig(
         capture_provider=AudioProviderKind.PIPEWIRE,
         source_name=args.source,
@@ -92,11 +95,7 @@ def main() -> int:
         max_capture_seconds=args.capture_seconds + 2.0,
         max_capture_bytes=1 << 20,
     )
-    provider = ParaformerStreamingAsrProvider(
-        str(args.asr_model_directory),
-        cpu_threads=args.cpu_threads,
-        max_audio_seconds=args.capture_seconds + 2.0,
-    )
+    provider = _create_asr_provider(args)
     vad_provider = (
         WebRtcVadProvider() if args.vad_provider == "webrtc" else None
     )
@@ -121,6 +120,7 @@ def main() -> int:
         {
             "source": selection.source.name,
             "source_description": selection.source.description,
+            "asr_provider": args.asr_provider,
             "utterance_id": utterance.utterance_id,
         }
     )
@@ -136,6 +136,11 @@ def _parser() -> argparse.ArgumentParser:
         )
     )
     parser.add_argument("--live-audio", action="store_true")
+    parser.add_argument(
+        "--asr-provider",
+        choices=("paraformer", "sensevoice"),
+        default="paraformer",
+    )
     parser.add_argument("--asr-model-directory", type=Path, required=True)
     parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
     parser.add_argument("--utterance-id", default=DEFAULT_UTTERANCE_ID)
@@ -188,12 +193,33 @@ def _load_utterance(path: Path, utterance_id: str) -> BenchmarkUtterance:
     return matches[0]
 
 
-def _validate_model_directory(path: Path) -> None:
+def _validate_model_directory(path: Path, provider: str) -> None:
     if not path.is_dir():
-        raise ValueError("Paraformer model directory is unavailable")
-    for name in PARAFORMER_ARTIFACTS:
+        raise ValueError(f"{provider} model directory is unavailable")
+    artifacts = (
+        PARAFORMER_ARTIFACTS
+        if provider == "paraformer"
+        else SENSEVOICE_ARTIFACTS
+    )
+    for name in artifacts:
         if not (path / name).is_file():
-            raise ValueError(f"Paraformer {name} is unavailable")
+            raise ValueError(f"{provider} {name} is unavailable")
+
+
+def _create_asr_provider(args: argparse.Namespace):
+    common = {
+        "cpu_threads": args.cpu_threads,
+        "max_audio_seconds": args.capture_seconds + 2.0,
+    }
+    if args.asr_provider == "sensevoice":
+        return SenseVoiceOfflineAsrProvider(
+            str(args.asr_model_directory),
+            **common,
+        )
+    return ParaformerStreamingAsrProvider(
+        str(args.asr_model_directory),
+        **common,
+    )
 
 
 def _capture_for_duration(provider, seconds: float) -> CapturedAudio:

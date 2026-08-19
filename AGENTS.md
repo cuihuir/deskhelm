@@ -267,6 +267,10 @@ Keep third-party reference files outside version control under
   requirements. Pin benchmark model revisions and checksums, use one streaming
   cache per transcription, serialize access to a shared model, and distinguish
   offline first-partial estimates from live capture-to-UI latency.
+- Keep SenseVoice/sherpa-onnx dependencies lazy and outside Bridge requirements.
+  Treat SenseVoice as final-only, serialize the shared recognizer, report no
+  first partial, and do not describe VAD-segmented offline decode as streaming.
+  Review FunASR Model License 1.1 before packaging or production selection.
 - Keep Piper and Kokoro dependencies lazy and outside Bridge requirements. Pin
   runtime/model revisions, licenses, artifact sizes, and checksums. Piper is the
   initial low-latency notification baseline; Kokoro remains the quality
@@ -367,11 +371,12 @@ Current commands:
   voice/benchmarks/asr-external-v1.json --artifact-root
   references/vendor/paraformer-bench/run-v1`: verify and prepare the pinned ASR
   set under ignored storage.
-- `PYTHONPATH=voice python tools/run-asr-benchmark.py --manifest
+- `PYTHONPATH=voice python tools/run-asr-benchmark.py --provider
+  <paraformer|sensevoice> --manifest
   voice/benchmarks/asr-external-v1.json --prepared
   references/vendor/paraformer-bench/run-v1/prepared --model-directory
   <ignored-model-snapshot> --observations <results.ndjson> --summary
-  <summary.json>`: run the pinned Paraformer baseline from its isolated runtime.
+  <summary.json>`: run a pinned ASR baseline from its isolated runtime.
 - `PYTHONPATH=voice python tools/prepare-tts-benchmark.py --manifest
   voice/benchmarks/tts-candidates-v1.json --artifact-root
   references/vendor/tts-bench/run-v1`: verify and prepare pinned TTS artifacts

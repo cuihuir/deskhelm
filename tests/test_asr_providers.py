@@ -11,6 +11,7 @@ from voice.deskhelm_voice import (
     AsrRunManifest,
     CapturedAudio,
     ParaformerStreamingAsrProvider,
+    SenseVoiceOfflineAsrProvider,
     StreamingAsrResult,
     Transcript,
     VoiceCancelled,
@@ -174,6 +175,89 @@ class AsrProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(str(caught.exception), "")
+
+    def test_sensevoice_is_lazy_final_only_and_bounded(self) -> None:
+        created = []
+
+        class Result:
+            text = "运行测试"
+
+        class Stream:
+            result = Result()
+
+            def accept_waveform(self, sample_rate, samples):
+                self.sample_rate = sample_rate
+                self.sample_count = len(samples)
+
+        class Recognizer:
+            def create_stream(self):
+                self.stream = Stream()
+                return self.stream
+
+            def decode_stream(self, stream):
+                self.decoded = stream
+
+        def factory(**kwargs):
+            created.append(kwargs)
+            return Recognizer()
+
+        provider = SenseVoiceOfflineAsrProvider(
+            "/model",
+            cpu_threads=3,
+            recognizer_factory=factory,
+        )
+        self.assertEqual(created, [])
+        result = provider.transcribe_streaming(
+            CapturedAudio(b"\x00\x01" * 160, sample_rate_hz=16000),
+            Event(),
+        )
+
+        self.assertEqual(result.transcript.normalized_text, "运行测试")
+        self.assertIsNone(result.first_partial_latency_ms)
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0]["num_threads"], 3)
+        self.assertEqual(created[0]["language"], "auto")
+        self.assertTrue(created[0]["use_itn"])
+        self.assertTrue(created[0]["model"].endswith("model.int8.onnx"))
+
+        with self.assertRaisesRegex(ValueError, "16 kHz mono"):
+            provider.transcribe(
+                CapturedAudio(b"\x00\x00", sample_rate_hz=8000),
+                Event(),
+            )
+        with self.assertRaisesRegex(ValueError, "language"):
+            SenseVoiceOfflineAsrProvider("/model", language="invalid")
+
+    def test_sensevoice_empty_and_cancelled_results_are_private(self) -> None:
+        class Result:
+            text = ""
+
+        class Stream:
+            result = Result()
+
+            def accept_waveform(self, _sample_rate, _samples):
+                pass
+
+        class Recognizer:
+            def create_stream(self):
+                return Stream()
+
+            def decode_stream(self, _stream):
+                pass
+
+        provider = SenseVoiceOfflineAsrProvider(
+            "/model",
+            recognizer_factory=lambda **_kwargs: Recognizer(),
+        )
+        audio = CapturedAudio(b"\x00\x00" * 160, sample_rate_hz=16000)
+        with self.assertRaises(VoiceNoTranscript) as caught:
+            provider.transcribe(audio, Event())
+        self.assertEqual(str(caught.exception), "")
+
+        cancelled = Event()
+        cancelled.set()
+        with self.assertRaises(VoiceCancelled):
+            provider.transcribe(audio, cancelled)
 
 
 if __name__ == "__main__":

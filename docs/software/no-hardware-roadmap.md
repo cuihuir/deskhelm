@@ -107,6 +107,7 @@ Status: In Progress
 - [ ] Expand VAD measurements to conversational/noisy audio and live devices,
   then select the production default.
 - [x] Benchmark Paraformer for streaming ASR.
+- [x] Benchmark SenseVoice/sherpa-onnx as a final-only alternative ASR baseline.
 - [x] Benchmark Piper and Kokoro for notification TTS.
 - [x] Build one isolated Paraformer/Piper runtime and verify a real bounded
   `PTT -> final ASR -> fixed TTS -> PipeWire playback` diagnostic.
@@ -133,9 +134,9 @@ Acceptance criteria:
    PipeWire interruption before selecting a production voice.
 2. Expand VAD coverage to noisy/conversational speech, threshold sweeps, and
    live PipeWire latency before selecting a default.
-3. Expand ASR coverage to consented Chinese/mixed coding commands with
-   controlled input gain, compare an alternative ASR, and measure recovery
-   before selecting a default.
+3. Expand Paraformer/SenseVoice coverage to consented Chinese/mixed coding
+   commands with controlled input gain, compare recovery, and retain
+   whisper.cpp as a licensing/quality fallback before selecting a default.
 4. Test VAD disconnect/runtime failure, threshold behavior, and repeated live
    utterances without granting it endpoint control.
 5. Add a multi-project working-directory registry before one Bridge process

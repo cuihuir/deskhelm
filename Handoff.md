@@ -91,6 +91,14 @@ diagnostic now also reports advisory speech segment count, active duration, and
 active fraction without allowing VAD to gate ASR. An immediate-capture,
 user-confirmed run improved CER to 0.181818 with full keyword accuracy and
 0.579396 speech-active fraction; it is the current live baseline.
+The second ASR baseline is now implemented and measured: SenseVoiceSmall through
+`sherpa-onnx` uses a verified INT8 ONNX artifact, a lazy final-only adapter, and
+the same privacy-safe diagnostic contract. Its public run completed 24/24
+observations with 412.512 MiB peak RSS and 0.055813 mean RTF, but failed most
+isolated English digit clips. A user-confirmed synchronized live run recovered
+both keywords with 0.136364 CER and 1,328.308 ms cold-process final latency,
+improving on the current Paraformer live phrase. Neither provider is selected
+as production ASR; SenseVoice's custom FunASR model license also needs review.
 
 ## Completed Work
 
@@ -264,6 +272,16 @@ user-confirmed run improved CER to 0.181818 with full keyword accuracy and
   1.3.21 and CPU-only PyTorch/torchaudio 2.11.0. Mean CER was 0.438, English WER
   0.643, keyword accuracy 0.438, mean RTF 0.121, estimated first-partial p50/p95
   376/1,848 ms, cold load 4.97 seconds, and peak RSS 3.09 GiB.
+- Accepted ADR 0020 and added a lazy, serialized, final-only SenseVoiceSmall
+  adapter through `sherpa-onnx` 1.13.6. The verified INT8 release artifact is
+  pinned by GitHub asset ID plus archive, model, and token SHA-256 values.
+- Ran 24/24 successful SenseVoice observations on the same public ASR set. Mean
+  RTF was 0.055813, final latency p50/p95 was 21.726/122.086 ms, cold load was
+  681.488 ms, and peak RSS was 412.512 MiB. Long Chinese/English samples were
+  strong, while six isolated English digits exposed a severe short-command gap.
+- Ran one synchronized user-confirmed SenseVoice microphone diagnostic on the
+  same public Chinese phrase. It matched both keywords with 0.136364 CER and
+  1,328.308 ms cold-process final latency without saving PCM or recognized text.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -541,6 +559,9 @@ user-confirmed run improved CER to 0.181818 with full keyword accuracy and
   candidates, dependency isolation, FSDD provenance, and selection limits.
 - `docs/decisions/0014-use-paraformer-as-initial-streaming-asr-baseline.md`:
   pinned model/runtime identity, streaming configuration, bounds, and limits.
+- `docs/decisions/0020-evaluate-sensevoice-as-second-asr-baseline.md`: selected
+  comparison, immutable artifact identity, final-only semantics, and license
+  risk.
 - `docs/decisions/0015-use-piper-as-initial-notification-tts-baseline.md`:
   initial TTS baseline, streaming semantics, licensing, and selection limits.
 - `docs/decisions/0016-explicit-local-audio-selection-and-diagnostics.md`:
@@ -567,6 +588,8 @@ user-confirmed run improved CER to 0.181818 with full keyword accuracy and
 - `docs/research/2026-08-19-controlled-live-asr-diagnostic.md`: controlled
   public-phrase contract, first real signal/ASR metrics, interpretation, and
   remaining evidence.
+- `docs/research/2026-08-19-sensevoice-second-asr-baseline.md`: candidate
+  comparison, pinned artifacts, public/live results, and licensing boundary.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -608,7 +631,7 @@ user-confirmed run improved CER to 0.181818 with full keyword accuracy and
 - `voice/deskhelm_voice/local_gateway.py`: provisional provider selection,
   artifact preflight, bounds, and lazy Voice Gateway construction.
 - `voice/runtime/requirements-local-voice-py312.txt`: pinned optional combined
-  Paraformer/Piper CPU runtime.
+  Paraformer/SenseVoice/Piper CPU runtime.
 - `voice/deskhelm_voice/streaming.py`: frame-positioned PCM chunks, speech
   boundaries, and segment models.
 - `voice/deskhelm_voice/benchmark.py`: bounded runners, observation models,
@@ -628,6 +651,8 @@ user-confirmed run improved CER to 0.181818 with full keyword accuracy and
 - `voice/deskhelm_voice/silero_onnx_vad.py`: lazy stateful Silero ONNX adapter.
 - `voice/deskhelm_voice/paraformer.py`: lazy bounded streaming Paraformer ASR
   adapter and offline first-partial measurement.
+- `voice/deskhelm_voice/sensevoice.py`: lazy bounded final-only SenseVoice ASR
+  adapter with serialized inference and explicit cancellation boundaries.
 - `voice/deskhelm_voice/asr_manifest.py`: bounded external ASR manifest and
   prepared-set checksum/duration validation.
 - `voice/deskhelm_voice/piper_tts.py`: lazy bounded Piper provider with pinned
@@ -641,8 +666,8 @@ user-confirmed run improved CER to 0.181818 with full keyword accuracy and
 - `tools/run-vad-benchmark.py`: isolated candidate runner and NDJSON writer.
 - `tools/prepare-asr-benchmark.py`: bounded ASR download, checksum verification,
   conversion, and prepared-index generation.
-- `tools/run-asr-benchmark.py`: pinned model verification, isolated Paraformer
-  run, observations, resource metadata, and summary output.
+- `tools/run-asr-benchmark.py`: explicit Paraformer/SenseVoice verification and
+  isolated runs, observations, resource metadata, and summary output.
 - `tools/prepare-tts-benchmark.py`: bounded downloads, verification, and safe
   G2PW extraction.
 - `tools/run-tts-benchmark.py`: isolated candidate runner, WAV export,
@@ -650,7 +675,7 @@ user-confirmed run improved CER to 0.181818 with full keyword accuracy and
 - `tools/run-local-voice-live.py`: explicit privacy-safe live capture, ASR,
   fixed-response TTS, playback, and timing diagnostic.
 - `tools/run-local-asr-diagnostic.py`: controlled public-phrase microphone and
-  Paraformer diagnostic with privacy-safe signal, accuracy, and latency output.
+  selectable ASR diagnostic with privacy-safe signal, accuracy, and latency.
 - `bridge/deskhelm_bridge/voice_integration.py`: transcript, interaction, and
   control composition between Bridge and Voice.
 - `adapters/codex/deskhelm_codex_adapter/provider.py`: Codex command, stdin,
@@ -693,7 +718,7 @@ Last verified on 2026-08-19:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 210 tests passed under the workstation resource limiter with strict
+Result: 212 tests passed under the workstation resource limiter with strict
 `ResourceWarning` handling. This includes the existing Bridge, protocol,
 adapter, voice, benchmark, and fake-subprocess PipeWire coverage plus streaming
 capture continuity, bounds, premature-end, cleanup, compatibility, empty-ASR
@@ -702,7 +727,7 @@ composition, and privacy-safe live-summary tests. The full unit suite opened no
 live audio device and did not import optional model runtimes. Eight focused
 tests cover controlled ASR diagnostic bounds, corpus selection, signal hints,
 aggregate VAD activity, VAD failure isolation, metric output, provider-output
-suppression, and fixed failures.
+suppression, fixed failures, and lazy final-only SenseVoice behavior.
 
 An additional startup smoke test used the current PipeWire graph and ignored
 prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local
@@ -723,6 +748,13 @@ recorded 4.97-second cold load, 3.09 GiB process peak RSS, 0.121 mean RTF, and
 the accuracy/latency results in the dated research report. The Python 3.12
 environment, weights, downloaded/prepared audio, raw NDJSON, and local summary
 remain ignored.
+
+The isolated SenseVoice run passed with 24/24 successful observations across
+the same eight samples and three repetitions. It verified the GitHub archive
+digest plus extracted model/token checksums, recorded 681.488 ms cold load,
+412.512 MiB peak RSS, 0.055813 mean RTF, and the accuracy/latency results in the
+dated report. The wheel, model, raw observations, and local summary remain
+ignored.
 
 The isolated TTS run passed with 36/36 successful observations per candidate,
 and a post-change offline smoke run passed with 12/12 per candidate. The dated
@@ -784,6 +816,13 @@ The final confirmed immediate-capture run recorded 384,970 bytes over
 (`0.579396` active fraction). Paraformer returned 18 characters with both
 keywords, 0.181818 CER, first partial at 4,850.187 ms, and final output at
 8,008.233 ms. Peak was 0.779144, RMS was 0.091119, and no samples clipped.
+
+The synchronized SenseVoice comparison was also user-confirmed as spoken. It
+captured 384,970 bytes over 12,030.312 ms, returned 19 characters, matched both
+keywords, and recorded 0.136364 CER with 1,328.308 ms cold-process final ASR.
+WebRTC reported two advisory segments totaling 4,700 ms. Peak was 0.696960, RMS
+was 0.086324, and no samples clipped. PCM and recognized text were not saved or
+printed.
 
 Live local audio diagnostics resolved three sources and three sinks. Two-second
 default and manual USB-source tests each captured about 1.98 seconds of 16 kHz
@@ -871,6 +910,9 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   spacing, isolated digits, about 3.09 GiB peak RSS, and cancellation only
   between inference calls also remain product risks. It is not selected as the
   sole production ASR.
+- SenseVoice is final-only and cannot provide partials or cancel its native
+  decode midway. It missed most isolated English digit clips, and its custom
+  FunASR Model License 1.1 requires review before packaging or production use.
 - Piper and Kokoro performance, resources, provider-chunk first audio,
   interruption boundaries, and licenses are measured, but human quality and
   actual playback latency are not. Piper produced a very small full-scale
@@ -878,11 +920,11 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Next Step
 
-Select and integrate one alternative Chinese or multilingual ASR behind the
-same controlled diagnostic contract, then compare synchronized Chinese and
-mixed commands on keyword accuracy, CER, latency, memory, cancellation, and
-licensing. Expand live VAD threshold/noise evidence and recovery tests without
-granting it endpoint control. Separately define actual speaker-first-audio and
-interruption instrumentation. Keep every provider replaceable and obtain the
-repository license decision before packaging Piper or accepting external
-contributions.
+Expand synchronized Paraformer/SenseVoice coverage to repeated Chinese and
+mixed coding commands, then measure timeout, disconnect, default-device change,
+and provider recovery. Retain whisper.cpp as the next licensing/quality fallback
+before selecting a production ASR. Expand live VAD threshold/noise evidence
+without granting endpoint control, and separately define actual
+speaker-first-audio and interruption instrumentation. Keep every provider
+replaceable and obtain the repository license decision before packaging models
+or accepting external contributions.

@@ -6,6 +6,7 @@ numpy==2.5.2
 onnxruntime==1.29.0
 piper-tts==1.7.0
 sentence-stream==1.3.0
+sherpa-onnx==1.13.6
 torch==2.11.0+cpu
 torchaudio==2.11.0+cpu
 unicode-rbnf==2.4.0

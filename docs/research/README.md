@@ -35,3 +35,6 @@
 - [`2026-08-19-controlled-live-asr-diagnostic.md`](2026-08-19-controlled-live-asr-diagnostic.md)
   — 公开短语麦克风/ASR 诊断契约、两次未说话负对照，以及首轮用户确认
   朗读后的 VAD 活动、关键词、CER、延迟与同步证据。
+- [`2026-08-19-sensevoice-second-asr-baseline.md`](2026-08-19-sensevoice-second-asr-baseline.md)
+  — SenseVoice/sherpa-onnx 与 whisper.cpp 选择、不可变制品、许可边界和
+  首轮公开音频对比。

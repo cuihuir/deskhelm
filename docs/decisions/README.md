@@ -30,3 +30,7 @@ deferring VAD until the gateway has a real streaming capture path.
 [`0019-advisory-live-vad-with-ptt-fallback.md`](0019-advisory-live-vad-with-ptt-fallback.md)
 attaches optional live VAD as bounded activity observation while keeping PTT
 release authoritative and isolating VAD failure from final ASR.
+
+[`0020-evaluate-sensevoice-as-second-asr-baseline.md`](0020-evaluate-sensevoice-as-second-asr-baseline.md)
+selects a compact final-only SenseVoice/sherpa-onnx comparison while recording
+its non-streaming boundary and custom model-license risk.
