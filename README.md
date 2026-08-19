@@ -53,9 +53,11 @@ dependencies in Bridge. Voice benchmarking now has a versioned Chinese,
 English, and mixed-language corpus plus bounded provider-neutral accuracy,
 latency, resource, and licensing observations. The first real local audio
 boundary is now available as bounded PipeWire capture/playback providers using
-explicit raw PCM, the current default devices or stable-name overrides. The CLI
-does not activate live audio yet. A frame-positioned streaming PCM/VAD session
-contract and bounded provider-neutral VAD benchmark are also implemented. The
+explicit raw PCM, the current default devices or stable-name overrides. The
+CLI now provides read-only discovery plus explicit input/output diagnostics;
+the Bridge service does not yet activate a full model-backed voice path. A
+frame-positioned streaming PCM/VAD session contract and bounded
+provider-neutral VAD benchmark are also implemented. The
 first pinned FSDD comparison now runs WebRTC and Silero ONNX adapters outside
 Bridge; broader noisy/live evidence is still required before selecting a
 production VAD. The first pinned Paraformer streaming ASR run is also complete:
@@ -103,6 +105,20 @@ PYTHONPATH=bridge:adapters/codex python3 -m deskhelm_bridge bridge --plain \
 
 The provider is disabled by default and uses the Codex read-only sandbox unless
 `--codex-sandbox workspace-write` is selected explicitly.
+
+Inspect the current PipeWire defaults without opening audio:
+
+```bash
+PYTHONPATH=bridge:voice python3 -m deskhelm_bridge audio status --list
+```
+
+Explicit diagnostics capture PCM only in memory and discard it, or play a short
+low-volume tone:
+
+```bash
+PYTHONPATH=bridge:voice python3 -m deskhelm_bridge audio test-input --seconds 2
+PYTHONPATH=bridge:voice python3 -m deskhelm_bridge audio test-output
+```
 
 In another terminal, run the four-agent simulator:
 

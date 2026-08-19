@@ -27,3 +27,5 @@
   — Paraformer 流式中文/英文样本、首个 partial 估算、资源占用和准确率边界。
 - [`2026-08-18-piper-kokoro-first-benchmark.md`](2026-08-18-piper-kokoro-first-benchmark.md)
   — Piper 与 Kokoro 的首轮延迟、资源、中断、许可和 ASR 可懂度代理对比。
+- [`2026-08-19-local-audio-diagnostics.md`](2026-08-19-local-audio-diagnostics.md)
+  — PipeWire 默认/手工设备选择、隐私安全实机输入输出诊断与启动边界。

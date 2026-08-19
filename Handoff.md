@@ -1,6 +1,6 @@
 # Handoff
 
-Date: 2026-08-18
+Date: 2026-08-19
 
 Project: DeskHelm
 
@@ -55,7 +55,11 @@ commands performed poorly. The first Piper/Kokoro TTS comparison is complete
 with 36/36 successful observations per candidate. Piper is now the initial
 low-latency notification baseline; Kokoro remains the quality candidate, and a
 final production voice awaits human listening, live playback, recovery, and
-packaging license evidence.
+packaging license evidence. Application-level local audio selection and
+diagnostics are now implemented: the CLI can resolve/list PipeWire defaults or
+stable manual targets without opening audio, explicitly test an input while
+discarding PCM, and explicitly play a bounded low-volume output tone. This does
+not yet activate model-backed voice in the Bridge service.
 
 ## Completed Work
 
@@ -243,6 +247,16 @@ packaging license evidence.
   explicitly model-dependent intelligibility proxy. Both candidates were strong
   on Chinese-only keywords and weak on mixed coding commands; no human quality
   or MOS claim was made.
+- Accepted ADR 0016: keep local audio selection explicit and process-local,
+  prefer manual stable names over current defaults, fail without fallback when
+  a manual target is absent, and separate read-only discovery from active tests.
+- Added bounded `pw-dump`/`wpctl` discovery, validated provider/device
+  composition, `deskhelm audio status`, explicit signal-only input diagnostics,
+  and explicit short low-volume output diagnostics.
+- Verified the current default USB mono microphone and internal stereo sink.
+  Two-second default and manual-source input tests succeeded without saving
+  PCM, and a 250 ms default-sink tone succeeded. A one-second input test
+  produced no audio during device startup and failed explicitly.
 - Recorded ESP32-S3 wireless-audio research: BLE HID for keyboard controls,
   reliable BLE/Wi-Fi state, and Wi-Fi Opus as the preferred future voice path.
 - Selected a simpler local POC path: follow the computer's current PipeWire
@@ -347,12 +361,18 @@ packaging license evidence.
   1 MiB; playback defaults to 120 seconds and 16 MiB.
 - PipeWire providers use raw `pw-cat`, own a process session, suppress stderr,
   poll stop/cancel, and terminate then kill their process group within a bounded
-  grace period. They remain composition-layer options and are not CLI defaults.
+  grace period. They remain composition-layer options and are not Bridge
+  service defaults.
 - The local POC follows the computer's current PipeWire default source and sink.
   Users may override either with a stable node name; a missing explicit override
   fails recoverably instead of silently falling back. Opus is reserved for a
   constrained future wireless link, with an initial research profile of 16 kHz
   mono, 20 ms frames, and 24 kbps VoIP mode.
+- Local audio selection is process-local. Read-only status never opens audio;
+  input/output tests require explicit commands. Diagnostic input is reduced to
+  duration/peak/RMS metadata and discarded.
+- The audio diagnostic CLI does not select VAD, ASR, or TTS and does not enable
+  the Bridge Voice Gateway. External PTT and model composition remain separate.
 - After hardware integration, the DeskHelm keyboard microphone becomes the
   default input when connected, unless the user manually chose another source.
   Disconnect fallback and user notification remain an ADR decision.
@@ -434,6 +454,8 @@ packaging license evidence.
   pinned model/runtime identity, streaming configuration, bounds, and limits.
 - `docs/decisions/0015-use-piper-as-initial-notification-tts-baseline.md`:
   initial TTS baseline, streaming semantics, licensing, and selection limits.
+- `docs/decisions/0016-explicit-local-audio-selection-and-diagnostics.md`:
+  provider/device selection, privacy-safe diagnostics, and deferred composition.
 - `docs/research/2026-08-18-pipewire-preflight.md`: verified local PipeWire
   capabilities and provider-design implications.
 - `docs/research/2026-08-18-esp32-s3-audio-transport.md`: official ESP32-S3 and
@@ -444,6 +466,8 @@ packaging license evidence.
   external-set provenance, measurements, per-sample results, and next evidence.
 - `docs/research/2026-08-18-piper-kokoro-first-benchmark.md`: pinned TTS
   identities, performance, interruption, proxy intelligibility, and gaps.
+- `docs/research/2026-08-19-local-audio-diagnostics.md`: current PipeWire
+  inventory, live default/manual tests, signal metadata, and startup gap.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -479,6 +503,8 @@ packaging license evidence.
 - `voice/deskhelm_voice/fake_providers.py`: deterministic no-hardware providers.
 - `voice/deskhelm_voice/pipewire.py`: bounded raw-PCM `pw-cat` capture and
   playback providers.
+- `voice/deskhelm_voice/audio_config.py`: bounded discovery, provider/device
+  selection, signal-only input reports, and generated output tones.
 - `voice/deskhelm_voice/streaming.py`: frame-positioned PCM chunks, speech
   boundaries, and segment models.
 - `voice/deskhelm_voice/benchmark.py`: bounded runners, observation models,
@@ -535,6 +561,8 @@ packaging license evidence.
   result, lazy loading, input bounds, cancellation, and validation coverage.
 - `tests/test_tts_providers.py`: TTS manifest, benchmark metrics, provider
   routing, lazy loading, bounds, and cancellation coverage.
+- `tests/test_audio_config.py`: synthetic discovery, default/manual selection,
+  provider composition, diagnostics, and CLI argument coverage.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
 - `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
   connection role dispatch.
@@ -543,17 +571,18 @@ packaging license evidence.
 
 ## Validation
 
-Last verified on 2026-08-18:
+Last verified on 2026-08-19:
 
 ```bash
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 172 tests passed under the workstation resource limiter, including
+Result: 177 tests passed under the workstation resource limiter, including
 strict `ResourceWarning` handling, 13 fake-subprocess PipeWire/PCM tests, 7
 streaming VAD benchmark tests, 4 VAD manifest/provider tests, and 4 new ASR
-manifest/provider tests plus 4 TTS manifest/provider tests. The full unit suite
-opened no live audio device and did not import optional model runtimes.
+manifest/provider tests, 4 TTS manifest/provider tests, and 5 audio
+configuration/diagnostic tests. The full unit suite opened no live audio device
+and did not import optional model runtimes.
 
 The isolated real-candidate run also passed with 35/35 successful observations
 for both WebRTC and Silero. Downloaded FSDD audio, prepared WAV files, the ONNX
@@ -571,6 +600,12 @@ and a post-change offline smoke run passed with 12/12 per candidate. The dated
 research report records exact performance, memory, interruption, licensing,
 signal, and ASR-proxy results. Environments, weights, generated WAV files, raw
 NDJSON, proxy output, and local summaries remain ignored.
+
+Live local audio diagnostics resolved three sources and three sinks. Two-second
+default and manual USB-source tests each captured about 1.98 seconds of 16 kHz
+mono S16LE PCM and discarded it after signal measurement. The default internal
+sink played a 250 ms, 660 Hz, 5% level tone. A one-second input test returned no
+audio and failed explicitly; hot unplug and default changes remain untested.
 
 Repository checks also passed:
 
@@ -595,8 +630,8 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
    alternative model before selecting production defaults.
 3. Expand VAD to noisy/conversational labeled audio and live-device threshold
    measurements.
-4. Add application-level audio provider/device configuration and measure live
-   default/manual target plus disconnect/reconnect recovery behavior.
+4. Add external PTT controls and compose provisional VAD/ASR/TTS providers with
+   the application audio boundary; then test disconnect/reconnect recovery.
 5. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.
 
@@ -608,17 +643,19 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 - The current text gateway handles prompt submission and interruption.
   Approval and rejection remain unavailable; speech handlers exist only when a
   Voice Gateway is explicitly composed into the Bridge.
-- PipeWire capture/playback providers exist, but the Bridge CLI does not select
-  them yet. Production VAD/ASR/TTS selection, streaming PipeWire capture,
-  device enumeration, and live recovery are not implemented.
+- PipeWire discovery and explicit diagnostics exist, but the Bridge service
+  does not compose production VAD/ASR/TTS or expose external PTT controls.
+  Streaming capture and live recovery are not implemented.
 - The benchmark runner records VAD compute/detection timing, batch ASR final
   latency, Paraformer offline first-partial estimates, and provider-chunk TTS
   first audio/interruption. Live capture-to-decision/partial,
   playback-to-speaker first audio, mid-inference interruption, and recovery
   timing remain unmeasured.
-- PipeWire lifecycle behavior is validated with fake subprocesses only. Live
-  source/sink access, unavailable explicit targets, hot unplug, default-device
-  changes, and actual audio latency remain unverified by design.
+- Basic live default/manual input and default output access is verified. A
+  one-second USB input test returned no PCM while two-second tests succeeded,
+  so startup/readiness needs an explicit product policy. Hot unplug,
+  default-device changes during a stream, and actual end-to-end latency remain
+  unverified.
 - Adapter registrations are process-local and must be re-established after a
   Bridge restart. No durable session history or replay is promised.
 - Approval tracking is bounded. When its capacity is exhausted, new approval
@@ -653,10 +690,11 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Next Step
 
-Add explicit application-level audio provider/device selection and exercise the
-first live no-hardware path with the current PipeWire default devices. Measure
-capture, playback, interruption, and disconnect/reconnect behavior without
-making Piper, Paraformer, WebRTC, or Silero final production defaults. In
-parallel planning, define blinded TTS listening and a consented Chinese/mixed
-coding-command ASR set with one alternative to Paraformer. Obtain the repository
-license decision before packaging Piper or accepting external contributions.
+Define targeted external PTT press/release controls, then compose the current
+provisional PipeWire, VAD, Paraformer, and Piper boundaries into an opt-in local
+Voice Gateway path. Keep every provider replaceable and measure capture-to-
+partial, release-to-final, playback first audio, interruption, startup, and
+disconnect/reconnect behavior before selecting production defaults. In parallel
+planning, define blinded TTS listening and a consented Chinese/mixed command ASR
+set with one alternative to Paraformer. Obtain the repository license decision
+before packaging Piper or accepting external contributions.

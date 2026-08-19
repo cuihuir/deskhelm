@@ -29,10 +29,15 @@ tests. `pipewire.py` provides bounded raw-PCM capture and playback through
 set, or accepts a manually selected stable node name. Numeric object IDs are
 rejected because they are not durable across PipeWire graph changes.
 
-The PipeWire providers are library boundaries only and are not selected by the
-Bridge CLI yet. Capture defaults to 16 kHz mono S16LE, 30 seconds, and 1 MiB;
-playback defaults to 120 seconds and 16 MiB. Both own and terminate their
-subprocess groups, suppress private stderr, and expose fixed recoverable errors.
+`audio_config.py` adds process-local provider/device selection and bounded
+PipeWire discovery. `deskhelm audio status` resolves defaults or manual stable
+names without opening audio. The explicit `test-input` command discards PCM
+after reporting duration, peak, and RMS; `test-output` plays a short low-volume
+tone. These diagnostics do not enable model-backed voice in the Bridge service.
+
+Capture defaults to 16 kHz mono S16LE, 30 seconds, and 1 MiB; playback defaults
+to 120 seconds and 16 MiB. Both own and terminate their subprocess groups,
+suppress private stderr, and expose fixed recoverable errors.
 The fake providers include a deterministic streaming VAD session for benchmark
 and lifecycle tests. `webrtc_vad.py` and `silero_onnx_vad.py` provide the first
 real VAD benchmark adapters with lazy optional imports. `paraformer.py` provides

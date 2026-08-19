@@ -91,6 +91,8 @@ Status: In Progress
 
 - [x] Add PipeWire capture from the default or manually selected input source.
 - [x] Add PipeWire playback through the computer's configured/default sink.
+- [x] Add application-level provider selection, stable-name validation, and
+  explicit input/output diagnostics.
 - [x] Define the streaming PCM and provider-neutral VAD benchmark boundary.
 - [x] Benchmark initial WebRTC and Silero ONNX VAD candidates on a pinned public
   audio set.
@@ -118,7 +120,7 @@ Acceptance criteria:
    live PipeWire latency before selecting a default.
 3. Expand ASR coverage to consented Chinese/mixed coding commands, compare an
    alternative ASR, and measure live capture/recovery before selecting a default.
-4. Add explicit provider selection and stable-name device configuration at the
-   application composition boundary.
+4. Add external PTT controls and compose selected VAD/ASR/TTS providers with
+   the application audio boundary.
 5. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
+import json
 from pathlib import Path
 import sys
+from threading import Event
 import time
+from typing import Any
 
 from .client import send_event
 from .event import AgentEvent, AgentState, ProtocolError
@@ -50,6 +54,37 @@ def build_parser() -> argparse.ArgumentParser:
         default="read-only",
     )
 
+    audio = subparsers.add_parser(
+        "audio",
+        help="inspect or explicitly test local audio devices",
+    )
+    audio_commands = audio.add_subparsers(dest="audio_command", required=True)
+    audio_status = audio_commands.add_parser(
+        "status",
+        help="resolve PipeWire providers and devices without opening audio",
+    )
+    _add_audio_arguments(audio_status)
+    audio_status.add_argument("--list", action="store_true")
+    audio_status.add_argument("--json", action="store_true")
+
+    audio_input = audio_commands.add_parser(
+        "test-input",
+        help="capture a short signal test and discard the PCM",
+    )
+    _add_audio_arguments(audio_input)
+    audio_input.add_argument("--seconds", type=float, default=2.0)
+    audio_input.add_argument("--json", action="store_true")
+
+    audio_output = audio_commands.add_parser(
+        "test-output",
+        help="play a short low-volume test tone",
+    )
+    _add_audio_arguments(audio_output)
+    audio_output.add_argument("--seconds", type=float, default=0.25)
+    audio_output.add_argument("--frequency-hz", type=float, default=660.0)
+    audio_output.add_argument("--level", type=float, default=0.08)
+    audio_output.add_argument("--json", action="store_true")
+
     emit = subparsers.add_parser("emit", help="send one normalized event")
     add_socket_argument(emit)
     emit.add_argument("--agent-id", required=True)
@@ -63,6 +98,24 @@ def build_parser() -> argparse.ArgumentParser:
     simulate.add_argument("--delay", type=float, default=0.35)
     simulate.add_argument("--cycles", type=int, default=1)
     return parser
+
+
+def _add_audio_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--capture-provider",
+        choices=("pipewire",),
+        default="pipewire",
+    )
+    parser.add_argument(
+        "--playback-provider",
+        choices=("pipewire",),
+        default="pipewire",
+    )
+    parser.add_argument("--source", help="stable PipeWire source node name")
+    parser.add_argument("--sink", help="stable PipeWire sink node name")
+    parser.add_argument("--latency", default="20ms")
+    parser.add_argument("--pw-dump-executable", default="pw-dump")
+    parser.add_argument("--wpctl-executable", default="wpctl")
 
 
 def emit_event(args: argparse.Namespace) -> None:
@@ -105,6 +158,156 @@ def simulate(args: argparse.Namespace) -> None:
                     args.socket,
                 )
             time.sleep(args.delay)
+
+
+def audio_command(args: argparse.Namespace) -> None:
+    try:
+        from deskhelm_voice import (
+            AudioProviderKind,
+            LocalAudioConfig,
+            create_test_tone,
+            discover_pipewire_audio,
+            test_audio_input,
+        )
+    except ModuleNotFoundError as error:
+        if error.name != "deskhelm_voice":
+            raise
+        from voice.deskhelm_voice import (
+            AudioProviderKind,
+            LocalAudioConfig,
+            create_test_tone,
+            discover_pipewire_audio,
+            test_audio_input,
+        )
+
+    config = LocalAudioConfig(
+        capture_provider=AudioProviderKind(args.capture_provider),
+        playback_provider=AudioProviderKind(args.playback_provider),
+        source_name=args.source,
+        sink_name=args.sink,
+        latency=args.latency,
+    )
+    inventory = discover_pipewire_audio(
+        pw_dump_executable=args.pw_dump_executable,
+        wpctl_executable=args.wpctl_executable,
+    )
+    selection = config.resolve(inventory)
+    if args.audio_command == "status":
+        payload = _audio_status_payload(config, inventory, selection, args.list)
+        _print_audio_result(payload, args.json)
+        return
+    if args.audio_command == "test-input":
+        provider = config.create_capture_provider(
+            max_capture_seconds=12.0,
+            max_capture_bytes=1 << 20,
+        )
+        print(
+            "deskhelm: microphone test active; captured PCM will be discarded",
+            file=sys.stderr,
+        )
+        report = test_audio_input(provider, seconds=args.seconds)
+        payload = {
+            "test": "input",
+            "source": selection.source.name,
+            "source_description": selection.source.description,
+            **asdict(report),
+        }
+        _print_audio_result(payload, args.json)
+        return
+    if args.audio_command == "test-output":
+        provider = config.create_playback_provider()
+        tone = create_test_tone(
+            seconds=args.seconds,
+            frequency_hz=args.frequency_hz,
+            level=args.level,
+        )
+        print(
+            "deskhelm: playing a short low-volume test tone",
+            file=sys.stderr,
+        )
+        provider.play(tone, Event())
+        payload = {
+            "test": "output",
+            "sink": selection.sink.name,
+            "sink_description": selection.sink.description,
+            "duration_ms": tone.duration_seconds * 1000,
+            "frequency_hz": args.frequency_hz,
+            "level": args.level,
+        }
+        _print_audio_result(payload, args.json)
+        return
+    raise ValueError("unknown audio command")
+
+
+def _audio_status_payload(
+    config,
+    inventory,
+    selection,
+    include_nodes: bool,
+) -> dict[str, Any]:
+    payload = {
+        "capture_provider": config.capture_provider.value,
+        "playback_provider": config.playback_provider.value,
+        "source": {
+            "selection": "default" if selection.source_uses_default else "manual",
+            "name": selection.source.name,
+            "description": selection.source.description,
+        },
+        "sink": {
+            "selection": "default" if selection.sink_uses_default else "manual",
+            "name": selection.sink.name,
+            "description": selection.sink.description,
+        },
+        "available_source_count": len(inventory.sources),
+        "available_sink_count": len(inventory.sinks),
+    }
+    if include_nodes:
+        payload["available_sources"] = [asdict(node) for node in inventory.sources]
+        payload["available_sinks"] = [asdict(node) for node in inventory.sinks]
+    return payload
+
+
+def _print_audio_result(payload: dict[str, Any], use_json: bool) -> None:
+    if use_json:
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return
+    if payload.get("test") == "input":
+        print(
+            "input "
+            f"source={payload['source']} "
+            f"duration_ms={payload['duration_ms']:.1f} "
+            f"peak={payload['peak_fraction']:.4f} "
+            f"rms={payload['rms_fraction']:.4f}"
+        )
+        return
+    if payload.get("test") == "output":
+        print(
+            "output "
+            f"sink={payload['sink']} "
+            f"duration_ms={payload['duration_ms']:.1f}"
+        )
+        return
+    source = payload["source"]
+    sink = payload["sink"]
+    print(
+        "capture "
+        f"provider={payload['capture_provider']} "
+        f"selection={source['selection']} "
+        f"name={source['name']} "
+        f"description={source['description']}"
+    )
+    print(
+        "playback "
+        f"provider={payload['playback_provider']} "
+        f"selection={sink['selection']} "
+        f"name={sink['name']} "
+        f"description={sink['description']}"
+    )
+    if "available_sources" in payload:
+        for node in payload["available_sources"]:
+            print(f"source name={node['name']} description={node['description']}")
+        for node in payload["available_sinks"]:
+            print(f"sink name={node['name']} description={node['description']}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -156,7 +359,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "simulate":
             simulate(args)
             return 0
-    except (ConnectionError, ProtocolError, ValueError) as error:
+        if args.command == "audio":
+            audio_command(args)
+            return 0
+    except (ConnectionError, ProtocolError, RuntimeError, ValueError) as error:
         print(f"deskhelm: {error}", file=sys.stderr)
         return 1
     return 2

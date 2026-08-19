@@ -26,6 +26,10 @@ fake Voice-to-Agent-to-speech pipeline without audio hardware or model weights.
 default and stable-name targeting, explicit frame-aligned PCM, byte/time bounds,
 startup and process failures, cancellation, and forced process-group cleanup.
 It never opens a live microphone or speaker.
+`test_audio_config.py` uses synthetic PipeWire discovery data and fake capture
+to verify default/manual selection, stable-name failures, provider composition,
+signal-only input reports, bounded test tones, and CLI arguments without
+opening live audio.
 `test_voice_benchmark.py` validates the versioned synthetic corpus, bounded
 NDJSON observations, fake-provider runners, CER/WER and keyword metrics,
 resource fields, privacy-preserving failure records, and unknown-input rejection.

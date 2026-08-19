@@ -54,6 +54,20 @@ normalized final transcripts into `submit_prompt` commands, and queues complete
 assistant messages for speech. No production audio or model provider is enabled
 by the CLI yet; the current full pipeline uses deterministic fake providers.
 
+The separate application-level audio diagnostics resolve PipeWire defaults or
+manual stable node names without implying that Bridge voice is enabled:
+
+```bash
+PYTHONPATH=bridge:voice python3 -m deskhelm_bridge audio status --list
+PYTHONPATH=bridge:voice python3 -m deskhelm_bridge audio test-input --seconds 2
+PYTHONPATH=bridge:voice python3 -m deskhelm_bridge audio test-output
+```
+
+`status` is read-only. `test-input` is an explicit microphone action that keeps
+PCM in memory only long enough to calculate signal metadata; `test-output`
+plays a bounded low-volume tone. A missing manual target fails instead of
+falling back to another device.
+
 Run the Bridge with the text-only Codex provider:
 
 ```bash

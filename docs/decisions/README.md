@@ -14,3 +14,7 @@ sole production default.
 [`0015-use-piper-as-initial-notification-tts-baseline.md`](0015-use-piper-as-initial-notification-tts-baseline.md)
 selects Piper for low-latency notification experiments while retaining Kokoro
 as the quality candidate and deferring the final production choice.
+
+[`0016-explicit-local-audio-selection-and-diagnostics.md`](0016-explicit-local-audio-selection-and-diagnostics.md)
+defines default/manual stable-device selection and privacy-safe explicit local
+audio diagnostics without prematurely activating production voice models.

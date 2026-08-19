@@ -6,6 +6,19 @@ from .fake_providers import (
     FakeVadProvider,
 )
 from .asr_manifest import AsrRunManifest, load_prepared_asr_set
+from .audio_config import (
+    AudioNode,
+    AudioNodeKind,
+    AudioProviderKind,
+    AudioSignalReport,
+    LocalAudioConfig,
+    PipeWireAudioInventory,
+    ResolvedAudioSelection,
+    create_test_tone,
+    discover_pipewire_audio,
+    measure_audio_signal,
+    test_audio_input,
+)
 from .gateway import VoiceGateway
 from .kokoro_tts import KokoroTtsProvider
 from .models import (
@@ -43,6 +56,10 @@ from .webrtc_vad import WebRtcVadProvider
 
 __all__ = [
     "AsrRunManifest",
+    "AudioNode",
+    "AudioNodeKind",
+    "AudioProviderKind",
+    "AudioSignalReport",
     "CapturedAudio",
     "FakeAsrProvider",
     "FakeCaptureProvider",
@@ -50,13 +67,16 @@ __all__ = [
     "FakeTtsProvider",
     "FakeVadProvider",
     "KokoroTtsProvider",
+    "LocalAudioConfig",
     "PcmSampleFormat",
     "PcmChunk",
     "PcmStreamFormat",
     "ParaformerStreamingAsrProvider",
     "PipeWireCaptureProvider",
+    "PipeWireAudioInventory",
     "PipeWirePlaybackProvider",
     "PiperTtsProvider",
+    "ResolvedAudioSelection",
     "SpeechItem",
     "SpeechPriority",
     "SpeechSegment",
@@ -76,6 +96,10 @@ __all__ = [
     "VadEventKind",
     "VadRunManifest",
     "WebRtcVadProvider",
+    "create_test_tone",
+    "discover_pipewire_audio",
     "load_prepared_vad_samples",
     "load_prepared_asr_set",
+    "measure_audio_signal",
+    "test_audio_input",
 ]
