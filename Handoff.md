@@ -108,7 +108,11 @@ The multi-phrase diagnostic phase is now implemented under ADR 0022. It accepts
 up to eight repeated `--utterance-id` values, opens a fresh capture for each,
 reuses one lazy provider for warm-path behavior, and marks each result as
 requiring separate post-run confirmation. Four Chinese/mixed coding phrases are
-queued for the next synchronized Paraformer/SenseVoice comparison.
+queued for the next synchronized Paraformer/SenseVoice comparison. The first
+SenseVoice batch completed all four captures and the user confirmed speaking
+each phrase, but reported that the spoken pace did not fully keep up with the
+phrase transitions; the result is therefore live diagnostic evidence rather
+than a tightly synchronized provider comparison.
 
 ## Completed Work
 
@@ -298,7 +302,11 @@ queued for the next synchronized Paraformer/SenseVoice comparison.
   introduced.
 - Accepted ADR 0022 and added a bounded multi-phrase microphone diagnostic for
   repeated Chinese/mixed coding commands. Batch output contains only per-phrase
-  privacy-safe metrics and fixed statuses; live measurements remain pending.
+  privacy-safe metrics and fixed statuses.
+- Ran the first four-phrase SenseVoice batch with fresh captures and warm
+  provider reuse. All four records completed with fixed `ok` status and the
+  user confirmed speaking each phrase; pace/synchronization was imperfect, so
+  literal accuracy and keyword misses remain qualified evidence.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -755,6 +763,12 @@ tests covering corpus selection, signal/VAD metrics, provider-output
 suppression, fixed failures, lazy final-only behavior, recovery boundaries, and
 batch phrase selection/privacy output.
 
+The first live SenseVoice multi-phrase batch completed four fresh captures with
+`ok` status and the user confirmed all four phrases were spoken. The user also
+reported that the speaking pace did not fully keep up with phrase transitions;
+the measurements are recorded as qualified diagnostic evidence, not a tightly
+synchronized provider comparison.
+
 An additional startup smoke test used the current PipeWire graph and ignored
 prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local
 gateway, accepted one event, exited cleanly, and removed its socket without
@@ -952,11 +966,12 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Next Step
 
-Expand synchronized Paraformer/SenseVoice coverage to repeated Chinese and
-mixed coding commands, then measure timeout, disconnect, default-device change,
-and provider recovery. Retain whisper.cpp as the next licensing/quality fallback
-before selecting a production ASR. Expand live VAD threshold/noise evidence
-without granting endpoint control, and separately define actual
-speaker-first-audio and interruption instrumentation. Keep every provider
-replaceable and obtain the repository license decision before packaging models
-or accepting external contributions.
+After a fresh readiness handshake, run the same four phrase IDs with Paraformer
+and confirm each phrase separately. Then compare the two qualified live batches,
+measure timeout/disconnect/default-device change and provider recovery, and
+retain whisper.cpp as the next licensing/quality fallback before selecting a
+production ASR. Expand live VAD threshold/noise evidence without granting
+endpoint control, and separately define actual speaker-first-audio and
+interruption instrumentation. Keep every provider replaceable and obtain the
+repository license decision before packaging models or accepting external
+contributions.
