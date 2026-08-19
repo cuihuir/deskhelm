@@ -11,6 +11,8 @@ has no import dependency on Bridge and no runtime audio or model dependency.
 - `PcmChunkStream` uses contiguous absolute frame positions, while each
   `VadProvider` run owns an independent session with explicit final flushing.
 - `VoiceTarget` always names `agent_id + session_id + project_id`.
+- Externally driven PTT release must match both the complete target and the
+  activation ID derived from its press command.
 - `Transcript` keeps raw and normalized text separate.
 - The speech queue is fixed-capacity, priority-aware, and interruptible.
 - Lifecycle events contain identifiers and fixed error codes, not audio or
@@ -19,7 +21,8 @@ has no import dependency on Bridge and no runtime audio or model dependency.
 The Bridge composition is in
 [`bridge/deskhelm_bridge/voice_integration.py`](../bridge/deskhelm_bridge/voice_integration.py).
 It converts final normalized transcripts into targeted controls and complete
-assistant messages into speech items.
+assistant messages into speech items. It also registers targeted `press_ptt`
+and correlated `release_ptt` handlers when a Voice Gateway is composed.
 
 ## Current Providers
 

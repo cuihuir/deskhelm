@@ -220,6 +220,9 @@ Keep third-party reference files outside version control under
 - Allow one active PTT capture/transcription flow, bound speech queues, and
   require providers to honor cancellation. Starting PTT cancels only current
   interruptible playback; queued or active speech remains session-targeted.
+- External PTT release must copy the matching press command ID and match the
+  complete active session target. A stale, idle, or cross-session release must
+  fail without changing capture state; do not model external PTT as a toggle.
 - Preserve raw and normalized transcripts separately. Ordinary lifecycle and
   failure events must not contain audio, transcript, prompt, or speech text.
 - Keep voice benchmark corpora and observation formats versioned. Bound each

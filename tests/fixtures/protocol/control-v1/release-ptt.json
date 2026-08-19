@@ -1,0 +1,16 @@
+{
+  "protocol_version": 1,
+  "message_type": "control_command",
+  "command_id": "command-release-ptt-1",
+  "kind": "release_ptt",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "issued_by": "physical-surface",
+  "issued_at": 1786935108000,
+  "expires_at": 1786935118000,
+  "idempotency_key": "release-ptt-session-42-1",
+  "payload": {
+    "press_command_id": "command-press-ptt-1"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "protocol_version": 1,
+  "message_type": "control_command",
+  "command_id": "command-press-ptt-1",
+  "kind": "press_ptt",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "issued_by": "physical-surface",
+  "issued_at": 1786935107000,
+  "expires_at": 1786935117000,
+  "idempotency_key": "press-ptt-session-42-1",
+  "payload": {}
+}

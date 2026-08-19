@@ -101,6 +101,19 @@ deduplicated.
 Payload field `speech_id` is optional. A non-empty value targets one speech
 item; an empty value stops interruptible speech owned by the target session.
 
+### `press_ptt`
+
+Payload is an empty object. A successful dispatch starts capture for the exact
+target session, and the press command's `command_id` identifies that PTT
+activation until it finishes or is released.
+
+### `release_ptt`
+
+Payload field `press_command_id` is required and must copy the matching
+`press_ptt` command ID exactly. The release succeeds only while that activation
+is active for the same complete session target. An idle, stale, or
+cross-session release fails dispatch without stopping the current capture.
+
 ## Expiry and Idempotency
 
 A command is expired when Bridge time is greater than or equal to
@@ -122,6 +135,8 @@ Idempotency does not authorize automatic retry:
 - `submit_prompt` and `speak` may retry only with the same command identity.
 - `focus`, `interrupt`, and `stop_speaking` require Bridge deduplication before
   repeated dispatch.
+- `press_ptt` and `release_ptt` are not automatically retried; an exact
+  retransmission may use the retained router result after the client reconnects.
 - `approve` and `reject` never retry automatically.
 
 ## Validation and Forward Compatibility
@@ -136,6 +151,7 @@ The negotiated `controller` role uses `control_command_v1`. Each valid command
 receives a correlated result defined by
 [`control-result-v1.md`](control-result-v1.md). `focus` is handled internally.
 Other kinds require an explicitly registered non-blocking handler; absent
-handlers return `handler_unavailable`. The opt-in text Agent Gateway currently
-handles `submit_prompt` and `interrupt`; Voice Gateway and approval handlers
-remain separate future integrations.
+handlers return `handler_unavailable`. The opt-in text Agent Gateway handles
+`submit_prompt` and `interrupt`. A composed Voice Gateway handles `speak`,
+`stop_speaking`, `press_ptt`, and `release_ptt`; approval handlers remain
+separate integrations.

@@ -21,6 +21,8 @@ class ControlKind(StrEnum):
     REJECT = "reject"
     SPEAK = "speak"
     STOP_SPEAKING = "stop_speaking"
+    PRESS_PTT = "press_ptt"
+    RELEASE_PTT = "release_ptt"
 
 
 class SpeechPriority(StrEnum):
@@ -110,6 +112,23 @@ class StopSpeakingPayload:
         return {"speech_id": self.speech_id}
 
 
+@dataclass(frozen=True, slots=True)
+class PressPttPayload:
+    def to_dict(self) -> dict[str, Any]:
+        return {}
+
+
+@dataclass(frozen=True, slots=True)
+class ReleasePttPayload:
+    press_command_id: str
+
+    def __post_init__(self) -> None:
+        _validate_non_empty_string(self.press_command_id, "press_command_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"press_command_id": self.press_command_id}
+
+
 ControlPayload = (
     FocusPayload
     | SubmitPromptPayload
@@ -117,6 +136,8 @@ ControlPayload = (
     | ApprovalDecisionPayload
     | SpeakPayload
     | StopSpeakingPayload
+    | PressPttPayload
+    | ReleasePttPayload
 )
 
 
@@ -167,6 +188,8 @@ class ControlCommand:
             ControlKind.REJECT: ApprovalDecisionPayload,
             ControlKind.SPEAK: SpeakPayload,
             ControlKind.STOP_SPEAKING: StopSpeakingPayload,
+            ControlKind.PRESS_PTT: PressPttPayload,
+            ControlKind.RELEASE_PTT: ReleasePttPayload,
         }[self.kind]
         if not isinstance(self.payload, expected_payload):
             raise ProtocolError(
@@ -259,7 +282,13 @@ def _payload_from_dict(kind: ControlKind, value: dict[str, Any]) -> ControlPaylo
             priority=SpeechPriority(_required_string(value, "priority")),
             interruptible=_required_boolean(value, "interruptible"),
         )
-    return StopSpeakingPayload(speech_id=_optional_string(value, "speech_id"))
+    if kind is ControlKind.STOP_SPEAKING:
+        return StopSpeakingPayload(speech_id=_optional_string(value, "speech_id"))
+    if kind is ControlKind.PRESS_PTT:
+        return PressPttPayload()
+    return ReleasePttPayload(
+        press_command_id=_required_string(value, "press_command_id")
+    )
 
 
 def _required_mapping(value: dict[str, Any], field_name: str) -> dict[str, Any]:

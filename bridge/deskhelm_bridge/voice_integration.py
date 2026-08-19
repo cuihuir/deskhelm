@@ -27,6 +27,8 @@ except ModuleNotFoundError as error:
 from .control import (
     ControlCommand,
     ControlKind,
+    PressPttPayload,
+    ReleasePttPayload,
     SpeakPayload,
     StopSpeakingPayload,
     SubmitPromptPayload,
@@ -75,6 +77,16 @@ class VoiceBridgeIntegration:
             unregister.append(
                 self.control_router.register_handler(
                     ControlKind.STOP_SPEAKING, self.stop_speaking
+                )
+            )
+            unregister.append(
+                self.control_router.register_handler(
+                    ControlKind.PRESS_PTT, self.press_ptt
+                )
+            )
+            unregister.append(
+                self.control_router.register_handler(
+                    ControlKind.RELEASE_PTT, self.release_ptt
                 )
             )
             unregister.append(
@@ -133,6 +145,23 @@ class VoiceBridgeIntegration:
         self.voice_gateway.stop_speaking(
             self._target(command), payload.speech_id
         )
+
+    def press_ptt(self, command: ControlCommand) -> None:
+        if not isinstance(command.payload, PressPttPayload):
+            raise ValueError("press_ptt command has an invalid payload")
+        self.voice_gateway.press_ptt(
+            self._target(command), activation_id=command.command_id
+        )
+
+    def release_ptt(self, command: ControlCommand) -> None:
+        payload = command.payload
+        if not isinstance(payload, ReleasePttPayload):
+            raise ValueError("release_ptt command has an invalid payload")
+        released = self.voice_gateway.release_ptt(
+            self._target(command), activation_id=payload.press_command_id
+        )
+        if not released:
+            raise RuntimeError("PTT release does not own the active capture")
 
     def observe_interaction(self, event: InteractionEvent) -> None:
         if event.kind is not InteractionKind.MESSAGE:

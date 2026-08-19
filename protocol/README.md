@@ -42,7 +42,8 @@ Required fields are `agent_id`, `slot`, and `state`. Valid states are:
 - [`interaction-event-v1.md`](interaction-event-v1.md) defines session-scoped
   message, tool, approval, input, completion, and failure events.
 - [`control-command-v1.md`](control-command-v1.md) defines targeted, expiring,
-  idempotent focus, prompt, interruption, approval, and speech controls.
+  idempotent focus, prompt, interruption, approval, speech, and correlated PTT
+  controls.
 - [`control-result-v1.md`](control-result-v1.md) defines correlated accepted,
   rejected, and duplicate outcomes without private command content.
 - [`state-subscription-v1.md`](state-subscription-v1.md) defines atomic state

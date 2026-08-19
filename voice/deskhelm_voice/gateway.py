@@ -46,6 +46,7 @@ class VoiceGateway:
         default=VoicePttState.IDLE, init=False
     )
     _ptt_target: VoiceTarget | None = field(default=None, init=False)
+    _ptt_activation_id: str = field(default="", init=False)
     _ptt_stop: Event | None = field(default=None, init=False, repr=False)
     _ptt_cancel: Event | None = field(default=None, init=False, repr=False)
     _speech_queue: list[_QueuedSpeech] = field(default_factory=list, init=False)
@@ -89,9 +90,11 @@ class VoiceGateway:
 
         return unregister
 
-    def press_ptt(self, target: VoiceTarget) -> None:
+    def press_ptt(self, target: VoiceTarget, activation_id: str = "") -> None:
         if not isinstance(target, VoiceTarget):
             raise ValueError("PTT target is invalid")
+        if not isinstance(activation_id, str):
+            raise ValueError("PTT activation_id must be a string")
         with self._condition:
             if self._closed:
                 raise RuntimeError("voice gateway is closed")
@@ -110,6 +113,7 @@ class VoiceGateway:
             begin = Event()
             self._ptt_state = VoicePttState.CAPTURING
             self._ptt_target = target
+            self._ptt_activation_id = activation_id
             self._ptt_stop = stop
             self._ptt_cancel = cancel
             self._condition.notify_all()
@@ -125,11 +129,28 @@ class VoiceGateway:
         finally:
             begin.set()
 
-    def release_ptt(self) -> None:
+    def release_ptt(
+        self,
+        target: VoiceTarget | None = None,
+        activation_id: str = "",
+    ) -> bool:
+        if target is not None and not isinstance(target, VoiceTarget):
+            raise ValueError("PTT target is invalid")
+        if not isinstance(activation_id, str):
+            raise ValueError("PTT activation_id must be a string")
+        if (target is None) != (activation_id == ""):
+            raise ValueError(
+                "target and activation_id must both be set for targeted release"
+            )
         with self._lock:
             if self._ptt_state is VoicePttState.IDLE or self._ptt_stop is None:
-                return
+                return False
+            if target is not None and self._ptt_target != target:
+                return False
+            if activation_id and self._ptt_activation_id != activation_id:
+                return False
             self._ptt_stop.set()
+            return True
 
     def cancel_ptt(self) -> None:
         with self._lock:
@@ -345,6 +366,7 @@ class VoiceGateway:
     def _clear_ptt_locked(self) -> None:
         self._ptt_state = VoicePttState.IDLE
         self._ptt_target = None
+        self._ptt_activation_id = ""
         self._ptt_stop = None
         self._ptt_cancel = None
 

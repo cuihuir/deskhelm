@@ -59,7 +59,10 @@ packaging license evidence. Application-level local audio selection and
 diagnostics are now implemented: the CLI can resolve/list PipeWire defaults or
 stable manual targets without opening audio, explicitly test an input while
 discarding PCM, and explicitly play a bounded low-volume output tone. This does
-not yet activate model-backed voice in the Bridge service.
+not yet activate model-backed voice in the Bridge service. Negotiated
+controllers can now start and release PTT for a complete session target. Each
+release copies its matching press command ID, so stale or cross-session
+releases cannot stop the active capture.
 
 ## Completed Work
 
@@ -257,6 +260,11 @@ not yet activate model-backed voice in the Bridge service.
   Two-second default and manual-source input tests succeeded without saving
   PCM, and a 250 ms default-sink tone succeeded. A one-second input test
   produced no audio during device startup and failed explicitly.
+- Accepted ADR 0017: expose targeted `press_ptt` and correlated `release_ptt`
+  controls while keeping cancellation internal.
+- Added control fixtures and Bridge composition handlers for external PTT. A
+  release must match both the complete active target and the press command ID;
+  idle, stale, and cross-session releases fail without changing capture state.
 - Recorded ESP32-S3 wireless-audio research: BLE HID for keyboard controls,
   reliable BLE/Wi-Fi state, and Wi-Fi Opus as the preferred future voice path.
 - Selected a simpler local POC path: follow the computer's current PipeWire
@@ -406,6 +414,10 @@ not yet activate model-backed voice in the Bridge service.
   publishers.
 - Every control targets `agent_id + session_id + project_id`; slots never route
   controls. Voice controls also retain session ownership.
+- External PTT is not a toggle. The press command ID identifies one activation,
+  and release must copy that ID in addition to matching the complete session.
+  Exact retries use router deduplication; clients do not automatically replay
+  PTT controls after an ambiguous result.
 - Control idempotency is scoped by `issued_by + idempotency_key`. An allowed
   retry preserves the complete command identity and content.
 - Controller `client_id` is bound to `issued_by`. Exact retained retries return
@@ -456,6 +468,8 @@ not yet activate model-backed voice in the Bridge service.
   initial TTS baseline, streaming semantics, licensing, and selection limits.
 - `docs/decisions/0016-explicit-local-audio-selection-and-diagnostics.md`:
   provider/device selection, privacy-safe diagnostics, and deferred composition.
+- `docs/decisions/0017-correlate-external-ptt-press-and-release.md`:
+  external PTT targeting, activation correlation, retry, and failure semantics.
 - `docs/research/2026-08-18-pipewire-preflight.md`: verified local PipeWire
   capabilities and provider-design implications.
 - `docs/research/2026-08-18-esp32-s3-audio-transport.md`: official ESP32-S3 and
@@ -563,6 +577,8 @@ not yet activate model-backed voice in the Bridge service.
   routing, lazy loading, bounds, and cancellation coverage.
 - `tests/test_audio_config.py`: synthetic discovery, default/manual selection,
   provider composition, diagnostics, and CLI argument coverage.
+- `tests/test_voice_integration.py`: targeted PTT/speech control composition,
+  transcript-to-prompt routing, and speech failure isolation.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
 - `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
   connection role dispatch.
@@ -577,12 +593,14 @@ Last verified on 2026-08-19:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 177 tests passed under the workstation resource limiter, including
+Result: 180 tests passed under the workstation resource limiter, including
 strict `ResourceWarning` handling, 13 fake-subprocess PipeWire/PCM tests, 7
 streaming VAD benchmark tests, 4 VAD manifest/provider tests, and 4 new ASR
 manifest/provider tests, 4 TTS manifest/provider tests, and 5 audio
-configuration/diagnostic tests. The full unit suite opened no live audio device
-and did not import optional model runtimes.
+configuration/diagnostic tests. New coverage verifies PTT fixture round trips,
+target and activation ownership, and routed stale-release rejection. The full
+unit suite opened no live audio device and did not import optional model
+runtimes.
 
 The isolated real-candidate run also passed with 35/35 successful observations
 for both WebRTC and Silero. Downloaded FSDD audio, prepared WAV files, the ONNX
@@ -630,8 +648,8 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
    alternative model before selecting production defaults.
 3. Expand VAD to noisy/conversational labeled audio and live-device threshold
    measurements.
-4. Add external PTT controls and compose provisional VAD/ASR/TTS providers with
-   the application audio boundary; then test disconnect/reconnect recovery.
+4. Compose provisional VAD/ASR/TTS providers with the application audio
+   boundary; then test disconnect/reconnect recovery.
 5. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.
 
@@ -643,9 +661,9 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 - The current text gateway handles prompt submission and interruption.
   Approval and rejection remain unavailable; speech handlers exist only when a
   Voice Gateway is explicitly composed into the Bridge.
-- PipeWire discovery and explicit diagnostics exist, but the Bridge service
-  does not compose production VAD/ASR/TTS or expose external PTT controls.
-  Streaming capture and live recovery are not implemented.
+- PipeWire discovery, explicit diagnostics, and external PTT controls exist,
+  but the Bridge service does not compose production VAD/ASR/TTS. Streaming
+  capture and live recovery are not implemented.
 - The benchmark runner records VAD compute/detection timing, batch ASR final
   latency, Paraformer offline first-partial estimates, and provider-chunk TTS
   first audio/interruption. Live capture-to-decision/partial,
@@ -690,11 +708,12 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Next Step
 
-Define targeted external PTT press/release controls, then compose the current
-provisional PipeWire, VAD, Paraformer, and Piper boundaries into an opt-in local
-Voice Gateway path. Keep every provider replaceable and measure capture-to-
-partial, release-to-final, playback first audio, interruption, startup, and
-disconnect/reconnect behavior before selecting production defaults. In parallel
-planning, define blinded TTS listening and a consented Chinese/mixed command ASR
-set with one alternative to Paraformer. Obtain the repository license decision
-before packaging Piper or accepting external contributions.
+Compose the current provisional PipeWire, VAD, Paraformer, and Piper boundaries
+into an opt-in local Voice Gateway path. Keep every provider replaceable and
+measure capture-to-partial, release-to-final, playback first audio,
+interruption, startup, and disconnect/reconnect behavior before selecting
+production defaults. Do not claim streaming VAD integration until the current
+batch capture gateway is migrated to the streaming boundary. In parallel
+planning, define blinded TTS listening and a consented Chinese/mixed command
+ASR set with one alternative to Paraformer. Obtain the repository license
+decision before packaging Piper or accepting external contributions.

@@ -49,9 +49,12 @@ provider streams normalized JSONL results and supports interruption, timeout,
 and process-local session resume without placing prompts in process arguments.
 An isolated bounded Voice Gateway now completes the fake PTT, transcript, Agent,
 TTS, and playback pipeline, with targeted speech controls and no audio/model
-dependencies in Bridge. Voice benchmarking now has a versioned Chinese,
-English, and mixed-language corpus plus bounded provider-neutral accuracy,
-latency, resource, and licensing observations. The first real local audio
+dependencies in Bridge. Negotiated controllers can now issue correlated,
+session-targeted PTT press/release controls when that gateway is composed;
+stale releases cannot stop a newer capture. Voice benchmarking now has a
+versioned Chinese, English, and mixed-language corpus plus bounded
+provider-neutral accuracy, latency, resource, and licensing observations. The
+first real local audio
 boundary is now available as bounded PipeWire capture/playback providers using
 explicit raw PCM, the current default devices or stable-name overrides. The
 CLI now provides read-only discovery plus explicit input/output diagnostics;

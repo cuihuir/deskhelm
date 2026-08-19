@@ -18,3 +18,7 @@ as the quality candidate and deferring the final production choice.
 [`0016-explicit-local-audio-selection-and-diagnostics.md`](0016-explicit-local-audio-selection-and-diagnostics.md)
 defines default/manual stable-device selection and privacy-safe explicit local
 audio diagnostics without prematurely activating production voice models.
+
+[`0017-correlate-external-ptt-press-and-release.md`](0017-correlate-external-ptt-press-and-release.md)
+adds targeted external PTT controls and prevents stale or cross-session release
+commands from stopping an unrelated capture.

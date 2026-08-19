@@ -6,6 +6,7 @@ from deskhelm_bridge.control import (
     ApprovalDecisionPayload,
     ControlCommand,
     ControlKind,
+    ReleasePttPayload,
     SpeakPayload,
     SubmitPromptPayload,
 )
@@ -112,6 +113,16 @@ class ControlCommandTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ProtocolError, "boolean"):
             ControlCommand.from_dict(value)
+
+    def test_release_ptt_requires_press_command_id(self) -> None:
+        value = self._fixture("release-ptt.json")
+        value["payload"]["press_command_id"] = ""
+
+        with self.assertRaisesRegex(ProtocolError, "press_command_id"):
+            ControlCommand.from_dict(value)
+
+        with self.assertRaisesRegex(ProtocolError, "press_command_id"):
+            ReleasePttPayload(press_command_id="")
 
     def test_rejects_payload_for_wrong_kind(self) -> None:
         with self.assertRaisesRegex(ProtocolError, "FocusPayload"):

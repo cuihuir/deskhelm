@@ -11,7 +11,12 @@ from deskhelm_bridge.agent_gateway import (
     AgentRunResult,
     AgentRunStatus,
 )
-from deskhelm_bridge.control import ControlCommand, StopSpeakingPayload
+from deskhelm_bridge.control import (
+    ControlCommand,
+    ControlKind,
+    ReleasePttPayload,
+    StopSpeakingPayload,
+)
 from deskhelm_bridge.control_result import ControlResultCode
 from deskhelm_bridge.control_router import ControlRouter
 from deskhelm_bridge.fake_agent_provider import FakeAgentProvider, FakeRunScript
@@ -33,6 +38,7 @@ from voice.deskhelm_voice import (
     Transcript,
     VoiceEvent,
     VoiceGateway,
+    VoicePttState,
     VoiceTarget,
 )
 
@@ -133,6 +139,43 @@ class VoiceIntegrationTests(unittest.TestCase):
 
         self.assertEqual(speak_result.code, ControlResultCode.DISPATCHED)
         self.assertEqual(stop_result.code, ControlResultCode.DISPATCHED)
+
+    def test_external_ptt_controls_require_matching_target_and_press(self) -> None:
+        capture = FakeCaptureProvider(
+            [CapturedAudio(b"fake-pcm", sample_rate_hz=16000)]
+        )
+        voice = VoiceGateway(
+            capture,
+            FakeAsrProvider([Transcript("raw", "normalized")]),
+            FakeTtsProvider(),
+            FakePlaybackProvider(),
+        )
+        self.resources.append(voice)
+        integration = VoiceBridgeIntegration(voice, self.router, self.hub)
+        integration.register()
+        self.resources.append(integration)
+        press = self._command("press-ptt.json")
+
+        press_result = self.router.route(press, now_ms=press.issued_at)
+        self.assertTrue(capture.started.wait(timeout=1))
+        stale_release = replace(
+            self._command("release-ptt.json"),
+            command_id="command-release-ptt-stale",
+            idempotency_key="release-ptt-stale",
+            payload=ReleasePttPayload(press_command_id="command-press-old"),
+        )
+        stale_result = self.router.route(
+            stale_release, now_ms=stale_release.issued_at
+        )
+        self.assertIs(voice.ptt_state(), VoicePttState.CAPTURING)
+        release = self._command("release-ptt.json")
+        release_result = self.router.route(release, now_ms=release.issued_at)
+        self._wait_for(lambda: voice.ptt_state() is VoicePttState.IDLE)
+
+        self.assertEqual(press.kind, ControlKind.PRESS_PTT)
+        self.assertEqual(press_result.code, ControlResultCode.DISPATCHED)
+        self.assertEqual(stale_result.code, ControlResultCode.DISPATCH_FAILED)
+        self.assertEqual(release_result.code, ControlResultCode.DISPATCHED)
 
     def test_full_speech_queue_does_not_break_interaction_publishers(self) -> None:
         events: Queue[VoiceEvent] = Queue()

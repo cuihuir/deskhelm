@@ -78,6 +78,33 @@ class VoiceGatewayTests(unittest.TestCase):
         self.assertEqual(emitted[-1].kind, VoiceEventKind.FAILURE)
         self.assertEqual(emitted[-1].error_code, "voice_input_failed")
 
+    def test_targeted_release_rejects_other_session_and_stale_activation(self) -> None:
+        capture = FakeCaptureProvider([self._audio()])
+        gateway = self._gateway(
+            capture,
+            FakeAsrProvider([Transcript("raw", "normalized")]),
+        )
+        gateway.register_prompt_sink(lambda _target, _transcript: None)
+        other_target = VoiceTarget("codex", "session-other", "deskhelm")
+
+        gateway.press_ptt(self.target, activation_id="press-current")
+        self.assertTrue(capture.started.wait(timeout=1))
+
+        self.assertFalse(
+            gateway.release_ptt(other_target, activation_id="press-current")
+        )
+        self.assertFalse(
+            gateway.release_ptt(self.target, activation_id="press-stale")
+        )
+        self.assertEqual(gateway.ptt_state(), VoicePttState.CAPTURING)
+        self.assertTrue(
+            gateway.release_ptt(self.target, activation_id="press-current")
+        )
+        self._wait_for_state(gateway, VoicePttState.IDLE)
+
+        with self.assertRaisesRegex(ValueError, "both be set"):
+            gateway.release_ptt(self.target)
+
     def test_new_ptt_cancels_current_interruptible_playback(self) -> None:
         capture = FakeCaptureProvider([self._audio()])
         asr = FakeAsrProvider([Transcript("raw", "normalized")])
