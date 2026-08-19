@@ -162,6 +162,13 @@ batch. Each phrase gets a fresh capture session and its own post-run
 confirmation scope; the batch output contains aggregate status and per-phrase
 privacy-safe metrics only.
 
+For chat-driven runs where automatic transitions are too fast, add
+`--await-phrase-ready`. The tool prints each phrase, waits for an exact `ready`
+line on stdin, and then starts that phrase's bounded capture. Each wait is
+bounded by `--phrase-ready-timeout-seconds` (1-120 seconds) and reports the
+fixed `voice_phrase_not_ready` code on timeout or EOF. The output identifies
+this mode as `phrase_ready_mode: chat_handshake`.
+
 Provider failures are recoverable at the next explicit request when the runtime
 is still available; recognition is never retried implicitly. Default devices
 are re-resolved from a fresh PipeWire inventory, while a missing manually

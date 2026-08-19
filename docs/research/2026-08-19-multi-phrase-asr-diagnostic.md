@@ -99,3 +99,11 @@ Interpretation limits:
 - A cleaner follow-up should use one explicit readiness handshake per phrase,
   let the user finish before starting the next capture, and retain the same
   phrase order only for coverage rather than statistical pairing.
+
+## Follow-Up Synchronization Mode
+
+ADR 0023 adds an opt-in `--await-phrase-ready` mode to the diagnostic. It
+prints one phrase, waits for an exact bounded `ready` line on stdin, and only
+then opens that phrase's capture session. Immediate capture remains available
+for unattended or direct-terminal use; the two modes are labeled separately in
+the privacy-safe output. A live handshake-mode rerun is still pending.

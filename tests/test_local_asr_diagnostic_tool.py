@@ -72,6 +72,8 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
         self.assertEqual(parsed.lead_in_seconds, 0.0)
         self.assertIsNone(parsed.utterance_ids)
         self.assertEqual(parsed.between_utterances_seconds, 0.0)
+        self.assertFalse(parsed.await_phrase_ready)
+        self.assertEqual(parsed.phrase_ready_timeout_seconds, 60.0)
         self.assertEqual(parsed.asr_provider, "paraformer")
         self.assertEqual(parsed.vad_provider, "webrtc")
 
@@ -88,6 +90,25 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
         args.capture_seconds = 1.0
         with self.assertRaisesRegex(ValueError, "capture duration"):
             TOOL._validate_args(args)
+
+        readiness_args = TOOL._parser().parse_args(
+            [
+                "--live-audio",
+                "--asr-model-directory",
+                "/model",
+                "--await-phrase-ready",
+                "--phrase-ready-timeout-seconds",
+                "0.5",
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "phrase-ready timeout"):
+            TOOL._validate_args(readiness_args)
+
+    def test_phrase_readiness_requires_exact_ready_line(self) -> None:
+        with patch.object(TOOL.sys, "stdin", StringIO("ready\n")):
+            self.assertTrue(TOOL._await_phrase_ready(1.0))
+        with patch.object(TOOL.sys, "stdin", StringIO("not yet\n")):
+            self.assertFalse(TOOL._await_phrase_ready(1.0))
 
     def test_success_summary_contains_metrics_without_private_content(self) -> None:
         audio = CapturedAudio(b"\x00\x10" * 1600, 16000)
@@ -285,27 +306,29 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
                 "mixed-command-01",
                 "--vad-provider",
                 "none",
+                "--await-phrase-ready",
             ]
             output = StringIO()
             error = StringIO()
             with patch.object(sys, "argv", argv):
-                with patch.object(
-                    TOOL,
-                    "discover_pipewire_audio",
-                    return_value=inventory,
-                ):
+                with patch.object(TOOL.sys, "stdin", StringIO("ready\nready\n")):
                     with patch.object(
                         TOOL,
-                        "_capture_for_duration",
-                        return_value=audio,
+                        "discover_pipewire_audio",
+                        return_value=inventory,
                     ):
                         with patch.object(
                             TOOL,
-                            "_create_asr_provider",
-                            return_value=_StreamingProvider(UTTERANCE.text),
+                            "_capture_for_duration",
+                            return_value=audio,
                         ):
-                            with redirect_stdout(output), redirect_stderr(error):
-                                code = TOOL.main()
+                            with patch.object(
+                                TOOL,
+                                "_create_asr_provider",
+                                return_value=_StreamingProvider(UTTERANCE.text),
+                            ):
+                                with redirect_stdout(output), redirect_stderr(error):
+                                    code = TOOL.main()
 
         payload = json.loads(output.getvalue())
         self.assertEqual(code, 0)
@@ -315,6 +338,7 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
             payload["post_run_confirmation_scope"],
             "each utterance",
         )
+        self.assertEqual(payload["phrase_ready_mode"], "chat_handshake")
         self.assertEqual(
             [item["utterance_id"] for item in payload["results"]],
             ["zh-repeat-01", "mixed-command-01"],

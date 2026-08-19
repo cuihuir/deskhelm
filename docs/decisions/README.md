@@ -42,3 +42,7 @@ strict default/manual device rebinding.
 [`0022-bounded-multi-phrase-asr-diagnostic.md`](0022-bounded-multi-phrase-asr-diagnostic.md)
 defines repeatable phrase selection, fresh captures, per-phrase confirmation,
 and privacy-safe batch output for coding-command comparisons.
+
+[`0023-one-by-one-asr-readiness-handshake.md`](0023-one-by-one-asr-readiness-handshake.md)
+adds an opt-in bounded stdin handshake before each phrase capture so
+chat-driven diagnostics do not race automatic prompt transitions.

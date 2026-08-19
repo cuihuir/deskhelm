@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import selectors
 import sys
 from threading import Event, Timer
 import time
@@ -74,6 +75,8 @@ PARAFORMER_ARTIFACTS = (
 SENSEVOICE_ARTIFACTS = ("model.int8.onnx", "tokens.txt")
 MAX_VAD_EVENTS = 256
 MAX_BATCH_UTTERANCES = 8
+MAX_READY_TIMEOUT_SECONDS = 120.0
+MAX_READY_LINE_LENGTH = 32
 
 
 def main() -> int:
@@ -101,6 +104,9 @@ def main() -> int:
     vad_provider = (
         WebRtcVadProvider() if args.vad_provider == "webrtc" else None
     )
+    phrase_ready_mode = (
+        "chat_handshake" if args.await_phrase_ready else "immediate"
+    )
     results = []
     for index, utterance in enumerate(utterances):
         if index:
@@ -113,17 +119,27 @@ def main() -> int:
             f"{utterance.text}",
             file=sys.stderr,
         )
-        try:
-            audio = _capture_for_duration(capture, args.capture_seconds)
-        except Exception:
-            summary = _capture_failure_summary()
-        else:
-            summary = _diagnose_audio(
-                audio,
-                provider,
-                utterance,
-                vad_provider=vad_provider,
+        if args.await_phrase_ready:
+            print(
+                "deskhelm: reply ready to start this capture",
+                file=sys.stderr,
             )
+        if args.await_phrase_ready and not _await_phrase_ready(
+            args.phrase_ready_timeout_seconds
+        ):
+            summary = _phrase_not_ready_summary()
+        else:
+            try:
+                audio = _capture_for_duration(capture, args.capture_seconds)
+            except Exception:
+                summary = _capture_failure_summary()
+            else:
+                summary = _diagnose_audio(
+                    audio,
+                    provider,
+                    utterance,
+                    vad_provider=vad_provider,
+                )
         summary.update(
             {
                 "source": selection.source.name,
@@ -131,6 +147,7 @@ def main() -> int:
                 "asr_provider": args.asr_provider,
                 "utterance_id": utterance.utterance_id,
                 "post_run_confirmation_scope": "this utterance",
+                "phrase_ready_mode": phrase_ready_mode,
             }
         )
         results.append(summary)
@@ -150,6 +167,7 @@ def main() -> int:
             "results": results,
             "requires_post_run_speech_confirmation": True,
             "post_run_confirmation_scope": "each utterance",
+            "phrase_ready_mode": phrase_ready_mode,
             "privacy": "PCM and recognized text were not saved or printed",
         }
     print(json.dumps(output, ensure_ascii=False, sort_keys=True))
@@ -186,6 +204,16 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--capture-seconds", type=float, default=6.0)
     parser.add_argument("--lead-in-seconds", type=float, default=0.0)
     parser.add_argument("--between-utterances-seconds", type=float, default=0.0)
+    parser.add_argument(
+        "--await-phrase-ready",
+        action="store_true",
+        help="wait for a separate 'ready' line before each capture",
+    )
+    parser.add_argument(
+        "--phrase-ready-timeout-seconds",
+        type=float,
+        default=60.0,
+    )
     parser.add_argument("--cpu-threads", type=int, default=4)
     parser.add_argument(
         "--vad-provider",
@@ -206,6 +234,19 @@ def _validate_args(args: argparse.Namespace) -> None:
     if not 0.0 <= between_seconds <= 10.0:
         raise ValueError(
             "between-utterances duration must be between 0 and 10 seconds"
+        )
+    ready_timeout = getattr(
+        args,
+        "phrase_ready_timeout_seconds",
+        60.0,
+    )
+    if not 1.0 <= ready_timeout <= MAX_READY_TIMEOUT_SECONDS:
+        raise ValueError(
+            "phrase-ready timeout must be between 1 and 120 seconds"
+        )
+    if getattr(args, "await_phrase_ready", False) and args.lead_in_seconds:
+        raise ValueError(
+            "lead-in duration cannot be combined with phrase readiness"
         )
     utterance_ids = getattr(args, "utterance_ids", None)
     if utterance_ids is not None and not (
@@ -247,6 +288,33 @@ def _load_utterances(
     if len(set(utterance_ids)) != len(utterance_ids):
         raise ValueError("utterance batch contains duplicates")
     return tuple(_load_utterance(path, item) for item in utterance_ids)
+
+
+def _await_phrase_ready(timeout_seconds: float) -> bool:
+    stdin = sys.stdin
+    try:
+        stdin.fileno()
+    except (AttributeError, OSError, ValueError):
+        line = stdin.readline(MAX_READY_LINE_LENGTH)
+        return line.strip().lower() == "ready"
+
+    selector = selectors.DefaultSelector()
+    try:
+        selector.register(stdin, selectors.EVENT_READ)
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            if not selector.select(remaining):
+                return False
+            line = stdin.readline(MAX_READY_LINE_LENGTH)
+            if not line:
+                return False
+            if line.strip().lower() == "ready":
+                return True
+    finally:
+        selector.close()
 
 
 def _validate_model_directory(path: Path, provider: str) -> None:
@@ -397,6 +465,12 @@ def _capture_failure_summary() -> dict[str, object]:
         "post_run_confirmation_scope": "this utterance",
         "privacy": "PCM and recognized text were not saved or printed",
     }
+
+
+def _phrase_not_ready_summary() -> dict[str, object]:
+    summary = _capture_failure_summary()
+    summary["error_code"] = "voice_phrase_not_ready"
+    return summary
 
 
 def _speech_activity_summary(

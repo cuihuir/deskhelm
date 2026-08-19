@@ -360,6 +360,8 @@ Current commands:
   public-phrase microphone/ASR diagnostic without playback or transcript output.
   Repeat `--utterance-id` at most eight times for a fresh-capture batch; confirm
   every phrase separately after the run.
+  For chat-driven synchronization, add `--await-phrase-ready` and send one
+  exact `ready` line on stdin after each displayed phrase; each wait is bounded.
 - `PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr --corpus
   voice/benchmarks/utterances-v1.json --observations <results.ndjson>`: score a
   bounded ASR benchmark run.

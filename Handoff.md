@@ -118,6 +118,10 @@ The user described the prompt cadence as faster than comfortable natural speech
 and asked to begin analysis; the four records are treated as spoken with that
 timing caveat. Paraformer had lower mean CER but much higher final latency, and
 neither provider recovered the mixed coding keywords reliably.
+ADR 0023 now adds an opt-in one-by-one `ready` stdin handshake before each
+phrase capture, with a bounded timeout and fixed `voice_phrase_not_ready`
+failure. The existing immediate mode remains unchanged; a live handshake-mode
+rerun is pending.
 
 ## Completed Work
 
@@ -320,6 +324,10 @@ neither provider recovered the mixed coding keywords reliably.
   SenseVoice `0.809943`; mean final latency was `2,158.430 ms` versus
   `442.620 ms`. Both providers had `0.166667` mean keyword accuracy and zero
   keyword accuracy on the three mixed coding phrases, so neither is selected.
+- Accepted ADR 0023 and added an opt-in one-by-one phrase readiness handshake.
+  Each bounded stdin wait requires an exact `ready` line, reports its mode in
+  the privacy-safe output, and fails with `voice_phrase_not_ready` on timeout
+  or EOF without opening capture.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -604,6 +612,8 @@ neither provider recovered the mixed coding keywords reliably.
   cancellation, process recovery, and strict device rebinding semantics.
 - `docs/decisions/0022-bounded-multi-phrase-asr-diagnostic.md`: bounded batch
   capture, per-phrase confirmation, and privacy-safe comparison output.
+- `docs/decisions/0023-one-by-one-asr-readiness-handshake.md`: bounded per-phrase
+  stdin readiness and explicit capture-start semantics for chat-driven runs.
 - `docs/decisions/0015-use-piper-as-initial-notification-tts-baseline.md`:
   initial TTS baseline, streaming semantics, licensing, and selection limits.
 - `docs/decisions/0016-explicit-local-audio-selection-and-diagnostics.md`:
@@ -635,7 +645,7 @@ neither provider recovered the mixed coding keywords reliably.
 - `docs/research/2026-08-19-provider-recovery-and-device-change.md`: recovery
   matrix, fake-boundary evidence, and outstanding live hot-plug measurements.
 - `docs/research/2026-08-19-multi-phrase-asr-diagnostic.md`: phrase set,
-  privacy bounds, and pending synchronized measurements.
+  privacy bounds, live provider comparison, and handshake follow-up.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -764,17 +774,17 @@ Last verified on 2026-08-19:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 218 tests passed under the workstation resource limiter with strict
+Result: 219 tests passed under the workstation resource limiter with strict
 `ResourceWarning` handling. This includes the existing Bridge, protocol,
 adapter, voice, benchmark, and fake-subprocess PipeWire coverage plus streaming
 capture continuity, bounds, premature-end, cleanup, compatibility, empty-ASR
 classification, advisory VAD ordering/fallback/cancellation, explicit local VAD
 composition, privacy-safe live-summary tests, and the bounded multi-phrase
 diagnostic path. The full unit suite opened no live audio device and did not
-import optional model runtimes. The focused local ASR diagnostic module has 10
+import optional model runtimes. The focused local ASR diagnostic module has 11
 tests covering corpus selection, signal/VAD metrics, provider-output
-suppression, fixed failures, lazy final-only behavior, recovery boundaries, and
-batch phrase selection/privacy output.
+suppression, fixed failures, lazy final-only behavior, recovery boundaries,
+batch phrase selection/privacy output, and the bounded exact-`ready` handshake.
 
 The first live SenseVoice multi-phrase batch completed four fresh captures with
 `ok` status and the user confirmed all four phrases were spoken. The user also
@@ -789,6 +799,9 @@ that caveat. Across the two qualified batches, Paraformer mean CER was `0.726123
 versus SenseVoice `0.809943`, while mean final latency was `2,158.430 ms` versus
 `442.620 ms`. Both providers had `0.166667` mean keyword accuracy and zero
 keyword accuracy on the three mixed coding phrases.
+
+The new handshake mode has deterministic coverage only; no live microphone run
+has used the per-phrase `ready` gate yet.
 
 An additional startup smoke test used the current PipeWire graph and ignored
 prepared Paraformer/Piper artifact paths. The opt-in Bridge composed the local
@@ -989,11 +1002,10 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 ## Next Step
 
 The multi-phrase ASR comparison is complete as qualified live evidence. Next,
-repeat selected phrases with a one-by-one readiness handshake if cleaner timing
-is needed; then measure timeout/disconnect/default-device change and provider
-recovery, and retain whisper.cpp as the next licensing/quality fallback before
-selecting a production ASR. Expand live VAD threshold/noise evidence without
-granting endpoint control, and separately define actual speaker-first-audio and
-interruption instrumentation. Keep every provider replaceable and obtain the
-repository license decision before packaging models or accepting external
-contributions.
+run selected phrases with the new one-by-one readiness handshake, then measure
+timeout/disconnect/default-device change and provider recovery, and retain
+whisper.cpp as the next licensing/quality fallback before selecting a production
+ASR. Expand live VAD threshold/noise evidence without granting endpoint control,
+and separately define actual speaker-first-audio and interruption
+instrumentation. Keep every provider replaceable and obtain the repository
+license decision before packaging models or accepting external contributions.
