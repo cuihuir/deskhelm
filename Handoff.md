@@ -1,6 +1,6 @@
 # Handoff
 
-Date: 2026-08-19
+Date: 2026-08-20
 
 Project: DeskHelm
 
@@ -137,13 +137,13 @@ they do not wait for the full ASR deadline. A native provider call may still
 continue after the Gateway returns because hard cancellation remains
 cooperative; no audio or transcript content is retained or logged.
 
-The no-hardware whisper.cpp fallback research phase is now complete. Official
-upstream sources confirm stable `v1.9.2`, MIT runtime/model terms, in-memory
-float-PCM C API entry points, model hashes, and abort-callback hooks. The report
-retains whisper.cpp as the next quality/licensing fallback but does not select
-it, add native dependencies, or claim coding-command quality. The next software
-phase is an isolated C-shim provider prototype using pinned multilingual
-`base`/`small` artifacts and the existing benchmark contract.
+The no-hardware whisper.cpp fallback phase now has an isolated provider
+prototype. Official upstream sources confirm stable `v1.9.2`, MIT runtime/model
+terms, in-memory float-PCM C API entry points, model hashes, and abort-callback
+hooks. A DeskHelm-specific C shim and lazy Python provider are implemented and
+validated against an external `v1.9.2` checkout, but no model weights were
+downloaded and no production quality claim is made. The next software phase is
+an external-artifact benchmark of multilingual `base`/`small` candidates.
 
 ## Completed Work
 
@@ -372,6 +372,17 @@ phase is an isolated C-shim provider prototype using pinned multilingual
   `v1.9.2`, MIT licensing, in-memory C API/abort hooks, model-size tradeoffs,
   provenance requirements, and a C-shim prototype boundary without adding a
   native dependency or model weights.
+- Accepted ADR 0025 and added an explicit `WhisperCppAsrProvider` behind a
+  versioned DeskHelm C ABI. The provider validates bounded 16 kHz mono S16LE,
+  converts PCM to float32 in memory, serializes one native context, supports
+  cooperative abort propagation, caps transcripts at 4,096 characters, and
+  remains outside default local voice composition.
+- Added `voice/native/whisper-cpp-shim/deskhelm_whisper_shim.{h,c}` and build
+  notes. The shim compiles and links against an external whisper.cpp `v1.9.2`
+  checkout with no repository-native dependency or model artifact.
+- Added fake-native provider tests for lazy loading, conversion, fixed status
+  outcomes, lock recovery, cancellation, and output bounds. No microphone,
+  PCM persistence, transcript logging, or real model inference was performed.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -660,6 +671,8 @@ phase is an isolated C-shim provider prototype using pinned multilingual
   stdin readiness and explicit capture-start semantics for chat-driven runs.
 - `docs/decisions/0024-bounded-asr-timeout.md`: bounded ASR deadline, fixed
   timeout outcome, explicit retry, and cooperative cancellation boundary.
+- `docs/decisions/0025-isolated-whisper-cpp-shim-provider.md`: pinned external
+  C ABI, explicit provider opt-in, bounds, and native dependency boundary.
 - `docs/decisions/0015-use-piper-as-initial-notification-tts-baseline.md`:
   initial TTS baseline, streaming semantics, licensing, and selection limits.
 - `docs/decisions/0016-explicit-local-audio-selection-and-diagnostics.md`:
@@ -755,6 +768,10 @@ phase is an isolated C-shim provider prototype using pinned multilingual
   adapter and offline first-partial measurement.
 - `voice/deskhelm_voice/sensevoice.py`: lazy bounded final-only SenseVoice ASR
   adapter with serialized inference and explicit cancellation boundaries.
+- `voice/deskhelm_voice/whisper_cpp.py`: lazy explicit ctypes provider for the
+  external DeskHelm whisper.cpp shim.
+- `voice/native/whisper-cpp-shim/`: DeskHelm C ABI source and external build
+  notes for pinned whisper.cpp `v1.9.2`.
 - `voice/deskhelm_voice/asr_manifest.py`: bounded external ASR manifest and
   prepared-set checksum/duration validation.
 - `voice/deskhelm_voice/piper_tts.py`: lazy bounded Piper provider with pinned
@@ -814,14 +831,14 @@ phase is an isolated C-shim provider prototype using pinned multilingual
 
 ## Validation
 
-Last verified on 2026-08-19:
+Last verified on 2026-08-20:
 
 ```bash
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 219 tests passed under the workstation resource limiter with strict
-`ResourceWarning` handling. This includes the existing Bridge, protocol,
+Result: 226 tests passed under the workstation resource limiter. This includes
+the existing Bridge, protocol,
 adapter, voice, benchmark, and fake-subprocess PipeWire coverage plus streaming
 capture continuity, bounds, premature-end, cleanup, compatibility, empty-ASR
 classification, advisory VAD ordering/fallback/cancellation, explicit local VAD
@@ -960,6 +977,13 @@ mono S16LE PCM and discarded it after signal measurement. The default internal
 sink played a 250 ms, 660 Hz, 5% level tone. A one-second input test returned no
 audio and failed explicitly; hot unplug and default changes remain untested.
 
+The isolated whisper.cpp provider suite passed 5/5 fake-native tests covering
+lazy loading, PCM conversion, fixed status mapping, serialization recovery,
+cancellation, and transcript bounds. The C shim passed strict syntax checks and
+linked against an external CPU-only whisper.cpp `v1.9.2` build. A missing-model
+smoke load returned the fixed safe provider error; no model weights, microphone
+input, PCM persistence, or transcript logging were used.
+
 Repository checks also passed:
 
 ```bash
@@ -976,9 +1000,10 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Remaining Work
 
-1. Build and benchmark an isolated whisper.cpp C-shim provider prototype with
-   pinned multilingual `base`/`small` artifacts; do not make it a silent
-   runtime fallback or production selection yet.
+1. Run the existing ASR benchmark against externally pinned whisper.cpp
+   multilingual `base` and `small` artifacts through the isolated shim; record
+   CER/WER, latency, memory, cancellation, and exact model provenance before
+   considering any production selection.
 2. Measure real/default-device disconnect, timeout, device-change, and provider
    restart recovery; the timeout contract is implemented but live/native hard
    cancellation evidence is still missing.
@@ -1054,6 +1079,10 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   Its handshake batch improved CER on the selected phrases. Historical keyword
   scores reflect the pre-fix whitespace behavior; current code now aligns
   keyword and CER whitespace normalization.
+- The whisper.cpp shim/provider is only compile/link and fake-native validated;
+  no real model inference, quality, memory, or cancellation latency is claimed.
+  It requires an external compatible `v1.9.2` build and explicitly supplied
+  model/library paths, and it must not silently replace another ASR provider.
 - Piper and Kokoro performance, resources, provider-chunk first audio,
   interruption boundaries, and licenses are measured, but human quality and
   actual playback latency are not. Piper produced a very small full-scale
@@ -1063,11 +1092,11 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 The keyword metric whitespace normalization is now fixed. Rerun the selected
 handshake phrases only if corrected keyword scores are needed for the provider
-gate. The Gateway timeout contract and whisper.cpp fallback research are now in
-place; next build the isolated C-shim provider and run the public benchmark,
-then measure disconnect/default-device change, native provider restart and
-hard-cancellation behavior before selecting a production ASR. Expand live VAD
-threshold/noise evidence without granting endpoint control, and separately
-define actual speaker-first-audio and interruption instrumentation. Keep every
-provider replaceable and obtain the repository license decision before packaging
-models or accepting external contributions.
+gate. The Gateway timeout contract and whisper.cpp fallback prototype are now
+in place; next run the public ASR benchmark with externally pinned `base` and
+`small` artifacts, then measure disconnect/default-device change, native
+provider restart, and hard-cancellation behavior before selecting a production
+ASR. Expand live VAD threshold/noise evidence without granting endpoint
+control, and separately define actual speaker-first-audio and interruption
+instrumentation. Keep every provider replaceable and obtain the repository
+license decision before packaging models or accepting external contributions.

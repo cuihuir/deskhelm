@@ -52,6 +52,7 @@ from .providers import (
 )
 from .paraformer import ParaformerStreamingAsrProvider
 from .sensevoice import SenseVoiceOfflineAsrProvider
+from .whisper_cpp import WhisperCppAsrProvider
 from .piper_tts import PiperTtsProvider
 from .pipewire import PipeWireCaptureProvider, PipeWirePlaybackProvider
 from .silero_onnx_vad import SileroOnnxVadProvider
@@ -97,6 +98,7 @@ __all__ = [
     "PiperTtsProvider",
     "ResolvedAudioSelection",
     "SenseVoiceOfflineAsrProvider",
+    "WhisperCppAsrProvider",
     "SpeechItem",
     "SpeechPriority",
     "SpeechSegment",

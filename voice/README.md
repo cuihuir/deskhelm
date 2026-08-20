@@ -68,6 +68,15 @@ composition currently uses Piper; Kokoro remains benchmark-only. Keep model
 weights and provider-specific heavyweight dependencies outside the repository
 and Bridge.
 
+`whisper_cpp.py` provides an explicit fallback provider that loads a
+DeskHelm-specific shared-library shim and model path lazily. It accepts only
+16 kHz mono S16LE, converts bounded audio to float32 in memory, serializes one
+native context, and reports final-only results. The shim is compiled outside
+the repository against whisper.cpp `v1.9.2`; this provider is not wired into
+`LocalVoiceConfig`, has no silent runtime fallback, and does not add a native
+dependency to Bridge. See
+[`native/whisper-cpp-shim/README.md`](native/whisper-cpp-shim/README.md).
+
 `local_gateway.py` provides the first opt-in application composition. It
 preflights PipeWire selection plus required Paraformer/Piper artifact files,
 then constructs lazy model providers without opening audio or loading weights.

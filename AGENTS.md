@@ -122,6 +122,8 @@ conversation history.
 - `adapters/`: runtime-specific Codex, Claude Code, Gemini CLI, and other
   integrations.
 - `voice/`: provider-neutral PTT, ASR, TTS, playback, and voice lifecycle core.
+- `voice/native/whisper-cpp-shim/`: optional external whisper.cpp C-shim source
+  and build notes; native libraries and models remain outside Git.
 - `protocol/`: versioned state, interaction, control, and transport contracts.
 - `configurator/`: device and client setup application.
 - `hardware/`: electronics, PCB, mechanical, production, and test assets.
@@ -215,6 +217,9 @@ Keep third-party reference files outside version control under
   credentials by default.
 - Keep PyTorch, CUDA, model weights, and provider-specific voice dependencies
   outside the core Bridge.
+- Keep the whisper.cpp fallback behind the DeskHelm-specific ABI in
+  `voice/native/whisper-cpp-shim/`; require explicit library/model paths and
+  never silently fall back from another ASR provider.
 - Keep `voice/` independent of Bridge. Convert transcripts and speech controls
   only at the Bridge composition boundary.
 - Allow one active PTT capture/transcription flow, bound speech queues, and
@@ -354,6 +359,9 @@ Current commands:
   local voice composition preflight tests without audio or model runtimes.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_local_voice_live_tool -v`:
   validate live diagnostic bounds and privacy-safe summaries without audio.
+- `PYTHONPATH=bridge python3 -m unittest
+  tests.test_whisper_cpp_provider -v`: run the optional provider tests with a
+  fake native shim; no whisper.cpp checkout or model is required.
 - `PYTHONPATH=voice /ignored/py312/bin/python
   tools/run-local-asr-diagnostic.py --live-audio --asr-model-directory
   <ignored-model> --utterance-id zh-repeat-01 <audio-options>`: run one bounded

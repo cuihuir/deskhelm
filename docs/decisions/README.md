@@ -50,3 +50,7 @@ chat-driven diagnostics do not race automatic prompt transitions.
 [`0024-bounded-asr-timeout.md`](0024-bounded-asr-timeout.md) adds a bounded
 Voice Gateway ASR deadline, fixed timeout failure, and explicit retry boundary
 without claiming hard cancellation for native provider calls.
+
+[`0025-isolated-whisper-cpp-shim-provider.md`](0025-isolated-whisper-cpp-shim-provider.md)
+keeps the whisper.cpp fallback behind a pinned, DeskHelm-specific C ABI and
+explicit provider opt-in without adding native dependencies to Bridge.
