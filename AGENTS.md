@@ -362,6 +362,14 @@ Current commands:
 - `PYTHONPATH=bridge python3 -m unittest
   tests.test_whisper_cpp_provider -v`: run the optional provider tests with a
   fake native shim; no whisper.cpp checkout or model is required.
+- `PYTHONPATH=bridge python3 -m unittest
+  tests.test_whisper_cpp_benchmark_tool -v`: validate pinned-model metadata
+  and benchmark-runner bounds without loading a native model.
+- `PYTHONPATH=voice python tools/run-whisper-cpp-benchmark.py --model
+  <base|small> --model-path <ignored-ggml-model> --library-path
+  <external-shim> --prepared <prepared-asr-set> --observations <results.ndjson>
+  --summary <summary.json>`: run the explicit external whisper.cpp benchmark;
+  keep models, native libraries, observations, and summaries outside Git.
 - `PYTHONPATH=voice /ignored/py312/bin/python
   tools/run-local-asr-diagnostic.py --live-audio --asr-model-directory
   <ignored-model> --utterance-id zh-repeat-01 <audio-options>`: run one bounded

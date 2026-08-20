@@ -141,9 +141,11 @@ The no-hardware whisper.cpp fallback phase now has an isolated provider
 prototype. Official upstream sources confirm stable `v1.9.2`, MIT runtime/model
 terms, in-memory float-PCM C API entry points, model hashes, and abort-callback
 hooks. A DeskHelm-specific C shim and lazy Python provider are implemented and
-validated against an external `v1.9.2` checkout, but no model weights were
-downloaded and no production quality claim is made. The next software phase is
-an external-artifact benchmark of multilingual `base`/`small` candidates.
+validated against an external `v1.9.2` checkout. The first external-artifact
+benchmark of multilingual `base`/`small` is also complete: `base` achieved
+24/24 successful observations, while `small` achieved 21/24 and failed the
+short `zero` clip in all repetitions. Neither model is selected for production.
+No model weights or raw observations are tracked in Git.
 
 ## Completed Work
 
@@ -383,6 +385,17 @@ an external-artifact benchmark of multilingual `base`/`small` candidates.
 - Added fake-native provider tests for lazy loading, conversion, fixed status
   outcomes, lock recovery, cancellation, and output bounds. No microphone,
   PCM persistence, transcript logging, or real model inference was performed.
+- Added `tools/run-whisper-cpp-benchmark.py` to verify upstream model size/SHA,
+  reuse the existing ASR observation contract, and record aggregate model,
+  load, and resource metadata without changing default provider composition.
+- Downloaded the pinned multilingual `base` and `small` artifacts only under
+  ignored `references/vendor/whisper-cpp-bench/`. The three-repetition run
+  measured `base` at 24/24 success, 1.2662 CER, 1,519.6 ms p50, 391.9 MiB RSS;
+  `small` at 21/24 success, 0.5218 CER, 5,887.9 ms p50, 902.4 MiB RSS.
+- Fixed the shim's auto-language configuration after source-level validation
+  showed `detect_language=true` is detection-only in upstream `v1.9.2`.
+  A real cancellation probe returned `VoiceCancelled` after about 1.326 s for
+  `base` and 5.876 s for `small` from the cancel flag.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -705,6 +718,8 @@ an external-artifact benchmark of multilingual `base`/`small` candidates.
   matrix, fake-boundary evidence, and outstanding live hot-plug measurements.
 - `docs/research/2026-08-19-multi-phrase-asr-diagnostic.md`: phrase set,
   privacy bounds, live provider comparison, and handshake follow-up.
+- `docs/research/2026-08-20-whisper-cpp-fallback.md`: official whisper.cpp
+  facts, shim boundary, and first external base/small benchmark results.
 - `protocol/adapter-session-v1.md`: lifecycle frames, acknowledgements,
   declared capabilities, and event ownership validation.
 - `protocol/interaction-event-v1.md`: rich session event contract.
@@ -787,6 +802,8 @@ an external-artifact benchmark of multilingual `base`/`small` candidates.
   conversion, and prepared-index generation.
 - `tools/run-asr-benchmark.py`: explicit Paraformer/SenseVoice verification and
   isolated runs, observations, resource metadata, and summary output.
+- `tools/run-whisper-cpp-benchmark.py`: pinned-model verification and explicit
+  whisper.cpp shim benchmark runner.
 - `tools/prepare-tts-benchmark.py`: bounded downloads, verification, and safe
   G2PW extraction.
 - `tools/run-tts-benchmark.py`: isolated candidate runner, WAV export,
@@ -823,6 +840,8 @@ an external-artifact benchmark of multilingual `base`/`small` candidates.
   transcript/audio-free summary coverage.
 - `tests/test_local_asr_diagnostic_tool.py`: controlled phrase selection,
   signal hints, privacy suppression, fixed failures, and metric coverage.
+- `tests/test_whisper_cpp_benchmark_tool.py`: pinned artifact metadata and
+  benchmark runner bounds.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
 - `bridge/deskhelm_bridge/server.py`: bounded concurrent socket handling and
   connection role dispatch.
@@ -837,7 +856,7 @@ Last verified on 2026-08-20:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 226 tests passed under the workstation resource limiter. This includes
+Result: 230 tests passed under the workstation resource limiter. This includes
 the existing Bridge, protocol,
 adapter, voice, benchmark, and fake-subprocess PipeWire coverage plus streaming
 capture continuity, bounds, premature-end, cleanup, compatibility, empty-ASR
@@ -984,6 +1003,19 @@ linked against an external CPU-only whisper.cpp `v1.9.2` build. A missing-model
 smoke load returned the fixed safe provider error; no model weights, microphone
 input, PCM persistence, or transcript logging were used.
 
+The benchmark tool suite passed 3/3 tests covering parser defaults, pinned model
+identity, and rejection of an unpinned artifact. The runner now follows the
+repository's standard parser/validation split, so direct parser tests do not
+attempt to parse process arguments during parser construction.
+
+The external ASR benchmark runner passed 24/24 observations for multilingual
+`base` and 21/24 for `small` across three repetitions. `base` measured 1.2662
+mean CER, 1,519.6 ms p50 final latency, 3.5158 mean RTF, and 391.9 MiB peak
+RSS. `small` measured 0.5218 CER on successful observations, 5,887.9 ms p50,
+12.7997 mean RTF, and 902.4 MiB peak RSS; all three `zero` repetitions returned
+the fixed empty-result boundary. A cooperative cancellation probe returned
+after 1.326 s for `base` and 5.876 s for `small` from the cancel flag.
+
 Repository checks also passed:
 
 ```bash
@@ -1000,10 +1032,9 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Remaining Work
 
-1. Run the existing ASR benchmark against externally pinned whisper.cpp
-   multilingual `base` and `small` artifacts through the isolated shim; record
-   CER/WER, latency, memory, cancellation, and exact model provenance before
-   considering any production selection.
+1. Decide whether further whisper.cpp tuning or a coding-command corpus is
+   justified; the first base/small run is complete but does not select a
+   production ASR.
 2. Measure real/default-device disconnect, timeout, device-change, and provider
    restart recovery; the timeout contract is implemented but live/native hard
    cancellation evidence is still missing.
@@ -1079,10 +1110,12 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   Its handshake batch improved CER on the selected phrases. Historical keyword
   scores reflect the pre-fix whitespace behavior; current code now aligns
   keyword and CER whitespace normalization.
-- The whisper.cpp shim/provider is only compile/link and fake-native validated;
-  no real model inference, quality, memory, or cancellation latency is claimed.
-  It requires an external compatible `v1.9.2` build and explicitly supplied
-  model/library paths, and it must not silently replace another ASR provider.
+- The whisper.cpp base/small run is real CPU evidence, but the corpus is only
+  eight public utterances and the Python runtime differs from earlier ASR runs.
+  `small` failed all three short `zero` repetitions and both models have poor
+  RTF for interactive use; cancellation remains cooperative and slow.
+  The provider still requires an external compatible `v1.9.2` build and
+  explicit model/library paths, and must not silently replace another ASR.
 - Piper and Kokoro performance, resources, provider-chunk first audio,
   interruption boundaries, and licenses are measured, but human quality and
   actual playback latency are not. Piper produced a very small full-scale
@@ -1092,11 +1125,12 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 The keyword metric whitespace normalization is now fixed. Rerun the selected
 handshake phrases only if corrected keyword scores are needed for the provider
-gate. The Gateway timeout contract and whisper.cpp fallback prototype are now
-in place; next run the public ASR benchmark with externally pinned `base` and
-`small` artifacts, then measure disconnect/default-device change, native
-provider restart, and hard-cancellation behavior before selecting a production
-ASR. Expand live VAD threshold/noise evidence without granting endpoint
-control, and separately define actual speaker-first-audio and interruption
-instrumentation. Keep every provider replaceable and obtain the repository
-license decision before packaging models or accepting external contributions.
+gate. The whisper.cpp base/small benchmark and cancellation probe are complete;
+next decide whether a larger coding-command corpus or provider tuning is worth
+the cost before any opt-in configuration work. Then measure disconnect/default-
+device change, native provider restart, and hard-cancellation behavior across
+the selected local voice paths. Expand live VAD threshold/noise evidence
+without granting endpoint control, and separately define actual
+speaker-first-audio and interruption instrumentation. Keep every provider
+replaceable and obtain the repository license decision before packaging models
+or accepting external contributions.

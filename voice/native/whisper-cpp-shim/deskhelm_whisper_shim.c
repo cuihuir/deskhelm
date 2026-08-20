@@ -125,7 +125,9 @@ int deskhelm_whisper_transcribe(
                        strcmp(language, "auto") != 0)
                           ? language
                           : NULL;
-    params.detect_language = params.language == NULL;
+    /* A null/auto language already triggers detection; setting this flag would
+       request detection-only mode and return before transcription. */
+    params.detect_language = false;
     params.abort_callback = should_abort;
     params.abort_callback_user_data = (void *)abort_flag;
 

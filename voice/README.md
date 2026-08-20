@@ -249,6 +249,25 @@ PYTHONPATH=voice python tools/run-asr-benchmark.py \
 Use `--provider sensevoice` with the verified SenseVoice model directory to run
 the same prepared public set and observation contract.
 
+The isolated whisper.cpp fallback uses a separate runner because it requires
+both an external shared-library shim and a file model. Verify the upstream
+`v1.9.2` artifact before running either multilingual candidate:
+
+```bash
+PYTHONPATH=voice python tools/run-whisper-cpp-benchmark.py \
+  --model base \
+  --model-path references/vendor/whisper-cpp-bench/models/ggml-base.bin \
+  --library-path /path/to/libdeskhelm_whisper_shim.so \
+  --prepared references/vendor/paraformer-bench/run-v1/prepared \
+  --observations references/vendor/whisper-cpp-bench/run-v1/base.ndjson \
+  --summary references/vendor/whisper-cpp-bench/run-v1/base-summary.json \
+  --repetitions 3 --cpu-threads 4
+```
+
+The runner records only the existing bounded benchmark observations and
+aggregate summary in ignored storage; it does not change provider selection or
+the default Bridge composition.
+
 Prepare and run a pinned TTS candidate from an isolated Python 3.12 environment
 containing its optional runtime:
 

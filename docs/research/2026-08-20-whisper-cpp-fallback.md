@@ -51,6 +51,38 @@ The facts below were retrieved from upstream sources on 2026-08-20.
 - Model mirrors and converted artifacts need exact provenance. Do not treat an
   arbitrary download URL as an OpenAI license grant.
 
+## Prototype Benchmark
+
+The first external benchmark ran on 2026-08-20 against the existing eight-item
+ASR set, three repetitions per model, four CPU threads, and the DeskHelm shim
+ABI `deskhelm_whisper_shim_v1`. Models were downloaded from the pinned
+upstream Hugging Face paths and matched the upstream SHA-1 identifiers. The
+Python process was `3.14.6`, so these values are not a direct replacement for
+the earlier Python 3.12 Paraformer/SenseVoice runs.
+
+| Model | Success | CER mean | WER mean | Keyword mean | Final latency p50/p95 | Mean RTF | Peak RSS | Load |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| multilingual `base` | 24/24 | 1.2662 | 1.5893 | 0.4375 | 1,519.6 / 1,623.3 ms | 3.5158 | 391.9 MiB | 92.1 ms |
+| multilingual `small` | 21/24 | 0.5218 | 1.5000 | 0.3571 | 5,887.9 / 6,099.7 ms | 12.7997 | 902.4 MiB | 234.8 ms |
+
+`small` failed all three repetitions of the short `zero` clip with the fixed
+empty-result boundary; the other 21 observations completed. On this small
+corpus, `small` improved aggregate CER but remained slower, less reliable on
+the short English clip, and lower on aggregate keyword accuracy. Neither model
+is selected for production.
+
+The cancellation probe used the Chinese example and set the cooperative cancel
+event 200 ms after the request began. The provider returned `VoiceCancelled`
+after approximately 1,326 ms for `base` and 5,876 ms for `small` from the
+cancel flag, confirming callback propagation but also showing that cancellation
+latency is tied to native compute boundaries rather than a hard stop.
+
+The benchmark artifacts remain under ignored `references/vendor/whisper-cpp-bench/`.
+The model file SHA-256 values are `60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe`
+for `base` and
+`1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b` for
+`small`.
+
 ## Recommended Prototype Boundary
 
 1. Keep `WhisperCppAsrProvider` outside the default composition and require an
