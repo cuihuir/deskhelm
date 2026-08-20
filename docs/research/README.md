@@ -43,3 +43,6 @@
   实机验证。
 - [`2026-08-19-multi-phrase-asr-diagnostic.md`](2026-08-19-multi-phrase-asr-diagnostic.md)
   — 多条中文/中英混合编码命令的批量诊断边界、隐私契约和实测待办。
+- [`2026-08-20-whisper-cpp-fallback.md`](2026-08-20-whisper-cpp-fallback.md)
+  — whisper.cpp 的官方运行时/API/模型/许可证事实、DeskHelm 适配风险和
+  下一阶段 native provider 原型边界。

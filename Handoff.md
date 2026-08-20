@@ -137,6 +137,14 @@ they do not wait for the full ASR deadline. A native provider call may still
 continue after the Gateway returns because hard cancellation remains
 cooperative; no audio or transcript content is retained or logged.
 
+The no-hardware whisper.cpp fallback research phase is now complete. Official
+upstream sources confirm stable `v1.9.2`, MIT runtime/model terms, in-memory
+float-PCM C API entry points, model hashes, and abort-callback hooks. The report
+retains whisper.cpp as the next quality/licensing fallback but does not select
+it, add native dependencies, or claim coding-command quality. The next software
+phase is an isolated C-shim provider prototype using pinned multilingual
+`base`/`small` artifacts and the existing benchmark contract.
+
 ## Completed Work
 
 - Created and pushed the initial project baseline.
@@ -360,6 +368,10 @@ cooperative; no audio or transcript content is retained or logged.
   `voice_asr_timeout` failure, responsive cancellation/close polling, explicit
   retry semantics, and tests for timeout recovery. Native provider hard
   cancellation remains unverified.
+- Completed the dated whisper.cpp fallback research. It records upstream
+  `v1.9.2`, MIT licensing, in-memory C API/abort hooks, model-size tradeoffs,
+  provenance requirements, and a C-shim prototype boundary without adding a
+  native dependency or model weights.
 - Accepted ADR 0015: use Piper Chaowen as the initial low-latency notification
   TTS baseline while retaining Kokoro 82M as the quality candidate and
   deferring the final production selection.
@@ -964,19 +976,22 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 ## Remaining Work
 
-1. Measure real/default-device disconnect, timeout, device-change, and provider
+1. Build and benchmark an isolated whisper.cpp C-shim provider prototype with
+   pinned multilingual `base`/`small` artifacts; do not make it a silent
+   runtime fallback or production selection yet.
+2. Measure real/default-device disconnect, timeout, device-change, and provider
    restart recovery; the timeout contract is implemented but live/native hard
    cancellation evidence is still missing.
-2. Choose and add the repository license; the GitHub repository is currently
+3. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-3. Run blinded Piper/Kokoro listening, actual speaker-first-audio measurement,
+4. Run blinded Piper/Kokoro listening, actual speaker-first-audio measurement,
    and live PipeWire interruption tests. Repeat controlled Chinese/mixed
    commands and compare an alternative ASR before selecting production defaults.
-4. Expand VAD to noisy/conversational labeled audio and live-device threshold
+5. Expand VAD to noisy/conversational labeled audio and live-device threshold
    measurements.
-5. Repeat controlled live VAD utterances and test threshold, disconnect,
+6. Repeat controlled live VAD utterances and test threshold, disconnect,
    runtime-failure, and reconnect behavior without enabling auto-endpointing.
-6. Add a multi-project working-directory registry before one Bridge process
+7. Add a multi-project working-directory registry before one Bridge process
    manages Agent sessions from different repositories.
 
 ## Risks and Blockers
@@ -1048,11 +1063,11 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 
 The keyword metric whitespace normalization is now fixed. Rerun the selected
 handshake phrases only if corrected keyword scores are needed for the provider
-gate. The Gateway timeout contract is now in place; next measure
-disconnect/default-device change, native provider restart and hard-cancellation
-behavior, then retain whisper.cpp as the next licensing/quality fallback before
-selecting a production ASR. Expand live VAD threshold/noise evidence without
-granting endpoint control, and separately define actual speaker-first-audio and
-interruption instrumentation. Keep every provider replaceable and obtain the
-repository license decision before packaging models or accepting external
-contributions.
+gate. The Gateway timeout contract and whisper.cpp fallback research are now in
+place; next build the isolated C-shim provider and run the public benchmark,
+then measure disconnect/default-device change, native provider restart and
+hard-cancellation behavior before selecting a production ASR. Expand live VAD
+threshold/noise evidence without granting endpoint control, and separately
+define actual speaker-first-audio and interruption instrumentation. Keep every
+provider replaceable and obtain the repository license decision before packaging
+models or accepting external contributions.
