@@ -385,6 +385,9 @@ No model weights or raw observations are tracked in Git.
 - Added fake-native provider tests for lazy loading, conversion, fixed status
   outcomes, lock recovery, cancellation, and output bounds. No microphone,
   PCM persistence, transcript logging, or real model inference was performed.
+- Added fake-native lifecycle coverage showing that an explicit provider close
+  can be followed by a fresh model load and transcription; this validates
+  in-process resource restart but not hard cancellation of a live native call.
 - Added `tools/run-whisper-cpp-benchmark.py` to verify upstream model size/SHA,
   reuse the existing ASR observation contract, and record aggregate model,
   load, and resource metadata without changing default provider composition.
@@ -856,7 +859,7 @@ Last verified on 2026-08-20:
 PYTHONPATH=bridge python3 -m unittest discover -s tests -v
 ```
 
-Result: 230 tests passed under the workstation resource limiter. This includes
+Result: 231 tests passed under the workstation resource limiter. This includes
 the existing Bridge, protocol,
 adapter, voice, benchmark, and fake-subprocess PipeWire coverage plus streaming
 capture continuity, bounds, premature-end, cleanup, compatibility, empty-ASR
@@ -996,12 +999,13 @@ mono S16LE PCM and discarded it after signal measurement. The default internal
 sink played a 250 ms, 660 Hz, 5% level tone. A one-second input test returned no
 audio and failed explicitly; hot unplug and default changes remain untested.
 
-The isolated whisper.cpp provider suite passed 5/5 fake-native tests covering
+The isolated whisper.cpp provider suite passed 6/6 fake-native tests covering
 lazy loading, PCM conversion, fixed status mapping, serialization recovery,
-cancellation, and transcript bounds. The C shim passed strict syntax checks and
-linked against an external CPU-only whisper.cpp `v1.9.2` build. A missing-model
-smoke load returned the fixed safe provider error; no model weights, microphone
-input, PCM persistence, or transcript logging were used.
+cancellation, transcript bounds, and explicit close/reload lifecycle recovery.
+The C shim passed strict syntax checks and linked against an external CPU-only
+whisper.cpp `v1.9.2` build. A missing-model smoke load returned the fixed safe
+provider error; no model weights, microphone input, PCM persistence, or
+transcript logging were used.
 
 The benchmark tool suite passed 3/3 tests covering parser defaults, pinned model
 identity, and rejection of an unpinned artifact. The runner now follows the
@@ -1035,9 +1039,10 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
 1. Decide whether further whisper.cpp tuning or a coding-command corpus is
    justified; the first base/small run is complete but does not select a
    production ASR.
-2. Measure real/default-device disconnect, timeout, device-change, and provider
-   restart recovery; the timeout contract is implemented but live/native hard
-   cancellation evidence is still missing.
+2. Measure real/default-device disconnect, timeout, device-change, and native
+   runtime restart recovery; the timeout contract and in-process provider
+   reload are implemented, but live/native hard cancellation evidence is still
+   missing.
 3. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
 4. Run blinded Piper/Kokoro listening, actual speaker-first-audio measurement,
@@ -1114,6 +1119,8 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   eight public utterances and the Python runtime differs from earlier ASR runs.
   `small` failed all three short `zero` repetitions and both models have poor
   RTF for interactive use; cancellation remains cooperative and slow.
+  In-process close/reload is covered only with a fake native library; process
+  restart and hard in-flight cancellation remain unmeasured.
   The provider still requires an external compatible `v1.9.2` build and
   explicit model/library paths, and must not silently replace another ASR.
 - Piper and Kokoro performance, resources, provider-chunk first audio,

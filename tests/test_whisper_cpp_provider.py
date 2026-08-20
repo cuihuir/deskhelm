@@ -148,6 +148,40 @@ class WhisperCppProviderTests(unittest.TestCase):
         with self.assertRaises(VoiceNoTranscript):
             empty_provider.transcribe(_audio(), Event())
 
+    def test_close_allows_explicit_reload_after_native_restart(self) -> None:
+        def transcribe(
+            _context,
+            _samples,
+            _sample_count,
+            _language,
+            _abort,
+            output,
+            _output_size,
+        ):
+            ctypes.memmove(output, b"ok", 2)
+            return 0
+
+        library = _FakeLibrary(transcribe)
+        provider = WhisperCppAsrProvider(
+            "/tmp/libdeskhelm-whisper.so",
+            "/models/ggml-base.bin",
+            library_loader=lambda _path: library,
+        )
+
+        self.assertEqual(
+            provider.transcribe(_audio(), Event()).normalized_text,
+            "ok",
+        )
+        provider.close()
+        self.assertEqual(
+            provider.transcribe(_audio(), Event()).normalized_text,
+            "ok",
+        )
+        provider.close()
+
+        self.assertEqual(len(library.created), 2)
+        self.assertEqual(len(library.freed), 2)
+
     def test_cancel_flag_reaches_native_call(self) -> None:
         entered = Event()
 
