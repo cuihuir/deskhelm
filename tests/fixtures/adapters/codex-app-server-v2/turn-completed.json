@@ -1,0 +1,11 @@
+{
+  "method": "turn/completed",
+  "params": {
+    "threadId": "thread-synthetic-1",
+    "turn": {
+      "id": "turn-synthetic-1",
+      "items": [],
+      "status": "completed"
+    }
+  }
+}

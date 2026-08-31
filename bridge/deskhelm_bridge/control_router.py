@@ -218,6 +218,46 @@ class ControlRouter:
         with self._lock:
             return len(self._pending_approvals)
 
+    def pending_approvals_for(
+        self,
+        session: SessionKey,
+        *,
+        now_ms: int | None = None,
+    ) -> tuple[PendingApproval, ...]:
+        timestamp = self._timestamp(now_ms)
+        with self._lock:
+            self._purge(timestamp)
+            return tuple(
+                sorted(
+                    (
+                        pending
+                        for pending in self._pending_approvals.values()
+                        if pending.session == session
+                    ),
+                    key=lambda pending: (
+                        pending.expires_at,
+                        pending.request_id,
+                    ),
+                )
+            )
+
+    def resolve_approval(
+        self,
+        request_id: str,
+        *,
+        now_ms: int | None = None,
+    ) -> bool:
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise ValueError("request_id must not be empty")
+        timestamp = self._timestamp(now_ms)
+        with self._lock:
+            self._purge(timestamp)
+            pending = self._pending_approvals.pop(request_id, None)
+            if pending is None:
+                return False
+            self._decided_approvals[request_id] = pending.expires_at
+            return True
+
     def _validate_approval(
         self, command: ControlCommand, session: SessionKey, timestamp: int
     ) -> ControlResultCode | None:

@@ -1,0 +1,5 @@
+# Permit only the existing keyd group to read the built-in keyboard used by the
+# explicit DeskHelm right-Alt PTT controller.
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="AT Translated Set 2 keyboard", GROUP="keyd", MODE="0640", SYMLINK+="input/deskhelm-internal-kbd"
+# keyd forwards the unmodified physical right Alt through this virtual keyboard.
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="keyd virtual keyboard", GROUP="keyd", MODE="0640", SYMLINK+="input/deskhelm-ptt-kbd"

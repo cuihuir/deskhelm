@@ -16,7 +16,12 @@ from deskhelm_bridge.agent_gateway import (
     AgentRunResult,
     AgentRunStatus,
 )
-from deskhelm_bridge.client import send_event, send_negotiated_event
+from deskhelm_bridge.adapter import AdapterSessionEvent
+from deskhelm_bridge.client import (
+    AdapterSessionPublisher,
+    send_event,
+    send_negotiated_event,
+)
 from deskhelm_bridge.event import AgentEvent, AgentState
 from deskhelm_bridge.fake_agent_provider import FakeAgentProvider, FakeRunScript
 from deskhelm_bridge.interaction import (
@@ -25,7 +30,9 @@ from deskhelm_bridge.interaction import (
     MessagePhase,
     MessageRole,
 )
+from deskhelm_bridge.project_registry import ProjectWorkingDirectoryRegistry
 from deskhelm_bridge.server import run_bridge
+from deskhelm_bridge.transport import INTERACTION_EVENT_V1_CAPABILITY
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -428,6 +435,66 @@ class BridgeEndToEndTests(unittest.TestCase):
                 controller.close()
                 self._stop_bridge(bridge)
 
+    def test_adapter_session_publisher_registers_and_releases(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = Path(directory) / "bridge.sock"
+            bridge, _ = self._start_bridge(socket_path)
+            publisher = AdapterSessionPublisher(
+                socket_path,
+                client_id="session-publisher-helper",
+            )
+            try:
+                hello = publisher.connect()
+                register = self._adapter_session("register")
+                register["capabilities"] = ["submit_prompt", "interrupt"]
+                release = self._adapter_session("release")
+                release["capabilities"] = ["submit_prompt", "interrupt"]
+                registered = publisher.publish(
+                    AdapterSessionEvent.from_dict(register)
+                )
+                released = publisher.publish(
+                    AdapterSessionEvent.from_dict(release)
+                )
+            finally:
+                publisher.close()
+                self._stop_bridge(bridge)
+
+            self.assertIn("adapter_session_v1", hello.accepted_capabilities)
+            self.assertEqual(registered.slot, 1)
+            self.assertIsNone(released.slot)
+
+    def test_adapter_session_publisher_negotiates_declared_interactions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = Path(directory) / "bridge.sock"
+            bridge, _ = self._start_bridge(socket_path)
+            publisher = AdapterSessionPublisher(
+                socket_path,
+                client_id="interactive-session-publisher",
+                additional_capabilities=(INTERACTION_EVENT_V1_CAPABILITY,),
+            )
+            try:
+                hello = publisher.connect()
+                register = self._adapter_session("register")
+                register["capabilities"] = [
+                    "interaction_events",
+                    "approval_requests",
+                    "submit_prompt",
+                    "interrupt",
+                    "approval_decisions",
+                ]
+                registered = publisher.publish(
+                    AdapterSessionEvent.from_dict(register)
+                )
+            finally:
+                publisher.close()
+                self._stop_bridge(bridge)
+
+            self.assertIn(
+                INTERACTION_EVENT_V1_CAPABILITY,
+                hello.accepted_capabilities,
+            )
+            self.assertEqual(registered.slot, 1)
+
     def test_lifecycle_publisher_rejects_event_before_registration(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             socket_path = Path(directory) / "bridge.sock"
@@ -471,6 +538,8 @@ class BridgeEndToEndTests(unittest.TestCase):
     def test_text_gateway_streams_controller_prompt_result_to_subscriber(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             socket_path = Path(directory) / "bridge.sock"
+            project_directory = Path(directory) / "project"
+            project_directory.mkdir()
             output = StringIO()
             provider = FakeAgentProvider(
                 [
@@ -503,7 +572,11 @@ class BridgeEndToEndTests(unittest.TestCase):
                             live=False,
                             max_events=3,
                             agent_provider=provider,
-                            agent_working_directory=ROOT,
+                            agent_working_directory_registry=(
+                                ProjectWorkingDirectoryRegistry.configured(
+                                    {"deskhelm": project_directory}
+                                )
+                            ),
                         )
                     )
                 except BaseException as error:
@@ -615,6 +688,10 @@ class BridgeEndToEndTests(unittest.TestCase):
                 "deterministic response",
             )
             self.assertEqual(terminal_update["event"]["kind"], "task_completed")
+            self.assertEqual(
+                provider.requests[0].working_directory,
+                project_directory.resolve(),
+            )
             self.assertNotIn(prompt["payload"]["text"], output.getvalue())
 
     def test_subscriber_receives_snapshot_then_live_update(self) -> None:

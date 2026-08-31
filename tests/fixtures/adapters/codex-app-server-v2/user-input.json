@@ -1,0 +1,21 @@
+{
+  "method": "item/tool/requestUserInput",
+  "id": 44,
+  "params": {
+    "threadId": "thread-synthetic-1",
+    "turnId": "turn-synthetic-1",
+    "itemId": "item-input-synthetic-1",
+    "isBlocking": true,
+    "autoResolutionMs": null,
+    "questions": [
+      {
+        "id": "choice",
+        "header": "Synthetic private header",
+        "question": "Synthetic private question",
+        "isOther": false,
+        "isSecret": false,
+        "options": null
+      }
+    ]
+  }
+}

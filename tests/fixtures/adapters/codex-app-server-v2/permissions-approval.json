@@ -1,0 +1,17 @@
+{
+  "method": "item/permissions/requestApproval",
+  "id": "approval-permissions-synthetic-1",
+  "params": {
+    "threadId": "thread-synthetic-1",
+    "turnId": "turn-synthetic-1",
+    "itemId": "item-permissions-synthetic-1",
+    "startedAtMs": 1787800000000,
+    "cwd": "/synthetic/project",
+    "reason": "synthetic private reason",
+    "permissions": {
+      "network": {
+        "enabled": true
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from threading import Event, Lock
 
@@ -141,8 +141,10 @@ class FakePlaybackProvider:
     requests: list[SynthesizedAudio] = field(default_factory=list, init=False)
     cancelled_count: int = field(default=0, init=False)
 
-    def play(self, audio: SynthesizedAudio, cancel: Event) -> None:
+    def play(self, audio: SynthesizedAudio, cancel: Event, on_first_write: Callable[[], None] | None = None) -> None:
         self.requests.append(audio)
+        if on_first_write is not None:
+            on_first_write()
         self.started.set()
         if self.block_until_cancel:
             cancel.wait(timeout=5)

@@ -1,25 +1,54 @@
+from contextlib import redirect_stderr
+import io
+import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from deskhelm_bridge.cli import _compose_local_voice, build_parser, main
-from voice.deskhelm_voice import (
-    AudioNode,
-    AudioNodeKind,
-    LocalAsrProviderKind,
-    LocalAudioConfig,
-    LocalTtsProviderKind,
-    LocalVadProviderKind,
-    LocalVoiceConfig,
-    ParaformerStreamingAsrProvider,
-    PipeWireAudioInventory,
-    PipeWireCaptureProvider,
-    PipeWirePlaybackProvider,
-    PiperTtsProvider,
-    WebRtcVadProvider,
+from deskhelm_bridge.cli import (
+    _compose_local_voice,
+    _print_voice_turn_timing,
+    build_parser,
+    main,
 )
+from deskhelm_bridge.interaction import InteractionKind
+from deskhelm_bridge.turn_timing import VoiceAgentTurnTiming
+try:
+    from deskhelm_voice import (
+        AudioNode,
+        AudioNodeKind,
+        LocalAsrProviderKind,
+        LocalAudioConfig,
+        LocalTtsProviderKind,
+        LocalVadProviderKind,
+        LocalVoiceConfig,
+        KokoroTtsProvider,
+        ParaformerStreamingAsrProvider,
+        PipeWireAudioInventory,
+        PipeWireCaptureProvider,
+        PipeWirePlaybackProvider,
+        PiperTtsProvider,
+        WebRtcVadProvider,
+    )
+except ModuleNotFoundError:
+    from voice.deskhelm_voice import (
+        AudioNode,
+        AudioNodeKind,
+        LocalAsrProviderKind,
+        LocalAudioConfig,
+        LocalTtsProviderKind,
+        LocalVadProviderKind,
+        LocalVoiceConfig,
+        KokoroTtsProvider,
+        ParaformerStreamingAsrProvider,
+        PipeWireAudioInventory,
+        PipeWireCaptureProvider,
+        PipeWirePlaybackProvider,
+        PiperTtsProvider,
+        WebRtcVadProvider,
+    )
 
 
 class LocalVoiceConfigTests(unittest.TestCase):
@@ -94,6 +123,39 @@ class LocalVoiceConfigTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "model.pt is unavailable"):
                 config.compose(self._inventory())
+
+    def test_composes_kokoro_female_voice_from_explicit_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = self._artifacts(root)
+            kokoro = root / "kokoro"
+            kokoro.mkdir()
+            for name in (
+                "kokoro-v1_0.pth",
+                "config.json",
+                "zf_xiaobei.pt",
+                "af_heart.pt",
+            ):
+                (kokoro / name).write_bytes(b"test")
+            config = LocalVoiceConfig(
+                audio=LocalAudioConfig(),
+                asr_provider=LocalAsrProviderKind.PARAFORMER,
+                asr_model_directory=paths["asr"],
+                tts_provider=LocalTtsProviderKind.KOKORO,
+                tts_model_path=kokoro / "kokoro-v1_0.pth",
+                tts_config_path=kokoro / "config.json",
+                tts_resource_directory=kokoro,
+            )
+
+            composition = config.compose(self._inventory())
+            try:
+                self.assertIsInstance(
+                    composition.gateway.tts_provider,
+                    KokoroTtsProvider,
+                )
+                self.assertIsNone(composition.gateway.tts_provider._runtime)
+            finally:
+                composition.gateway.close()
 
     def test_bridge_cli_requires_explicit_paths_and_stays_disabled_by_default(self) -> None:
         parser = build_parser()
@@ -181,7 +243,75 @@ class LocalVoiceConfigTests(unittest.TestCase):
         self.assertEqual(result, 0)
         compose.assert_called_once()
         self.assertIs(run.call_args.kwargs["voice_gateway"], gateway)
+        self.assertIsNone(run.call_args.kwargs["voice_turn_timing_sink"])
         gateway.close.assert_called_once_with()
+
+    def test_bridge_turn_timing_is_explicit_and_requires_both_providers(self) -> None:
+        parser = build_parser()
+        self.assertFalse(parser.parse_args(["bridge"]).voice_turn_timing)
+
+        with patch("deskhelm_bridge.cli.run_bridge") as run:
+            result = main(["bridge", "--voice-turn-timing"])
+        self.assertEqual(result, 1)
+        run.assert_not_called()
+
+        gateway = Mock()
+        composition = SimpleNamespace(gateway=gateway)
+        with (
+            patch(
+                "deskhelm_bridge.cli._compose_local_voice",
+                return_value=composition,
+            ),
+            patch("deskhelm_bridge.cli.run_bridge", return_value=0) as run,
+        ):
+            result = main(
+                [
+                    "bridge",
+                    "--plain",
+                    "--agent-provider",
+                    "codex",
+                    "--voice-provider",
+                    "local",
+                    "--voice-turn-timing",
+                ]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertIsNotNone(run.call_args.kwargs["voice_turn_timing_sink"])
+
+    def test_turn_timing_output_contains_no_interaction_content(self) -> None:
+        output = io.StringIO()
+        timing = VoiceAgentTurnTiming(
+            agent_id="codex",
+            session_id="session-42",
+            project_id="deskhelm",
+            terminal_kind=InteractionKind.TASK_COMPLETED,
+            release_to_transcript_ms=7.0,
+            release_to_notification_ready_ms=16.0,
+            release_to_agent_terminal_ms=19.5,
+            release_to_speech_started_ms=17.0,
+            release_to_tts_audio_ready_ms=19.0,
+            release_to_playback_started_ms=20.0,
+            dispatch_to_notification_ready_ms=9.0,
+            dispatch_to_agent_terminal_ms=12.5,
+            dispatch_to_speech_started_ms=10.0,
+            dispatch_to_tts_audio_ready_ms=12.0,
+            dispatch_to_playback_started_ms=13.0,
+            notification_ready_to_speech_started_ms=1.0,
+            speech_started_to_tts_audio_ready_ms=2.0,
+            tts_audio_ready_to_playback_started_ms=1.0,
+        )
+
+        with redirect_stderr(output):
+            _print_voice_turn_timing(timing)
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["type"], "voice_agent_turn_timing")
+        self.assertEqual(payload["dispatch_to_agent_terminal_ms"], 12.5)
+        self.assertEqual(payload["dispatch_to_notification_ready_ms"], 9.0)
+        self.assertEqual(payload["speech_started_to_tts_audio_ready_ms"], 2.0)
+        self.assertNotIn("text", payload)
+        self.assertNotIn("turn_id", payload)
 
     @staticmethod
     def _inventory() -> PipeWireAudioInventory:

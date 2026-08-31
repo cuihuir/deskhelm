@@ -17,6 +17,9 @@ from voice.deskhelm_voice import (
 
 
 MANIFEST_PATH = Path("voice/benchmarks/vad-external-v1.json")
+EXPANDED_MANIFEST_PATH = Path(
+    "voice/benchmarks/vad-conversation-noise-v2.json"
+)
 
 
 class _FakeWebRtcDetector:
@@ -38,6 +41,25 @@ class VadProviderTests(unittest.TestCase):
         self.assertEqual(len(manifest.scenarios), 7)
         self.assertTrue(
             all(len(source.revision) == 40 for source in manifest.sources)
+        )
+
+    def test_expanded_manifest_pins_conversation_annotations_and_noise(self) -> None:
+        manifest = VadRunManifest.load(EXPANDED_MANIFEST_PATH)
+
+        self.assertEqual(manifest.schema_version, 2)
+        self.assertEqual(len(manifest.sources), 3)
+        self.assertEqual(len(manifest.scenarios), 5)
+        conversation = manifest.source("ami-es2008a-turn-taking")
+        self.assertEqual(conversation.clip_start_ms, 216000)
+        self.assertEqual(conversation.clip_duration_ms, 18000)
+        self.assertEqual(len(conversation.speech_segments_ms), 5)
+        self.assertEqual(conversation.license, "CC-BY-4.0")
+        self.assertTrue(
+            all(
+                manifest.source(scenario.noise_source_id).source_type == "noise"
+                for scenario in manifest.scenarios
+                if scenario.noise_source_id is not None
+            )
         )
 
     def test_prepared_samples_require_matching_checksum_and_exact_chunks(self) -> None:

@@ -11,6 +11,7 @@ from .audio_config import (
     ResolvedAudioSelection,
 )
 from .gateway import VoiceGateway
+from .kokoro_tts import KokoroTtsProvider
 from .paraformer import ParaformerStreamingAsrProvider
 from .piper_tts import PiperTtsProvider
 from .webrtc_vad import WebRtcVadProvider
@@ -22,6 +23,7 @@ class LocalAsrProviderKind(StrEnum):
 
 class LocalTtsProviderKind(StrEnum):
     PIPER = "piper"
+    KOKORO = "kokoro"
 
 
 class LocalVadProviderKind(StrEnum):
@@ -119,13 +121,7 @@ class LocalVoiceConfig:
                 cpu_threads=self.cpu_threads,
                 max_audio_seconds=self.max_capture_seconds,
             ),
-            tts_provider=PiperTtsProvider(
-                str(self.tts_model_path),
-                str(self.tts_config_path),
-                str(self.tts_resource_directory),
-                cpu_threads=self.cpu_threads,
-                max_output_bytes=16 << 20,
-            ),
+            tts_provider=self._create_tts_provider(),
             playback_provider=self.audio.create_playback_provider(),
             vad_provider=(
                 WebRtcVadProvider()
@@ -152,19 +148,55 @@ class LocalVoiceConfig:
                 self.asr_model_directory / relative,
                 f"Paraformer {relative}",
             )
-        _require_file(self.tts_model_path, "Piper model")
-        _require_file(self.tts_config_path, "Piper config")
-        _require_directory(self.tts_resource_directory, "Piper resource directory")
-        for relative in (
-            "g2pW/g2pw.onnx",
-            "tokenizer.json",
-            "tokenizer_config.json",
-            "vocab.txt",
-        ):
+        if self.tts_provider is LocalTtsProviderKind.PIPER:
+            _require_file(self.tts_model_path, "Piper model")
+            _require_file(self.tts_config_path, "Piper config")
+            _require_directory(
+                self.tts_resource_directory,
+                "Piper resource directory",
+            )
+            for relative in (
+                "g2pW/g2pw.onnx",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "vocab.txt",
+            ):
+                _require_file(
+                    self.tts_resource_directory / relative,
+                    f"Piper {relative}",
+                )
+            return
+        _require_file(self.tts_model_path, "Kokoro model")
+        _require_file(self.tts_config_path, "Kokoro config")
+        _require_directory(
+            self.tts_resource_directory,
+            "Kokoro voice directory",
+        )
+        for relative in ("zf_xiaobei.pt", "af_heart.pt"):
             _require_file(
                 self.tts_resource_directory / relative,
-                f"Piper {relative}",
+                f"Kokoro {relative}",
             )
+
+    def _create_tts_provider(
+        self,
+    ) -> PiperTtsProvider | KokoroTtsProvider:
+        if self.tts_provider is LocalTtsProviderKind.PIPER:
+            return PiperTtsProvider(
+                str(self.tts_model_path),
+                str(self.tts_config_path),
+                str(self.tts_resource_directory),
+                cpu_threads=self.cpu_threads,
+                max_output_bytes=16 << 20,
+            )
+        return KokoroTtsProvider(
+            str(self.tts_config_path),
+            str(self.tts_model_path),
+            str(self.tts_resource_directory / "zf_xiaobei.pt"),
+            str(self.tts_resource_directory / "af_heart.pt"),
+            cpu_threads=self.cpu_threads,
+            max_output_bytes=16 << 20,
+        )
 
 
 def _require_file(path: Path, name: str) -> None:

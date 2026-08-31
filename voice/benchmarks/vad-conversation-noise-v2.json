@@ -1,0 +1,108 @@
+{
+  "schema_version": 2,
+  "name": "deskhelm-vad-conversation-noise-v2",
+  "source_dataset": "AMI Meeting Corpus and ESC-10",
+  "dataset_url": "https://groups.inf.ed.ac.uk/ami/corpus/",
+  "dataset_revision": "ami-manual-1.6.2+esc50-33c8ce9eb2cf0b1c2f8bcf322eb349b6be34dbb6",
+  "dataset_license": "CC-BY-4.0 AND CC-BY-3.0",
+  "audio_format": {
+    "sample_rate_hz": 16000,
+    "channels": 1,
+    "sample_format": "s16le"
+  },
+  "chunk_ms": 20,
+  "sources": [
+    {
+      "source_id": "ami-es2008a-turn-taking",
+      "file_name": "ES2008a.Mix-Headset.rm",
+      "url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/ES2008a/audio/ES2008a.Mix-Headset.rm",
+      "revision": "ami-public-manual-1.6.2",
+      "sha256": "f2d511399891c6693910b5601d9e0017c88b5fd9ae6c11ee7e5c0f664b547f80",
+      "license": "CC-BY-4.0",
+      "speaker": "ES2008a meeting mix",
+      "source_type": "speech",
+      "clip_start_ms": 216000,
+      "clip_duration_ms": 18000,
+      "speech_segments_ms": [
+        {"start_ms": 320, "end_ms": 3744},
+        {"start_ms": 4048, "end_ms": 7584},
+        {"start_ms": 8672, "end_ms": 13184},
+        {"start_ms": 14544, "end_ms": 15169},
+        {"start_ms": 15569, "end_ms": 17248}
+      ],
+      "annotation_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusAnnotations/ami_public_manual_1.6.2.zip",
+      "annotation_revision": "ami_public_manual_1.6.2",
+      "annotation_sha256": "b56e5babb2496b8795deeeda7e71178d7fbc9963f94276cf2a3f4b56ebbc9f9d"
+    },
+    {
+      "source_id": "esc10-rain",
+      "file_name": "1-17367-A-10.wav",
+      "url": "https://raw.githubusercontent.com/karolpiczak/ESC-50/33c8ce9eb2cf0b1c2f8bcf322eb349b6be34dbb6/audio/1-17367-A-10.wav",
+      "revision": "33c8ce9eb2cf0b1c2f8bcf322eb349b6be34dbb6",
+      "sha256": "d732acd2e0c7c40405968010f49f250740c86998fc416eff2ed5330fc8c89dea",
+      "license": "CC-BY-3.0",
+      "speaker": "ESC-10 environmental noise",
+      "source_type": "noise"
+    },
+    {
+      "source_id": "esc10-clock-tick",
+      "file_name": "1-21934-A-38.wav",
+      "url": "https://raw.githubusercontent.com/karolpiczak/ESC-50/33c8ce9eb2cf0b1c2f8bcf322eb349b6be34dbb6/audio/1-21934-A-38.wav",
+      "revision": "33c8ce9eb2cf0b1c2f8bcf322eb349b6be34dbb6",
+      "sha256": "8d26e40e0e382b0d2d7f6dafcb132cfe703ee3f7f32780e878fdb5a1aaffcc28",
+      "license": "CC-BY-3.0",
+      "speaker": "ESC-10 environmental noise",
+      "source_type": "noise"
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario_id": "ami-turn-taking-clean",
+      "parts": [
+        {"silence_ms": 300},
+        {"source_id": "ami-es2008a-turn-taking"},
+        {"silence_ms": 600}
+      ]
+    },
+    {
+      "scenario_id": "ami-turn-taking-rain-10db",
+      "parts": [
+        {"silence_ms": 300},
+        {"source_id": "ami-es2008a-turn-taking"},
+        {"silence_ms": 600}
+      ],
+      "noise_source_id": "esc10-rain",
+      "snr_db": 10
+    },
+    {
+      "scenario_id": "ami-turn-taking-rain-0db",
+      "parts": [
+        {"silence_ms": 300},
+        {"source_id": "ami-es2008a-turn-taking"},
+        {"silence_ms": 600}
+      ],
+      "noise_source_id": "esc10-rain",
+      "snr_db": 0
+    },
+    {
+      "scenario_id": "ami-turn-taking-clock-10db",
+      "parts": [
+        {"silence_ms": 300},
+        {"source_id": "ami-es2008a-turn-taking"},
+        {"silence_ms": 600}
+      ],
+      "noise_source_id": "esc10-clock-tick",
+      "snr_db": 10
+    },
+    {
+      "scenario_id": "ami-turn-taking-clock-0db",
+      "parts": [
+        {"silence_ms": 300},
+        {"source_id": "ami-es2008a-turn-taking"},
+        {"silence_ms": 600}
+      ],
+      "noise_source_id": "esc10-clock-tick",
+      "snr_db": 0
+    }
+  ]
+}

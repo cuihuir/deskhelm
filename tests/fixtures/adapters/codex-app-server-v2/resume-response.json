@@ -1,0 +1,12 @@
+{
+  "id": 3,
+  "result": {
+    "thread": {
+      "id": "thread-synthetic-1",
+      "turns": []
+    },
+    "initialTurnsPage": {
+      "data": []
+    }
+  }
+}

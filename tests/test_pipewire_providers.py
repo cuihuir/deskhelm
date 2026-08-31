@@ -227,6 +227,16 @@ class PipeWireProviderTests(unittest.TestCase):
         )
         self.assertNotIn("--target", default_provider.command(audio))
 
+    def test_playback_calls_first_write_callback_once(self) -> None:
+        calls = []
+        provider = PipeWirePlaybackProvider(
+            command_prefix=self._prefix("playback-success")
+        )
+
+        provider.play(self._speech_audio(), Event(), lambda: calls.append(True))
+
+        self.assertEqual(calls, [True])
+
     def test_playback_cancellation_terminates_owned_process(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             ready = Path(directory) / "ready"

@@ -1,0 +1,12 @@
+{
+  "method": "item/fileChange/requestApproval",
+  "id": "approval-file-synthetic-1",
+  "params": {
+    "threadId": "thread-synthetic-1",
+    "turnId": "turn-synthetic-1",
+    "itemId": "item-file-synthetic-1",
+    "startedAtMs": 1787800000000,
+    "reason": "synthetic private reason",
+    "grantRoot": "/synthetic/project"
+  }
+}

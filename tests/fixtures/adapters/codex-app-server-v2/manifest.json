@@ -1,0 +1,52 @@
+{
+  "fixture_schema_version": 1,
+  "adapter_id": "deskhelm-codex-app-server",
+  "format": "json-rpc-object",
+  "runtime_name": "codex-cli",
+  "locally_inspected_runtime_version": "0.150.1",
+  "retrieved_at": "2026-08-28",
+  "official_source_url": "https://learn.chatgpt.com/docs/app-server",
+  "schema_command": "codex app-server generate-json-schema --experimental --out <temporary-directory>",
+  "fixtures": [
+    {
+      "file": "initialize-response.json",
+      "source_type": "schema_derived_synthetic"
+    },
+    {
+      "file": "loaded-list-response.json",
+      "source_type": "schema_derived_synthetic"
+    },
+    {
+      "file": "resume-response.json",
+      "source_type": "schema_derived_synthetic"
+    },
+    {
+      "file": "turn-started.json",
+      "source_type": "schema_derived_synthetic"
+    },
+    {
+      "file": "turn-completed.json",
+      "source_type": "schema_derived_synthetic"
+    },
+    {
+      "file": "command-approval.json",
+      "source_type": "schema_derived_synthetic"
+    },
+    {
+      "file": "file-approval.json",
+      "source_type": "schema_derived_synthetic"
+    },
+    {
+      "file": "permissions-approval.json",
+      "source_type": "schema_derived_synthetic"
+    },
+    {
+      "file": "user-input.json",
+      "source_type": "schema_derived_synthetic"
+    },
+    {
+      "file": "request-resolved.json",
+      "source_type": "schema_derived_synthetic"
+    }
+  ]
+}

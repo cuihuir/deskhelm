@@ -1,12 +1,27 @@
 from __future__ import annotations
 
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+import logging
 import math
+import os
 from threading import Event, Lock
 import time
 from typing import Callable
 
 from .models import CapturedAudio, PcmSampleFormat, Transcript
 from .providers import StreamingAsrResult, VoiceCancelled, VoiceNoTranscript
+
+
+@contextmanager
+def _suppress_provider_output():
+    previous_disable = logging.root.manager.disable
+    logging.disable(logging.CRITICAL)
+    try:
+        with open(os.devnull, "w", encoding="utf-8") as private_output:
+            with redirect_stdout(private_output), redirect_stderr(private_output):
+                yield
+    finally:
+        logging.disable(previous_disable)
 
 
 class ParaformerStreamingAsrProvider:
@@ -69,11 +84,12 @@ class ParaformerStreamingAsrProvider:
                 except ImportError as error:
                     raise RuntimeError("FunASR runtime is unavailable") from error
                 torch.set_num_threads(self._cpu_threads)
-                self._model = AutoModel(
-                    model=self._model_directory,
-                    device="cpu",
-                    disable_update=True,
-                )
+                with _suppress_provider_output():
+                    self._model = AutoModel(
+                        model=self._model_directory,
+                        device="cpu",
+                        disable_update=True,
+                    )
             else:
                 self._model = self._model_factory(
                     self._model_directory,
@@ -126,15 +142,16 @@ class ParaformerStreamingAsrProvider:
                     index * chunk_frames : (index + 1) * chunk_frames
                 ]
                 chunk_start_ns = self._monotonic_ns()
-                result = self._model.generate(
-                    input=chunk,
-                    cache=cache,
-                    is_final=index == chunk_count - 1,
-                    chunk_size=list(self._chunk_size),
-                    encoder_chunk_look_back=self._encoder_chunk_look_back,
-                    decoder_chunk_look_back=self._decoder_chunk_look_back,
-                    disable_pbar=True,
-                )
+                with _suppress_provider_output():
+                    result = self._model.generate(
+                        input=chunk,
+                        cache=cache,
+                        is_final=index == chunk_count - 1,
+                        chunk_size=list(self._chunk_size),
+                        encoder_chunk_look_back=self._encoder_chunk_look_back,
+                        decoder_chunk_look_back=self._decoder_chunk_look_back,
+                        disable_pbar=True,
+                    )
                 if cancel.is_set():
                     raise VoiceCancelled()
                 text = _extract_text(result)

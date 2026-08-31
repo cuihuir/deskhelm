@@ -7,10 +7,11 @@ import select
 import socket
 from threading import Event, Lock, RLock, Semaphore
 import time
-from typing import BinaryIO, TextIO
+from typing import BinaryIO, Callable, TextIO
 import uuid
 
 from .agent_gateway import AgentGateway, AgentProvider
+from .agent_runtime import AgentRuntime
 from .adapter import (
     ADAPTER_SESSION_MESSAGE_TYPE,
     AdapterCapability,
@@ -24,6 +25,7 @@ from .display import SlotPanel
 from .event import AgentEvent, PROTOCOL_VERSION, ProtocolError
 from .interaction import INTERACTION_MESSAGE_TYPE, InteractionEvent
 from .interaction_subscription import InteractionHub, InteractionSubscriberQueue
+from .project_registry import ProjectWorkingDirectoryRegistry
 from .session_registry import SessionRegistry
 from .state_store import StateStore
 from .subscription import StateSubscriberQueue
@@ -46,6 +48,7 @@ from .transport import (
     read_frame,
 )
 from .voice_integration import VoiceBridgeIntegration
+from .turn_timing import VoiceAgentTurnTimer, VoiceAgentTurnTiming
 
 
 try:
@@ -84,6 +87,7 @@ class _BridgeRuntime:
     subscriber_queue_frames: int
     subscriber_permits: Semaphore
     agent_gateway: AgentGateway | None = None
+    agent_runtime: AgentRuntime | None = None
     voice_gateway: VoiceGateway | None = None
     voice_integration: VoiceBridgeIntegration | None = None
     stop: Event = field(default_factory=Event)
@@ -135,9 +139,12 @@ def run_bridge(
     control_approval_records: int = DEFAULT_CONTROL_APPROVAL_RECORDS,
     agent_provider: AgentProvider | None = None,
     agent_working_directory: Path | None = None,
+    agent_working_directory_registry: ProjectWorkingDirectoryRegistry | None = None,
     agent_max_active_runs: int = 4,
     agent_session_records: int = 64,
+    agent_runtime: AgentRuntime | None = None,
     voice_gateway: VoiceGateway | None = None,
+    voice_turn_timing_sink: Callable[[VoiceAgentTurnTiming], None] | None = None,
 ) -> int:
     if max_connections < 1:
         raise ValueError("max_connections must be at least 1")
@@ -163,6 +170,15 @@ def run_bridge(
         raise ValueError(
             "agent_session_records must be at least agent_max_active_runs"
         )
+    if (
+        agent_working_directory is not None
+        and agent_working_directory_registry is not None
+    ):
+        raise ValueError(
+            "agent_working_directory and registry cannot be combined"
+        )
+    if agent_provider is not None and agent_runtime is not None:
+        raise ValueError("agent_provider and agent_runtime cannot be combined")
 
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     socket_path.unlink(missing_ok=True)
@@ -197,17 +213,33 @@ def run_bridge(
             runtime.agent_gateway = AgentGateway(
                 provider=agent_provider,
                 publish_interaction=runtime.process_interaction,
-                working_directory=(agent_working_directory or Path.cwd()),
+                working_directory=(
+                    None
+                    if agent_working_directory_registry is not None
+                    else (agent_working_directory or Path.cwd())
+                ),
+                working_directory_registry=agent_working_directory_registry,
                 max_active_runs=agent_max_active_runs,
                 max_session_records=agent_session_records,
             )
             runtime.agent_gateway.register_handlers(control_router)
+        if agent_runtime is not None:
+            runtime.agent_runtime = agent_runtime
+            runtime.agent_runtime.start(
+                runtime.process_interaction,
+                control_router,
+            )
         if voice_gateway is not None:
             runtime.voice_gateway = voice_gateway
             runtime.voice_integration = VoiceBridgeIntegration(
                 voice_gateway=voice_gateway,
                 control_router=control_router,
                 interaction_hub=runtime.interaction_hub,
+                turn_timer=(
+                    VoiceAgentTurnTimer(voice_turn_timing_sink)
+                    if voice_turn_timing_sink is not None
+                    else None
+                ),
             )
             runtime.voice_integration.register()
     except BaseException:
@@ -217,6 +249,8 @@ def run_bridge(
             runtime.voice_gateway.close()
         if runtime.agent_gateway is not None:
             runtime.agent_gateway.close()
+        if runtime.agent_runtime is not None:
+            runtime.agent_runtime.close()
         raise
     permits = Semaphore(max_connections)
     active_connections: set[socket.socket] = set()
@@ -272,6 +306,8 @@ def run_bridge(
                     runtime.voice_gateway.close()
                 if runtime.agent_gateway is not None:
                     runtime.agent_gateway.close()
+                if runtime.agent_runtime is not None:
+                    runtime.agent_runtime.close()
                 executor.shutdown(wait=True, cancel_futures=True)
     finally:
         socket_path.unlink(missing_ok=True)

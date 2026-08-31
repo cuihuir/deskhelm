@@ -1,0 +1,13 @@
+{
+  "method": "item/commandExecution/requestApproval",
+  "id": "approval-command-synthetic-1",
+  "params": {
+    "threadId": "thread-synthetic-1",
+    "turnId": "turn-synthetic-1",
+    "itemId": "item-command-synthetic-1",
+    "startedAtMs": 1787800000000,
+    "command": "synthetic private command",
+    "cwd": "/synthetic/project",
+    "reason": "synthetic private reason"
+  }
+}

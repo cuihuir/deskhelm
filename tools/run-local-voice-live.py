@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import shlex
-from threading import Condition
+from threading import Condition, Timer
 import time
 
 try:
@@ -41,7 +41,7 @@ except ModuleNotFoundError as error:
     )
 
 
-DEFAULT_RESPONSE_TEXT = "DeskHelm 本地语音链路测试完成。"
+DEFAULT_RESPONSE_TEXT = "本地语音链路测试完成。"
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,10 +82,23 @@ def main() -> int:
     condition = Condition()
     events: list[_TimedEvent] = []
     transcript_chars = 0
+    interruption_scheduled = False
 
     def observe(event: VoiceEvent) -> None:
+        nonlocal interruption_scheduled
         with condition:
             events.append(_TimedEvent(event, time.monotonic_ns()))
+            if (
+                event.kind is VoiceEventKind.SPEECH_STARTED
+                and args.interrupt_after_speech_seconds > 0
+                and not interruption_scheduled
+            ):
+                interruption_scheduled = True
+                Timer(
+                    args.interrupt_after_speech_seconds,
+                    gateway.stop_speaking,
+                    args=(target, event.speech_id),
+                ).start()
             condition.notify_all()
 
     gateway.event_sink = observe
@@ -157,6 +170,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout-seconds", type=float, default=120.0)
     parser.add_argument("--cpu-threads", type=int, default=4)
     parser.add_argument(
+        "--interrupt-after-speech-seconds",
+        type=float,
+        default=0.0,
+        help=(
+            "explicitly stop the diagnostic reply this long after its "
+            "pre-synthesis speech_started event; zero disables it"
+        ),
+    )
+    parser.add_argument(
         "--vad-provider",
         choices=("none", "webrtc"),
         default="none",
@@ -174,6 +196,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("timeout must be between 10 and 300 seconds")
     if not 1 <= args.cpu_threads <= 32:
         raise ValueError("CPU thread count must be between 1 and 32")
+    if not 0.0 <= args.interrupt_after_speech_seconds <= 10.0:
+        raise ValueError("speech interruption delay must be between 0 and 10 seconds")
     if not isinstance(args.response_text, str) or not args.response_text.strip():
         raise ValueError("response text must not be empty")
     if len(args.response_text) > 256:
@@ -195,6 +219,7 @@ def _is_terminal(events: list[_TimedEvent]) -> bool:
         item.event.kind
         in {
             VoiceEventKind.SPEECH_COMPLETED,
+            VoiceEventKind.SPEECH_CANCELLED,
             VoiceEventKind.FAILURE,
         }
         for item in events
@@ -221,9 +246,10 @@ def _summarize(
         if item.event.kind is VoiceEventKind.INPUT_ACTIVITY_FAILED:
             vad_failure_code = item.event.error_code
     completed_ns = times.get(VoiceEventKind.SPEECH_COMPLETED)
+    cancelled_ns = times.get(VoiceEventKind.SPEECH_CANCELLED)
     failure_ns = times.get(VoiceEventKind.FAILURE)
-    terminal_ns = completed_ns or failure_ns
-    status = "ok" if completed_ns is not None else "failed"
+    terminal_ns = completed_ns or cancelled_ns or failure_ns
+    status = "ok" if completed_ns is not None else "cancelled" if cancelled_ns else "failed"
     if terminal_ns is None:
         status = "timeout"
         failure_code = "live_voice_timeout"
@@ -281,6 +307,39 @@ def _summarize(
             VoiceEventKind.SPEECH_STARTED,
         )
     speech_started_ns = times.get(VoiceEventKind.SPEECH_STARTED)
+    tts_audio_ready_ns = times.get(VoiceEventKind.TTS_AUDIO_READY)
+    playback_started_ns = times.get(VoiceEventKind.PLAYBACK_STARTED)
+    if speech_started_ns is not None:
+        _add_delta(
+            summary,
+            "speech_start_to_tts_audio_ready_ms",
+            times,
+            speech_started_ns,
+            VoiceEventKind.TTS_AUDIO_READY,
+        )
+    if tts_audio_ready_ns is not None:
+        _add_delta(
+            summary,
+            "tts_audio_ready_to_playback_started_ms",
+            times,
+            tts_audio_ready_ns,
+            VoiceEventKind.PLAYBACK_STARTED,
+        )
+    if playback_started_ns is not None:
+        _add_delta(
+            summary,
+            "playback_started_to_complete_ms",
+            times,
+            playback_started_ns,
+            VoiceEventKind.SPEECH_COMPLETED,
+        )
+        _add_delta(
+            summary,
+            "playback_started_to_cancelled_ms",
+            times,
+            playback_started_ns,
+            VoiceEventKind.SPEECH_CANCELLED,
+        )
     if speech_started_ns is not None:
         _add_delta(
             summary,
@@ -288,6 +347,13 @@ def _summarize(
             times,
             speech_started_ns,
             VoiceEventKind.SPEECH_COMPLETED,
+        )
+        _add_delta(
+            summary,
+            "speech_start_to_cancelled_ms",
+            times,
+            speech_started_ns,
+            VoiceEventKind.SPEECH_CANCELLED,
         )
     return summary
 

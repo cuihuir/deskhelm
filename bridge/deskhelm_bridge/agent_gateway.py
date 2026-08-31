@@ -21,6 +21,7 @@ from .interaction import (
     InteractionPayload,
     TaskPayload,
 )
+from .project_registry import ProjectWorkingDirectoryRegistry
 from .session_registry import SessionKey
 
 
@@ -37,6 +38,7 @@ class AgentRunRequest:
     prompt: str = field(repr=False)
     working_directory: Path
     provider_session_id: str = ""
+    turn_id: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.prompt, str) or not self.prompt.strip():
@@ -45,8 +47,12 @@ class AgentRunRequest:
             raise ValueError("working_directory must be a Path")
         if not self.working_directory.is_absolute():
             raise ValueError("working_directory must be absolute")
-        if not isinstance(self.provider_session_id, str):
-            raise ValueError("provider_session_id must be a string")
+        for value, name in (
+            (self.provider_session_id, "provider_session_id"),
+            (self.turn_id, "turn_id"),
+        ):
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,9 +111,10 @@ class _GatewaySessionRecord:
 class AgentGateway:
     provider: AgentProvider
     publish_interaction: Callable[[InteractionEvent], None]
-    working_directory: Path
+    working_directory: Path | None
     max_active_runs: int = 4
     max_session_records: int = 64
+    working_directory_registry: ProjectWorkingDirectoryRegistry | None = None
     _active: dict[SessionKey, Event] = field(default_factory=dict, init=False)
     _sessions: OrderedDict[SessionKey, _GatewaySessionRecord] = field(
         default_factory=OrderedDict, init=False
@@ -118,9 +125,24 @@ class AgentGateway:
     _closed: bool = field(default=False, init=False)
     _lock: RLock = field(default_factory=RLock, init=False, repr=False)
     _executor: ThreadPoolExecutor = field(init=False, repr=False)
+    _working_directories: ProjectWorkingDirectoryRegistry = field(
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
-        self.working_directory = self.working_directory.resolve()
+        if self.working_directory_registry is None:
+            if self.working_directory is None:
+                raise ValueError("Agent working directory is required")
+            self._working_directories = ProjectWorkingDirectoryRegistry.single(
+                self.working_directory
+            )
+        else:
+            if self.working_directory is not None:
+                raise ValueError(
+                    "Agent working directory and registry cannot be combined"
+                )
+            self._working_directories = self.working_directory_registry
         if self.max_active_runs < 1:
             raise ValueError("max_active_runs must be at least 1")
         if self.max_session_records < self.max_active_runs:
@@ -165,14 +187,16 @@ class AgentGateway:
                 raise RuntimeError("target session already has an active run")
             if len(self._active) >= self.max_active_runs:
                 raise RuntimeError("agent gateway active run capacity is exhausted")
+            working_directory = self._working_directories.resolve(session)
             record = self._ensure_session_record(session)
             cancel = Event()
             self._active[session] = cancel
             request = AgentRunRequest(
                 session=session,
                 prompt=payload.text,
-                working_directory=self.working_directory,
+                working_directory=working_directory,
                 provider_session_id=record.provider_session_id,
+                turn_id=command.command_id,
             )
             try:
                 self._executor.submit(self._run, request, cancel)
@@ -237,6 +261,7 @@ class AgentGateway:
                     InteractionKind.TASK_COMPLETED,
                     result.message,
                     "",
+                    request.turn_id,
                 )
             else:
                 error_code = result.error_code or result.status.value
@@ -250,6 +275,7 @@ class AgentGateway:
                     InteractionKind.TASK_FAILED,
                     message,
                     error_code,
+                    request.turn_id,
                 )
         finally:
             with self._lock:
@@ -278,6 +304,7 @@ class AgentGateway:
         kind: InteractionKind,
         message: str,
         error_code: str,
+        turn_id: str,
     ) -> None:
         self.publish_interaction(
             InteractionEvent(
@@ -288,6 +315,7 @@ class AgentGateway:
                 source=self.provider.source,
                 source_version=self.provider.source_version,
                 sequence=self._next_sequence(session),
+                correlation_id=turn_id,
                 payload=TaskPayload(message=message, error_code=error_code),
             )
         )

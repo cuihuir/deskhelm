@@ -1,0 +1,9 @@
+{
+  "id": 1,
+  "result": {
+    "userAgent": "deskhelm_fixture/0.149.0",
+    "codexHome": "/synthetic/codex-home",
+    "platformFamily": "unix",
+    "platformOs": "linux"
+  }
+}

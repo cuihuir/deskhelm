@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from threading import Event
+import time
 import unittest
 from unittest.mock import patch
 
@@ -64,6 +66,37 @@ class _NoisyVadProvider:
         return self.provider.open_session(stream_format)
 
 
+class _SelectorRejectedStdin:
+    def __init__(self, line: str) -> None:
+        self._line = line
+
+    def fileno(self) -> int:
+        return 0
+
+    def readline(self, _limit: int) -> str:
+        return self._line
+
+
+class _BlockingSelectorRejectedStdin:
+    def __init__(self) -> None:
+        self.release = Event()
+
+    def fileno(self) -> int:
+        return 0
+
+    def readline(self, _limit: int) -> str:
+        self.release.wait()
+        return ""
+
+
+class _RejectingSelector:
+    def register(self, _fileobj, _events) -> None:
+        raise PermissionError("stdin cannot be polled")
+
+    def close(self) -> None:
+        pass
+
+
 class LocalAsrDiagnosticToolTests(unittest.TestCase):
     def test_live_audio_requires_explicit_confirmation_and_bounds(self) -> None:
         parsed = TOOL._parser().parse_args(
@@ -109,6 +142,22 @@ class LocalAsrDiagnosticToolTests(unittest.TestCase):
             self.assertTrue(TOOL._await_phrase_ready(1.0))
         with patch.object(TOOL.sys, "stdin", StringIO("not yet\n")):
             self.assertFalse(TOOL._await_phrase_ready(1.0))
+
+    def test_phrase_readiness_handles_unpollable_stdin_with_a_timeout(self) -> None:
+        with patch.object(TOOL.selectors, "DefaultSelector", _RejectingSelector):
+            with patch.object(
+                TOOL.sys,
+                "stdin",
+                _SelectorRejectedStdin("ready\n"),
+            ):
+                self.assertTrue(TOOL._await_phrase_ready(1.0))
+
+            stdin = _BlockingSelectorRejectedStdin()
+            started = time.monotonic()
+            with patch.object(TOOL.sys, "stdin", stdin):
+                self.assertFalse(TOOL._await_phrase_ready(0.01))
+            self.assertLess(time.monotonic() - started, 0.2)
+            stdin.release.set()
 
     def test_success_summary_contains_metrics_without_private_content(self) -> None:
         audio = CapturedAudio(b"\x00\x10" * 1600, 16000)

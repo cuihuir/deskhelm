@@ -7,13 +7,20 @@ from pathlib import Path
 import shlex
 import sys
 from threading import Event
+from threading import Thread
 import time
 from typing import Any
 
 from .client import send_event
 from .event import AgentEvent, AgentState, ProtocolError
 from .paths import default_socket_path
+from .project_registry import (
+    DEFAULT_MAX_PROJECT_WORKING_DIRECTORIES,
+    MAX_PROJECT_WORKING_DIRECTORIES,
+    ProjectWorkingDirectoryRegistry,
+)
 from .server import run_bridge
+from .session_registry import SessionKey
 
 
 def add_socket_argument(parser: argparse.ArgumentParser) -> None:
@@ -40,15 +47,34 @@ def build_parser() -> argparse.ArgumentParser:
     bridge.add_argument("--control-approval-records", type=int, default=1024)
     bridge.add_argument(
         "--agent-provider",
-        choices=("none", "codex"),
+        choices=("none", "codex", "codex-app-server"),
         default="none",
         help="enable a text-only Agent provider",
     )
-    bridge.add_argument("--agent-workdir", type=Path, default=Path.cwd())
+    bridge.add_argument("--agent-id", default="codex")
+    bridge.add_argument("--agent-session-id")
+    bridge.add_argument("--agent-project-id")
+    bridge.add_argument("--agent-workdir", type=Path)
+    bridge.add_argument(
+        "--agent-project",
+        action="append",
+        default=[],
+        metavar="PROJECT_ID=PATH",
+        help="map one opaque project identity to a validated working directory",
+    )
+    bridge.add_argument(
+        "--agent-project-records",
+        type=int,
+        default=DEFAULT_MAX_PROJECT_WORKING_DIRECTORIES,
+    )
     bridge.add_argument("--agent-max-active-runs", type=int, default=4)
     bridge.add_argument("--agent-session-records", type=int, default=64)
     bridge.add_argument("--agent-run-timeout-seconds", type=float, default=300.0)
     bridge.add_argument("--codex-executable", default="codex")
+    bridge.add_argument("--codex-app-server-socket", type=Path)
+    bridge.add_argument("--codex-tui-proxy-socket", type=Path)
+    bridge.add_argument("--codex-thread-id", default="")
+    bridge.add_argument("--codex-runtime-version", default="")
     bridge.add_argument(
         "--codex-sandbox",
         choices=("read-only", "workspace-write"),
@@ -61,13 +87,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="enable an explicit provisional local Voice Gateway",
     )
     bridge.add_argument(
+        "--voice-turn-timing",
+        action="store_true",
+        help="print numeric-only Voice-to-Agent turn timings to stderr",
+    )
+    bridge.add_argument(
         "--voice-asr-provider",
         choices=("paraformer",),
         default="paraformer",
     )
     bridge.add_argument(
         "--voice-tts-provider",
-        choices=("piper",),
+        choices=("piper", "kokoro"),
         default="piper",
     )
     bridge.add_argument(
@@ -138,6 +169,68 @@ def build_parser() -> argparse.ArgumentParser:
     add_socket_argument(simulate)
     simulate.add_argument("--delay", type=float, default=0.35)
     simulate.add_argument("--cycles", type=int, default=1)
+
+    ptt = subparsers.add_parser("ptt", help="run the explicit right-Alt PTT controller")
+    add_socket_argument(ptt)
+    ptt.add_argument("--input-device", type=Path, required=True)
+    ptt.add_argument("--agent-id", required=True)
+    ptt.add_argument("--session-id", required=True)
+    ptt.add_argument("--project-id", required=True)
+    ptt.add_argument("--client-id", default="deskhelm-right-alt-ptt")
+
+    alpha = subparsers.add_parser(
+        "alpha",
+        help="run the single-project managed Codex CLI profile",
+    )
+    add_socket_argument(alpha)
+    alpha.add_argument(
+        "--input-device",
+        type=Path,
+        default=Path("/dev/input/deskhelm-ptt-kbd"),
+    )
+    alpha.add_argument("--agent-workdir", type=Path, default=Path.cwd())
+    alpha.add_argument("--agent-id", default="codex")
+    alpha.add_argument("--session-id", default="local-alpha")
+    alpha.add_argument("--project-id")
+    alpha.add_argument("--client-id", default="deskhelm-local-alpha")
+    alpha.add_argument("--runtime-project", type=Path)
+    alpha.add_argument("--uv-executable", default="uv")
+    alpha.add_argument("--codex-executable", default="codex")
+    alpha.add_argument("--codex-app-server-socket", type=Path)
+    alpha.add_argument(
+        "--codex-sandbox",
+        choices=("read-only", "workspace-write"),
+        default="read-only",
+    )
+    alpha.add_argument(
+        "--tui",
+        action="store_true",
+        help="launch the Codex remote TUI in the current terminal",
+    )
+    alpha.add_argument(
+        "--voice",
+        action="store_true",
+        help="add local voice and right-Alt PTT to the core CLI profile",
+    )
+    alpha.add_argument(
+        "--voice-source",
+        help=(
+            "stable PipeWire source name; overrides "
+            "DESKHELM_ALPHA_VOICE_SOURCE"
+        ),
+    )
+    alpha.add_argument("--voice-sink")
+    alpha.add_argument(
+        "--voice-pw-cat-command-prefix",
+        default="pw-cat",
+        metavar="COMMAND",
+    )
+    alpha.add_argument("--voice-turn-timing", action="store_true")
+    alpha.add_argument(
+        "--check",
+        action="store_true",
+        help="validate the profile without opening audio or starting the Alpha",
+    )
     return parser
 
 
@@ -161,6 +254,35 @@ def _add_audio_arguments(parser: argparse.ArgumentParser) -> None:
         "--pw-cat-command-prefix",
         default="pw-cat",
         metavar="COMMAND",
+    )
+
+
+def _parse_agent_project_directories(
+    entries: list[str],
+    *,
+    max_projects: int,
+) -> ProjectWorkingDirectoryRegistry:
+    if (
+        not isinstance(max_projects, int)
+        or isinstance(max_projects, bool)
+        or not 1 <= max_projects <= MAX_PROJECT_WORKING_DIRECTORIES
+    ):
+        raise ValueError("--agent-project-records is invalid")
+    if len(entries) > max_projects:
+        raise ValueError("--agent-project capacity is exceeded")
+    projects: dict[str, Path] = {}
+    for entry in entries:
+        project_id, separator, raw_path = entry.partition("=")
+        project_id = project_id.strip()
+        raw_path = raw_path.strip()
+        if not separator or not project_id or not raw_path:
+            raise ValueError("--agent-project must use PROJECT_ID=PATH")
+        if project_id in projects:
+            raise ValueError("--agent-project contains a duplicate project identity")
+        projects[project_id] = Path(raw_path)
+    return ProjectWorkingDirectoryRegistry.configured(
+        projects,
+        max_projects=max_projects,
     )
 
 
@@ -204,6 +326,49 @@ def simulate(args: argparse.Namespace) -> None:
                     args.socket,
                 )
             time.sleep(args.delay)
+
+
+def ptt_command(args: argparse.Namespace) -> None:
+    from .client import iter_voice_status_messages, send_control_command
+    from .control_result import ControlResultStatus
+    from .evdev_ptt import run_right_alt_listener
+    from .ptt import RightAltPttController
+
+    def dispatch(command) -> bool:
+        return send_control_command(
+            command, args.socket, client_id=args.client_id
+        ).status is ControlResultStatus.ACCEPTED
+
+    stop = Event()
+
+    def print_voice_status() -> None:
+        try:
+            for message in iter_voice_status_messages(
+                args.socket,
+                client_id=f"{args.client_id}-status",
+                agent_id=args.agent_id,
+                session_id=args.session_id,
+                project_id=args.project_id,
+                stop=stop,
+            ):
+                print(f"deskhelm: {message}", file=sys.stderr)
+        except (ConnectionError, ProtocolError, OSError):
+            return
+
+    Thread(target=print_voice_status, daemon=True).start()
+    print("deskhelm: right-Alt PTT armed; press Ctrl-C to stop", file=sys.stderr)
+    try:
+        run_right_alt_listener(
+            args.input_device,
+            RightAltPttController(
+                args.agent_id, args.session_id, args.project_id, dispatch,
+                issued_by=args.client_id,
+            ),
+        )
+    except KeyboardInterrupt:
+        return
+    finally:
+        stop.set()
 
 
 def audio_command(args: argparse.Namespace) -> None:
@@ -445,7 +610,30 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "bridge":
             if args.slots < 1:
                 raise ValueError("--slots must be at least 1")
+            if not 1 <= args.agent_project_records <= MAX_PROJECT_WORKING_DIRECTORIES:
+                raise ValueError("--agent-project-records is invalid")
+            agent_working_directory = args.agent_workdir or Path.cwd()
+            agent_working_directory_registry = None
+            if args.agent_project:
+                if args.agent_workdir is not None:
+                    raise ValueError(
+                        "--agent-workdir cannot be combined with --agent-project"
+                    )
+                agent_working_directory = None
+                agent_working_directory_registry = (
+                    _parse_agent_project_directories(
+                        args.agent_project,
+                        max_projects=args.agent_project_records,
+                    )
+                )
+            if args.voice_turn_timing and (
+                args.voice_provider == "none" or args.agent_provider == "none"
+            ):
+                raise ValueError(
+                    "--voice-turn-timing requires Voice and Agent providers"
+                )
             agent_provider = None
+            agent_runtime = None
             voice_composition = None
             if args.agent_provider == "codex":
                 try:
@@ -461,6 +649,55 @@ def main(argv: list[str] | None = None) -> int:
                     command_prefix=(args.codex_executable,),
                     sandbox=args.codex_sandbox,
                     timeout_seconds=args.agent_run_timeout_seconds,
+                )
+            elif args.agent_provider == "codex-app-server":
+                missing = [
+                    name
+                    for value, name in (
+                        (
+                            args.codex_app_server_socket,
+                            "--codex-app-server-socket",
+                        ),
+                        (args.agent_session_id, "--agent-session-id"),
+                        (args.agent_project_id, "--agent-project-id"),
+                    )
+                    if value is None or (isinstance(value, str) and not value.strip())
+                ]
+                if missing:
+                    raise ValueError(
+                        "codex-app-server requires " + ", ".join(missing)
+                    )
+                try:
+                    from deskhelm_codex_adapter import (
+                        CodexAppServerAdapter,
+                        detect_codex_version,
+                    )
+                except ModuleNotFoundError as error:
+                    if error.name != "deskhelm_codex_adapter":
+                        raise
+                    from adapters.codex.deskhelm_codex_adapter import (
+                        CodexAppServerAdapter,
+                        detect_codex_version,
+                    )
+
+                source_version = (
+                    args.codex_runtime_version.strip()
+                    or detect_codex_version(args.codex_executable)
+                )
+                agent_runtime = CodexAppServerAdapter(
+                    socket_path=args.codex_app_server_socket.expanduser().resolve(),
+                    tui_proxy_socket_path=(
+                        args.codex_tui_proxy_socket.expanduser().resolve()
+                        if args.codex_tui_proxy_socket is not None
+                        else None
+                    ),
+                    session=SessionKey(
+                        args.agent_id,
+                        args.agent_session_id,
+                        args.agent_project_id,
+                    ),
+                    source_version=source_version,
+                    thread_id=args.codex_thread_id,
                 )
             if args.voice_provider == "local":
                 voice_composition = _compose_local_voice(args)
@@ -481,12 +718,21 @@ def main(argv: list[str] | None = None) -> int:
                     ),
                     control_approval_records=args.control_approval_records,
                     agent_provider=agent_provider,
-                    agent_working_directory=args.agent_workdir,
+                    agent_working_directory=agent_working_directory,
+                    agent_working_directory_registry=(
+                        agent_working_directory_registry
+                    ),
                     agent_max_active_runs=args.agent_max_active_runs,
                     agent_session_records=args.agent_session_records,
+                    agent_runtime=agent_runtime,
                     voice_gateway=(
                         voice_composition.gateway
                         if voice_composition is not None
+                        else None
+                    ),
+                    voice_turn_timing_sink=(
+                        _print_voice_turn_timing
+                        if args.voice_turn_timing
                         else None
                     ),
                 )
@@ -503,10 +749,45 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "audio":
             audio_command(args)
             return 0
+        if args.command == "ptt":
+            ptt_command(args)
+            return 0
+        if args.command == "alpha":
+            from .alpha import run_local_alpha
+
+            return run_local_alpha(args)
+    except KeyboardInterrupt:
+        return 130
     except (ConnectionError, ProtocolError, RuntimeError, ValueError) as error:
         print(f"deskhelm: {error}", file=sys.stderr)
         return 1
     return 2
+
+
+def _print_voice_turn_timing(result) -> None:
+    payload = {
+        "type": "voice_agent_turn_timing",
+        "agent_id": result.agent_id,
+        "session_id": result.session_id,
+        "project_id": result.project_id,
+        "terminal_kind": result.terminal_kind.value,
+        "release_to_transcript_ms": result.release_to_transcript_ms,
+        "release_to_notification_ready_ms": result.release_to_notification_ready_ms,
+        "release_to_agent_terminal_ms": result.release_to_agent_terminal_ms,
+        "release_to_speech_started_ms": result.release_to_speech_started_ms,
+        "release_to_tts_audio_ready_ms": result.release_to_tts_audio_ready_ms,
+        "release_to_playback_started_ms": result.release_to_playback_started_ms,
+        "dispatch_to_notification_ready_ms": result.dispatch_to_notification_ready_ms,
+        "dispatch_to_agent_terminal_ms": result.dispatch_to_agent_terminal_ms,
+        "dispatch_to_speech_started_ms": result.dispatch_to_speech_started_ms,
+        "dispatch_to_tts_audio_ready_ms": result.dispatch_to_tts_audio_ready_ms,
+        "dispatch_to_playback_started_ms": result.dispatch_to_playback_started_ms,
+        "notification_ready_to_speech_started_ms": result.notification_ready_to_speech_started_ms,
+        "speech_started_to_tts_audio_ready_ms": result.speech_started_to_tts_audio_ready_ms,
+        "tts_audio_ready_to_playback_started_ms": result.tts_audio_ready_to_playback_started_ms,
+        "privacy": "numeric timing only; no interaction content retained",
+    }
+    print(json.dumps(payload, ensure_ascii=False, sort_keys=True), file=sys.stderr)
 
 
 if __name__ == "__main__":

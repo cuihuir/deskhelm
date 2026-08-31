@@ -17,6 +17,7 @@ class InteractionKind(StrEnum):
     MESSAGE = "message"
     TOOL = "tool"
     APPROVAL_REQUEST = "approval_request"
+    ATTENTION = "attention"
     USER_INPUT_REQUIRED = "user_input_required"
     TASK_COMPLETED = "task_completed"
     TASK_FAILED = "task_failed"
@@ -43,6 +44,10 @@ class ToolPhase(StrEnum):
 class ToolStream(StrEnum):
     STDOUT = "stdout"
     STDERR = "stderr"
+
+
+class AttentionReason(StrEnum):
+    APPROVAL = "approval"
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +131,21 @@ class ApprovalRequestPayload:
 
 
 @dataclass(frozen=True, slots=True)
+class AttentionPayload:
+    reason: AttentionReason
+    active: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.reason, AttentionReason):
+            raise ProtocolError("attention reason is invalid")
+        if not isinstance(self.active, bool):
+            raise ProtocolError("attention active must be a boolean")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"reason": self.reason.value, "active": self.active}
+
+
+@dataclass(frozen=True, slots=True)
 class UserInputPayload:
     prompt: str
 
@@ -155,6 +175,7 @@ InteractionPayload = (
     MessagePayload
     | ToolPayload
     | ApprovalRequestPayload
+    | AttentionPayload
     | UserInputPayload
     | TaskPayload
 )
@@ -204,6 +225,7 @@ class InteractionEvent:
             InteractionKind.MESSAGE: MessagePayload,
             InteractionKind.TOOL: ToolPayload,
             InteractionKind.APPROVAL_REQUEST: ApprovalRequestPayload,
+            InteractionKind.ATTENTION: AttentionPayload,
             InteractionKind.USER_INPUT_REQUIRED: UserInputPayload,
             InteractionKind.TASK_COMPLETED: TaskPayload,
             InteractionKind.TASK_FAILED: TaskPayload,
@@ -319,6 +341,11 @@ def _payload_from_dict(
             summary=_required_string(value, "summary"),
             expires_at=_required_integer(value, "expires_at"),
         )
+    if kind is InteractionKind.ATTENTION:
+        return AttentionPayload(
+            reason=AttentionReason(_required_string(value, "reason")),
+            active=_required_boolean(value, "active"),
+        )
     if kind is InteractionKind.USER_INPUT_REQUIRED:
         return UserInputPayload(prompt=_required_string(value, "prompt"))
     return TaskPayload(
@@ -356,6 +383,13 @@ def _required_integer(value: dict[str, Any], field_name: str) -> int:
 def _required_positive_integer(value: dict[str, Any], field_name: str) -> int:
     field_value = value.get(field_name)
     _validate_positive_integer(field_value, field_name)
+    return field_value
+
+
+def _required_boolean(value: dict[str, Any], field_name: str) -> bool:
+    field_value = value.get(field_name)
+    if not isinstance(field_value, bool):
+        raise ProtocolError(f"{field_name} must be a boolean")
     return field_value
 
 

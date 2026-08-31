@@ -15,6 +15,11 @@ deskhelm-codex-hook = "deskhelm_bridge.codex_hook:main"
 agent-io = "deskhelm_bridge.cli:main"
 agent-io-codex-hook = "deskhelm_bridge.codex_hook:main"
 
+[project.optional-dependencies]
+ptt = [
+    "evdev>=1.9.3",
+]
+
 [tool.setuptools]
 packages = [
   "agent_io_bridge",

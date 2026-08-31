@@ -17,6 +17,23 @@ and cancellation without external runtimes. `tests/helpers/fake_codex_cli.py`
 verifies subprocess startup, stdin prompt delivery, JSONL parsing, timeout,
 termination, malformed output, and nonzero exit without a Codex login or model
 request.
+`test_codex_app_server_transport.py` verifies the dependency-free Unix
+WebSocket handshake, client masking, bounded frames, and JSON messages.
+`test_codex_tui_proxy.py` verifies the bounded server-side WebSocket handshake,
+bidirectional forwarding, original-channel voice decisions, keyboard-first
+resolution, voice-first duplicate suppression, disconnect cleanup, and
+capacity behavior. It also drives a multi-frame notification burst through a
+one-entry forwarding queue and verifies ordered delivery, bounded backpressure,
+priority voice-decision delivery, and continued bidirectional use after
+saturation. Consecutive-approval coverage verifies that a TUI response arriving
+after `serverRequest/resolved` remains suppressed and that the same JSON-RPC ID
+can later produce a distinct actionable approval.
+`test_codex_app_server_adapter.py` uses a fake app-server transport to verify
+thread resume, same-thread prompts, terminal correlation, fixed private-content-
+It also verifies that proxied TUI approvals become actionable and that keyboard
+decisions clear the Control Router record.
+Schema-derived synthetic JSON-RPC fixtures for locally inspected Codex CLI
+0.149.0 live under `fixtures/adapters/codex-app-server-v2/`.
 
 Voice tests use fake capture, ASR, TTS, and playback providers to verify PTT
 state, raw/normalized transcript separation, recoverable provider failure,
@@ -31,11 +48,29 @@ to verify default/manual selection, stable-name failures, provider composition,
 signal-only input reports, bounded test tones, and CLI arguments without
 opening live audio.
 `test_local_voice_config.py` verifies opt-in CLI parsing, exact device/artifact
-preflight, lazy Paraformer/Piper construction, and bounded PipeWire composition
-without importing model runtimes or opening audio.
+preflight, lazy Paraformer plus Piper/Kokoro construction, Kokoro female voice
+selection, and bounded PipeWire composition without importing model runtimes or
+opening audio.
+`test_local_alpha.py` verifies the hardware-independent Alpha core, opt-in
+environment-injected voice artifacts, directory-based Piper/Kokoro selection,
+fixed app-server/Bridge/PTT targeting,
+printed and foreground remote-TUI modes, interactive-terminal and signal
+ownership, repeated-interrupt handling, and independent bounded child cleanup.
+`test_run_with_pty.py` verifies that the encrypted user-launcher relay gives
+all three child streams terminal semantics, preserves child exit status, and
+redacts environment values even when they are split across output chunks with
+no newline. It also verifies bounded exit when a descendant retains the PTY
+after the primary child has stopped.
+`test_project_registry.py` verifies legacy single-directory compatibility,
+strict opaque project mapping, capacity and directory validation, CLI parsing,
+and mutual exclusion with `--agent-workdir`.
 `test_voice_benchmark.py` validates the versioned synthetic corpus, bounded
 NDJSON observations, fake-provider runners, CER/WER and keyword metrics,
 resource fields, privacy-preserving failure records, and unknown-input rejection.
 `test_vad_benchmark.py` validates contiguous PCM chunks, independent VAD
 sessions, ordered speech-boundary events, segmentation metrics, fixed failure
 records, NDJSON round trips, and CLI summaries without audio devices or models.
+`test_vad_tools.py` validates manifest v1 compatibility, annotated clip bounds,
+deterministic SNR mixing, sweep profile isolation and capacity checks, and the
+privacy-safe live diagnostic signal aggregation plus bounded readiness
+handshake without opening an audio device.

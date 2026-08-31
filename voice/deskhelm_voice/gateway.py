@@ -330,8 +330,24 @@ class VoiceGateway:
             with self._lock:
                 prompt_sink = self._prompt_sink
             if prompt_sink is None:
-                raise RuntimeError("voice prompt sink is unavailable")
-            prompt_sink(target, transcript)
+                self._emit(
+                    VoiceEvent(
+                        VoiceEventKind.FAILURE,
+                        target,
+                        error_code="voice_prompt_failed",
+                    )
+                )
+                return
+            try:
+                prompt_sink(target, transcript)
+            except Exception:
+                self._emit(
+                    VoiceEvent(
+                        VoiceEventKind.FAILURE,
+                        target,
+                        error_code="voice_prompt_failed",
+                    )
+                )
         except VoiceCancelled:
             self._emit(VoiceEvent(VoiceEventKind.PTT_CANCELLED, target))
         except VoiceNoTranscript:
@@ -678,7 +694,12 @@ class VoiceGateway:
                 audio = self.tts_provider.synthesize(item.text, cancel)
                 if cancel.is_set():
                     raise VoiceCancelled()
-                self.playback_provider.play(audio, cancel)
+                self._emit(VoiceEvent(VoiceEventKind.TTS_AUDIO_READY, item.target, speech_id=item.speech_id))
+                self.playback_provider.play(
+                    audio,
+                    cancel,
+                    lambda: self._emit(VoiceEvent(VoiceEventKind.PLAYBACK_STARTED, item.target, speech_id=item.speech_id)),
+                )
                 if cancel.is_set():
                     raise VoiceCancelled()
                 event_kind = VoiceEventKind.SPEECH_COMPLETED

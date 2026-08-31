@@ -301,7 +301,7 @@ class PipeWirePlaybackProvider:
             self.max_playback_bytes, "max_playback_bytes"
         )
 
-    def play(self, audio: SynthesizedAudio, cancel: Event) -> None:
+    def play(self, audio: SynthesizedAudio, cancel: Event, on_first_write=None) -> None:
         if not isinstance(audio, SynthesizedAudio):
             raise ValueError("playback audio is invalid")
         if not isinstance(cancel, Event):
@@ -318,6 +318,7 @@ class PipeWirePlaybackProvider:
         os.set_blocking(descriptor, False)
         deadline = time.monotonic() + self.max_playback_seconds
         offset = 0
+        first_write = True
         try:
             while offset < len(audio.data):
                 if cancel.is_set():
@@ -342,6 +343,9 @@ class PipeWirePlaybackProvider:
                 if written <= 0:
                     break
                 offset += written
+                if first_write and on_first_write is not None:
+                    first_write = False
+                    on_first_write()
 
             process.stdin.close()
             if offset != len(audio.data):

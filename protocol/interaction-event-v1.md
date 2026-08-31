@@ -33,7 +33,7 @@ Every event is one UTF-8 JSON object.
 | `source_version` | string | Producing runtime or adapter version |
 | `sequence` | integer | Source-local, zero-based or greater |
 | `occurred_at` | integer | Positive Unix time in milliseconds |
-| `correlation_id` | string | Required for message, tool, and approval events |
+| `correlation_id` | string | Required for message, tool, and approval-request events |
 | `payload` | object | Kind-specific payload |
 
 `sequence` is monotonic within one source session. It is not a durable global
@@ -103,6 +103,20 @@ fields into ordinary logs.
 This event informs clients that approval is pending. It does not authorize an
 action. Approval and rejection are separate targeted `ControlCommand` messages.
 
+### `attention`
+
+| Field | Type | Requirement |
+|---|---|---|
+| `reason` | string | Currently `approval` |
+| `active` | boolean | Whether the attention condition is active |
+
+This is a notification-only state transition. An `approval` attention event
+may be derived from an Agent runtime status such as Codex
+`waitingOnApproval`, but it does not include a request ID and must never create
+a pending approval or authorize an approval control. A later actionable
+`approval_request` may refer to the same condition; consumers should avoid
+duplicate user notifications while the attention state remains active.
+
 ### `user_input_required`
 
 Payload field `prompt` is a non-empty explanation of the required input.
@@ -121,6 +135,7 @@ Payload field `message` is required and non-empty. `error_code` is optional.
 - `message.complete` terminates one logical message correlation, not the whole
   Agent task.
 - `tool.complete` terminates one tool correlation.
+- `attention.active: false` clears the matching notification-only condition.
 - `task_completed` and `task_failed` are terminal for the current task.
 - Process exit alone is not a successful terminal event. An adapter that exits
   without a final event emits `task_failed`.

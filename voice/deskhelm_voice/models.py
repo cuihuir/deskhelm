@@ -136,6 +136,8 @@ class VoiceEventKind(StrEnum):
     TRANSCRIPT_READY = "transcript_ready"
     PTT_CANCELLED = "ptt_cancelled"
     SPEECH_STARTED = "speech_started"
+    TTS_AUDIO_READY = "tts_audio_ready"
+    PLAYBACK_STARTED = "playback_started"
     SPEECH_COMPLETED = "speech_completed"
     SPEECH_CANCELLED = "speech_cancelled"
     FAILURE = "failure"
@@ -185,6 +187,8 @@ class VoiceEvent:
             raise ValueError("transcript_ready event requires a transcript")
         if self.kind in {
             VoiceEventKind.SPEECH_STARTED,
+            VoiceEventKind.TTS_AUDIO_READY,
+            VoiceEventKind.PLAYBACK_STARTED,
             VoiceEventKind.SPEECH_COMPLETED,
             VoiceEventKind.SPEECH_CANCELLED,
         } and not self.speech_id:

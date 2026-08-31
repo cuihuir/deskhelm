@@ -44,4 +44,25 @@ recoverable local runtime failure unnecessarily terminal.
 
 Provider failure/cancellation, PipeWire process disconnect/retry, and default
 versus manual device-change tests are implemented. Live hot-unplug and runtime
-restart measurements remain outstanding.
+restart measurements remain outstanding. One persistent live Bridge session
+has also completed three consecutive Codex turns, then recovered from an
+explicitly interrupted Agent run and accepted a successful same-session retry.
+Live owned `pw-cat` capture and playback processes have been forcibly
+terminated as well; both exposed fixed private-content-free failure categories,
+and the same provider instances succeeded on the next operation. Physical
+device hot-unplug and default-device changes remain unverified.
+The real Paraformer provider has also recovered in place from two live software
+boundaries: a deliberately tiny cold-start Gateway deadline produced
+`voice_asr_timeout` before a longer next request succeeded, and one controlled
+`generate` failure released the inference lock before the same provider
+successfully decoded the next request. No transcript, PCM, or provider failure
+text was emitted by the diagnostic.
+
+A physical PCM2902 USB microphone hot-plug cycle is also verified. Insertion
+added a stable source name and WirePlumber selected it as default; explicit
+stable-name capture produced valid signal. Fresh DeskHelm discovery followed
+default changes in both directions. After unplug, default discovery fell back
+to the built-in microphone while explicit USB selection failed closed. Replug
+restored the same stable source and valid capture, after which the original
+built-in default was restored. Numeric PipeWire object IDs were resolved only
+for immediate `wpctl` operations and were not persisted.

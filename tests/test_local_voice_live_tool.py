@@ -16,12 +16,16 @@ SPEC.loader.exec_module(TOOL)
 
 
 class LocalVoiceLiveToolTests(unittest.TestCase):
+    def test_default_response_is_chinese_only_for_playback_diagnostics(self) -> None:
+        self.assertEqual(TOOL.DEFAULT_RESPONSE_TEXT, "本地语音链路测试完成。")
+
     def test_live_audio_requires_explicit_confirmation_and_bounds(self) -> None:
         args = argparse.Namespace(
             live_audio=False,
             capture_seconds=4.0,
             timeout_seconds=120.0,
             cpu_threads=4,
+            interrupt_after_speech_seconds=0.0,
             response_text="test",
         )
         with self.assertRaisesRegex(ValueError, "live-audio"):
@@ -78,6 +82,22 @@ class LocalVoiceLiveToolTests(unittest.TestCase):
             ),
             TOOL._TimedEvent(
                 VoiceEvent(
+                    VoiceEventKind.TTS_AUDIO_READY,
+                    target,
+                    speech_id="speech",
+                ),
+                3_400_000_000,
+            ),
+            TOOL._TimedEvent(
+                VoiceEvent(
+                    VoiceEventKind.PLAYBACK_STARTED,
+                    target,
+                    speech_id="speech",
+                ),
+                3_500_000_000,
+            ),
+            TOOL._TimedEvent(
+                VoiceEvent(
                     VoiceEventKind.SPEECH_COMPLETED,
                     target,
                     speech_id="speech",
@@ -99,6 +119,9 @@ class LocalVoiceLiveToolTests(unittest.TestCase):
         self.assertEqual(summary["status"], "ok")
         self.assertEqual(summary["release_to_transcript_ms"], 1000.0)
         self.assertEqual(summary["speech_start_to_complete_ms"], 900.0)
+        self.assertEqual(summary["speech_start_to_tts_audio_ready_ms"], 300.0)
+        self.assertEqual(summary["tts_audio_ready_to_playback_started_ms"], 100.0)
+        self.assertEqual(summary["playback_started_to_complete_ms"], 500.0)
         self.assertEqual(summary["transcript_chars"], 18)
         self.assertEqual(
             summary["input_activity"],
@@ -119,6 +142,33 @@ class LocalVoiceLiveToolTests(unittest.TestCase):
         self.assertNotIn("private", serialized)
         self.assertNotIn("audio_payload", serialized)
         self.assertNotIn("audio_data", serialized)
+
+    def test_cancelled_speech_is_a_terminal_privacy_safe_result(self) -> None:
+        target = VoiceTarget("agent", "session", "project")
+        events = [
+            TOOL._TimedEvent(
+                VoiceEvent(VoiceEventKind.SPEECH_STARTED, target, speech_id="speech"),
+                3_000_000_000,
+            ),
+            TOOL._TimedEvent(
+                VoiceEvent(VoiceEventKind.SPEECH_CANCELLED, target, speech_id="speech"),
+                3_500_000_000,
+            ),
+        ]
+
+        summary = TOOL._summarize(
+            events,
+            run_started_ns=1_000_000_000,
+            release_ns=2_000_000_000,
+            transcript_chars=0,
+            source_name="source",
+            sink_name="sink",
+            sample_rate_hz=16000,
+        )
+
+        self.assertTrue(TOOL._is_terminal(events))
+        self.assertEqual(summary["status"], "cancelled")
+        self.assertEqual(summary["speech_start_to_cancelled_ms"], 500.0)
 
 
 if __name__ == "__main__":

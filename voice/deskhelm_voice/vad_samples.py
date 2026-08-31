@@ -26,7 +26,7 @@ def load_prepared_vad_samples(
         raise ValueError("unable to read prepared VAD index") from error
     if (
         not isinstance(index, Mapping)
-        or index.get("schema_version") != 1
+        or index.get("schema_version") != manifest.schema_version
         or index.get("manifest_name") != manifest.name
         or index.get("dataset_revision") != manifest.dataset_revision
     ):
@@ -70,9 +70,7 @@ def load_prepared_vad_samples(
             )
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError("prepared VAD reference segments are invalid") from error
-        if len(segments) != sum(
-            part.source_id is not None for part in scenario.parts
-        ):
+        if len(segments) != manifest.expected_reference_segments(scenario):
             raise ValueError("prepared VAD reference count is invalid")
         stream_format = PcmStreamFormat(
             sample_rate_hz=manifest.sample_rate_hz,

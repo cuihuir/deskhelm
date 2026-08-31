@@ -109,6 +109,27 @@ class VoiceGatewayTests(unittest.TestCase):
             emitted.append(events.get_nowait())
         self.assertEqual(emitted[-1].error_code, "voice_no_transcript")
 
+    def test_prompt_rejection_is_not_reported_as_input_failure(self) -> None:
+        events: Queue[VoiceEvent] = Queue()
+        gateway = self._gateway(
+            FakeCaptureProvider([self._audio()]),
+            FakeAsrProvider([Transcript("raw", "normalized")]),
+            event_sink=events.put,
+        )
+
+        def reject_prompt(_target, _transcript) -> None:
+            raise RuntimeError("prompt rejected")
+
+        gateway.register_prompt_sink(reject_prompt)
+        gateway.press_ptt(self.target)
+        gateway.release_ptt()
+        self._wait_for_state(gateway, VoicePttState.IDLE)
+
+        emitted = list(events.queue)
+        self.assertIn(VoiceEventKind.TRANSCRIPT_READY, [event.kind for event in emitted])
+        self.assertEqual(emitted[-1].kind, VoiceEventKind.FAILURE)
+        self.assertEqual(emitted[-1].error_code, "voice_prompt_failed")
+
     def test_asr_timeout_is_bounded_and_next_request_can_retry(self) -> None:
         class TimeoutThenSuccessAsr:
             def __init__(self) -> None:
@@ -652,6 +673,32 @@ class VoiceGatewayTests(unittest.TestCase):
 
         event_kinds = self._drain_event_kinds(events)
         self.assertIn(VoiceEventKind.SPEECH_CANCELLED, event_kinds)
+
+    def test_speech_reports_tts_and_playback_handoffs_in_order(self) -> None:
+        events: Queue[VoiceEvent] = Queue()
+        playback = FakePlaybackProvider()
+        gateway = self._gateway(
+            FakeCaptureProvider([self._audio()]),
+            FakeAsrProvider([Transcript("raw", "normalized")]),
+            playback=playback,
+            event_sink=events.put,
+        )
+
+        gateway.enqueue_speech(
+            SpeechItem(self.target, "response", speech_id="speech-1")
+        )
+        self.assertTrue(playback.completed.wait(timeout=1))
+
+        kinds = self._drain_event_kinds(events)
+        self.assertEqual(
+            kinds,
+            [
+                VoiceEventKind.SPEECH_STARTED,
+                VoiceEventKind.TTS_AUDIO_READY,
+                VoiceEventKind.PLAYBACK_STARTED,
+                VoiceEventKind.SPEECH_COMPLETED,
+            ],
+        )
 
     def test_speech_queue_is_bounded_while_playback_is_busy(self) -> None:
         playback = FakePlaybackProvider(block_until_cancel=True)

@@ -272,6 +272,30 @@ class ControlRouterTests(unittest.TestCase):
 
         self.assertEqual(router.pending_approval_count(), 1)
 
+    def test_lists_target_approvals_and_marks_external_resolution(self) -> None:
+        event = self._interaction("approval-request.json")
+        self.router.observe_interaction(event)
+
+        pending = self.router.pending_approvals_for(
+            self.session,
+            now_ms=event.occurred_at,
+        )
+        resolved = self.router.resolve_approval(
+            event.payload.request_id,
+            now_ms=event.occurred_at,
+        )
+
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].request_id, event.payload.request_id)
+        self.assertTrue(resolved)
+        self.assertEqual(self.router.pending_approval_count(), 0)
+        self.assertFalse(
+            self.router.resolve_approval(
+                event.payload.request_id,
+                now_ms=event.occurred_at + 1,
+            )
+        )
+
     @staticmethod
     def _command(name: str) -> ControlCommand:
         value = json.loads(

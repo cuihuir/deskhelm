@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+launcher_path=$(readlink -f "${BASH_SOURCE[0]}")
+repository_root=$(dirname "$(dirname "$launcher_path")")
+runner="$repository_root/.venv/bin/deskhelm"
+
+if [[ ! -x "$runner" ]]; then
+  echo "deskhelm: synchronized source environment is unavailable" >&2
+  echo "deskhelm: run 'uv sync --extra ptt --locked' in $repository_root" >&2
+  exit 1
+fi
+
+if [[ ${1-} != "alpha" ]]; then
+  exec "$runner" "$@"
+fi
+
+for argument in "$@"; do
+  case "$argument" in
+    -h|--help)
+      exec "$runner" "$@"
+      ;;
+  esac
+done
+
+alpha_command=(
+  "$runner"
+  alpha
+  --agent-workdir
+  "$PWD"
+  "${@:2}"
+)
+secrets_command=(
+  project-secrets
+  --project
+  "$repository_root"
+  run
+  --env
+  default
+  --require
+  DESKHELM_ALPHA_VOICE_SOURCE
+  DESKHELM_ALPHA_ASR_MODEL_DIRECTORY
+  DESKHELM_ALPHA_TTS_DIRECTORY
+  --
+)
+
+launch_tui=false
+check_only=false
+voice_enabled=false
+for argument in "${@:2}"; do
+  case "$argument" in
+    --tui)
+      launch_tui=true
+      ;;
+    --check)
+      check_only=true
+      ;;
+    --voice)
+      voice_enabled=true
+      ;;
+  esac
+done
+
+if [[ $voice_enabled == false ]]; then
+  if [[ $launch_tui == true && $check_only == false ]]; then
+    exec "$repository_root/.venv/bin/python" \
+      "$repository_root/tools/run-with-pty.py" \
+      --guard-ctrl-c \
+      -- \
+      "${alpha_command[@]}"
+  fi
+  exec "${alpha_command[@]}"
+fi
+
+if ! command -v project-secrets >/dev/null 2>&1; then
+  echo "deskhelm: project-secrets is required for local voice" >&2
+  exit 1
+fi
+
+if [[ $launch_tui == true && $check_only == false ]]; then
+  exec "${secrets_command[@]}" \
+    "$repository_root/.venv/bin/python" \
+    "$repository_root/tools/run-with-pty.py" \
+    --redact-env DESKHELM_ALPHA_VOICE_SOURCE \
+    --redact-env DESKHELM_ALPHA_ASR_MODEL_DIRECTORY \
+    --redact-env DESKHELM_ALPHA_TTS_DIRECTORY \
+    --guard-ctrl-c \
+    -- \
+    "${alpha_command[@]}"
+fi
+
+exec "${secrets_command[@]}" "${alpha_command[@]}"

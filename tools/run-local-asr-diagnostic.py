@@ -10,7 +10,7 @@ from pathlib import Path
 import shlex
 import selectors
 import sys
-from threading import Event, Timer
+from threading import Event, Thread, Timer
 import time
 
 try:
@@ -295,12 +295,14 @@ def _await_phrase_ready(timeout_seconds: float) -> bool:
     try:
         stdin.fileno()
     except (AttributeError, OSError, ValueError):
-        line = stdin.readline(MAX_READY_LINE_LENGTH)
-        return line.strip().lower() == "ready"
+        return _read_ready_line_with_timeout(stdin, timeout_seconds)
 
     selector = selectors.DefaultSelector()
     try:
-        selector.register(stdin, selectors.EVENT_READ)
+        try:
+            selector.register(stdin, selectors.EVENT_READ)
+        except (OSError, ValueError):
+            return _read_ready_line_with_timeout(stdin, timeout_seconds)
         deadline = time.monotonic() + timeout_seconds
         while True:
             remaining = deadline - time.monotonic()
@@ -315,6 +317,27 @@ def _await_phrase_ready(timeout_seconds: float) -> bool:
                 return True
     finally:
         selector.close()
+
+
+def _read_ready_line_with_timeout(stdin: object, timeout_seconds: float) -> bool:
+    line: list[str] = []
+    complete = Event()
+
+    def read_once() -> None:
+        try:
+            value = stdin.readline(MAX_READY_LINE_LENGTH)
+        except Exception:
+            value = ""
+        if isinstance(value, str):
+            line.append(value)
+        complete.set()
+
+    # Some sandboxed stdin descriptors cannot be polled. A daemon reader keeps
+    # their exact-ready handshake bounded without allowing capture to begin.
+    Thread(target=read_once, daemon=True).start()
+    if not complete.wait(timeout_seconds):
+        return False
+    return bool(line) and line[0].strip().lower() == "ready"
 
 
 def _validate_model_directory(path: Path, provider: str) -> None:

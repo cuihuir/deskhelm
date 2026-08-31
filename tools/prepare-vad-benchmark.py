@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import argparse
+from array import array
 import hashlib
 import json
+import math
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import urllib.request
 import wave
@@ -47,9 +50,12 @@ def main() -> int:
             raw_path,
             manifest.sample_rate_hz,
             manifest.channels,
+            source.clip_start_ms,
+            source.clip_duration_ms,
         )
 
     samples = []
+    sources_by_id = {source.source_id: source for source in manifest.sources}
     frame_bytes = manifest.channels * 2
     chunk_frames = manifest.sample_rate_hz * manifest.chunk_ms // 1000
     for scenario in manifest.scenarios:
@@ -60,23 +66,51 @@ def main() -> int:
                 silence_frames = manifest.sample_rate_hz * part.silence_ms // 1000
                 pcm.extend(bytes(silence_frames * frame_bytes))
                 continue
+            source = sources_by_id[part.source_id]
             source_pcm = converted[part.source_id]
             start_frame = len(pcm) // frame_bytes
             pcm.extend(source_pcm)
-            reference_segments.append(
-                {
-                    "start_frame": start_frame,
-                    "end_frame": len(pcm) // frame_bytes,
-                }
-            )
+            if source.speech_segments_ms:
+                for segment in source.speech_segments_ms:
+                    reference_segments.append(
+                        {
+                            "start_frame": start_frame
+                            + _milliseconds_to_frames(
+                                segment.start_ms,
+                                manifest.sample_rate_hz,
+                            ),
+                            "end_frame": start_frame
+                            + _milliseconds_to_frames(
+                                segment.end_ms,
+                                manifest.sample_rate_hz,
+                            ),
+                        }
+                    )
+            else:
+                reference_segments.append(
+                    {
+                        "start_frame": start_frame,
+                        "end_frame": len(pcm) // frame_bytes,
+                    }
+                )
         total_frames = len(pcm) // frame_bytes
         padding_frames = (-total_frames) % chunk_frames
         pcm.extend(bytes(padding_frames * frame_bytes))
+        mix_scale = 1.0
+        if scenario.noise_source_id is not None:
+            pcm_bytes, mix_scale = _mix_background(
+                bytes(pcm),
+                converted[scenario.noise_source_id],
+                reference_segments,
+                scenario.snr_db,
+            )
+        else:
+            pcm_bytes = bytes(pcm)
         file_name = f"{scenario.scenario_id}.wav"
         output_path = prepared_directory / file_name
         _write_wav(
             output_path,
-            bytes(pcm),
+            pcm_bytes,
             manifest.sample_rate_hz,
             manifest.channels,
         )
@@ -85,12 +119,15 @@ def main() -> int:
                 "sample_id": scenario.scenario_id,
                 "file_name": file_name,
                 "sha256": _sha256(output_path.read_bytes()),
-                "total_frames": len(pcm) // frame_bytes,
+                "total_frames": len(pcm_bytes) // frame_bytes,
                 "reference_segments": reference_segments,
+                "noise_source_id": scenario.noise_source_id,
+                "snr_db": scenario.snr_db,
+                "mix_scale": round(mix_scale, 9),
             }
         )
     index = {
-        "schema_version": 1,
+        "schema_version": manifest.schema_version,
         "manifest_name": manifest.name,
         "dataset_revision": manifest.dataset_revision,
         "samples": samples,
@@ -119,16 +156,29 @@ def _download(url: str) -> bytes:
     return payload
 
 
-def _convert(ffmpeg: str, path: Path, sample_rate_hz: int, channels: int) -> bytes:
-    result = subprocess.run(
-        [
-            ffmpeg,
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            str(path),
+def _convert(
+    ffmpeg: str,
+    path: Path,
+    sample_rate_hz: int,
+    channels: int,
+    clip_start_ms: int,
+    clip_duration_ms: int | None,
+) -> bytes:
+    command = [
+        ffmpeg,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(path),
+    ]
+    if clip_start_ms:
+        command.extend(("-ss", f"{clip_start_ms / 1000:.3f}"))
+    if clip_duration_ms is not None:
+        command.extend(("-t", f"{clip_duration_ms / 1000:.3f}"))
+    command.extend(
+        (
             "-f",
             "s16le",
             "-acodec",
@@ -138,7 +188,10 @@ def _convert(ffmpeg: str, path: Path, sample_rate_hz: int, channels: int) -> byt
             "-ac",
             str(channels),
             "pipe:1",
-        ],
+        )
+    )
+    result = subprocess.run(
+        command,
         check=False,
         capture_output=True,
         timeout=30,
@@ -149,7 +202,69 @@ def _convert(ffmpeg: str, path: Path, sample_rate_hz: int, channels: int) -> byt
         or len(result.stdout) > MAX_CONVERTED_BYTES
     ):
         raise ValueError("audio conversion failed")
+    if clip_duration_ms is not None:
+        expected_bytes = (
+            _milliseconds_to_frames(clip_duration_ms, sample_rate_hz)
+            * channels
+            * 2
+        )
+        if len(result.stdout) != expected_bytes:
+            raise ValueError("audio clip duration is invalid")
     return result.stdout
+
+
+def _mix_background(
+    speech_pcm: bytes,
+    noise_pcm: bytes,
+    reference_segments: list[dict[str, int]],
+    snr_db: int | None,
+) -> tuple[bytes, float]:
+    if snr_db is None or not speech_pcm or not noise_pcm:
+        raise ValueError("noise mix configuration is invalid")
+    speech = _samples(speech_pcm)
+    noise = _samples(noise_pcm)
+    reference = []
+    for segment in reference_segments:
+        reference.extend(speech[segment["start_frame"] : segment["end_frame"]])
+    speech_rms = _rms(reference)
+    noise_rms = _rms(noise)
+    if speech_rms <= 0 or noise_rms <= 0:
+        raise ValueError("noise mix signal is invalid")
+    noise_gain = speech_rms / (noise_rms * math.pow(10.0, snr_db / 20.0))
+    mixed = [
+        sample + noise[index % len(noise)] * noise_gain
+        for index, sample in enumerate(speech)
+    ]
+    peak = max(abs(sample) for sample in mixed)
+    mix_scale = min(1.0, 32760.0 / peak) if peak else 1.0
+    output = array(
+        "h",
+        (
+            max(-32768, min(32767, round(sample * mix_scale)))
+            for sample in mixed
+        ),
+    )
+    if sys.byteorder != "little":
+        output.byteswap()
+    return output.tobytes(), mix_scale
+
+
+def _samples(pcm: bytes) -> array:
+    samples = array("h")
+    samples.frombytes(pcm)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    return samples
+
+
+def _rms(samples) -> float:
+    if not samples:
+        return 0.0
+    return math.sqrt(math.fsum(sample * sample for sample in samples) / len(samples))
+
+
+def _milliseconds_to_frames(milliseconds: int, sample_rate_hz: int) -> int:
+    return round(milliseconds * sample_rate_hz / 1000)
 
 
 def _write_wav(path: Path, pcm: bytes, sample_rate_hz: int, channels: int) -> None:

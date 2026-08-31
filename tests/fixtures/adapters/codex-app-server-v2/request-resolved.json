@@ -1,0 +1,7 @@
+{
+  "method": "serverRequest/resolved",
+  "params": {
+    "threadId": "thread-synthetic-1",
+    "requestId": "approval-command-synthetic-1"
+  }
+}
