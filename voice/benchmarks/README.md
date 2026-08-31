@@ -18,6 +18,13 @@ only provenance, license identity, checksums, and recipes are committed. A
 future private capture set must record speaker consent, microphone and room
 metadata, sample format, checksum, and redistribution terms.
 
+`vad-conversation-noise-v2.json` preserves version 1 compatibility and adds a
+pinned annotated clip from the AMI `ES2008a` meeting plus deterministic 10 dB
+and 0 dB SNR mixtures using ESC-10 rain and clock-tick recordings. AMI is CC BY
+4.0 and the ESC-10 subset is CC BY 3.0. Preparation derives the five reference
+speech intervals from the pinned AMI annotation release, verifies every source
+checksum, and keeps downloaded and prepared audio outside Git.
+
 `asr-external-v1.json` is the first reproducible real-ASR manifest. It pins the
 Paraformer official Chinese example, an official English example, and six FSDD
 digits. The English example's audio license is explicitly `unverified`, so it
@@ -123,7 +130,21 @@ frame-relative detection delay are reported separately from future live
 end-to-end measurements.
 
 Prepare the external set with `tools/prepare-vad-benchmark.py`. It verifies
-source checksums, converts to 16 kHz mono S16LE, pads to complete 20 ms chunks,
-and writes a local checksum/index file. Run candidates with
-`tools/run-vad-benchmark.py`; both tools require an explicit ignored artifact
-directory and do not add optional runtimes to Bridge.
+source checksums, applies bounded clips and deterministic SNR recipes where
+declared, converts to 16 kHz mono S16LE, pads to complete 20 ms chunks, and
+writes a local checksum/index file. Run candidates with
+`tools/run-vad-benchmark.py`; `--sweep` evaluates WebRTC modes 0-3 or the three
+declared Silero threshold pairs with separate provider identities and summaries.
+Both tools require explicit ignored artifact paths and do not add optional
+runtimes to Bridge. A sweep remains subject to the 10,000-observation limit and
+does not select a production profile automatically.
+
+`tools/run-live-vad-diagnostic.py` requires explicit `--live-audio` and records
+only PipeWire first-chunk timing, chunk intervals, VAD processing timing, and
+bounded derived speech segments plus aggregate peak/RMS/clipping/near-silence
+signal metadata. It discards PCM and never prints transcripts, provider output,
+or wall-clock timestamps. These are process-handoff and input-level metrics,
+not acoustic-onset measurements. `--await-phrase-ready` prints one selected
+versioned public corpus phrase and waits under a fixed bound for an exact
+`ready` line before capture; the result still requires separate confirmation
+that the user spoke during that capture.

@@ -2,21 +2,21 @@
 
 日期：2026-08-14
 
-状态：核心边界已由 ADR 0005 至 0009 固化，本地音频 provider 待选型。
+状态：核心边界已固化；ADR 0030 将自动语音输出收敛为固定类别通知。
 
 ## 1. 目标
 
 DeskHelm 不应只是一块宏键盘，也不应只是一套语音输入法。它应成为一个本地优先的 Agent Console：
 
 - Bridge 统一不同 Agent 的状态、会话和控制语义。
-- Voice Gateway 提供本地语音输入、提示词处理、播报和通知。
+- Voice Gateway 提供本地语音输入、提示词处理和固定类别通知。
 - Physical Surface 提供按键、旋钮、RGB、屏幕和高确定性的控制动作。
 - TUI 和桌面客户端可以复用同一套本地协议。
 
 三种交互方式的分工：
 
 ```text
-语音       高带宽输入输出、长描述、结果播报
+语音       高带宽提示输入、短通知
 实体控制   低延迟、强确认、停止/批准/拒绝/切换
 屏幕与 TUI 详细文本、diff、命令和完整上下文
 ```
@@ -60,11 +60,12 @@ Codex / Claude / Gemini / OpenCode
 - PipeWire 采集和设备恢复。
 - PTT、VAD、实时 ASR 和最终转写。
 - 原文、规范化文本和优化提示词的生命周期。
-- Agent 输出分句、TTS、播放、取消和通知。
+- 固定类别通知的 TTS、播放、取消和失败恢复。
 
 当前实现将 provider-neutral 的 PTT、ASR、TTS 和播放核心隔离在
 `voice/`，由 Bridge composition 将最终规范化转写转换为定向
-`submit_prompt`，并将完整 assistant 消息排入有界语音队列。VAD 留到
+`submit_prompt`。Agent 回复正文始终留在富交互客户端；语音队列仅接收
+完成、失败、审批和需输入四类固定通知。VAD 留到
 流式 PipeWire capture 边界确定后定义，避免先固化错误的批处理接口。
 本机 POC 默认跟随电脑当前的 PipeWire 收音设备和播放 sink，也允许按稳定
 node name 手工指定输入或输出；显式指定的设备缺失时直接报错，不静默回退。
@@ -113,14 +114,22 @@ node name 手工指定输入或输出；显式指定的设备缺失时直接报�
 ```json
 {
   "protocol_version": 1,
-  "kind": "assistant_message",
-  "agent_id": "project-a:codex:1",
+  "message_type": "interaction_event",
+  "kind": "message",
+  "agent_id": "codex",
   "session_id": "session-42",
   "project_id": "project-a",
-  "text": "任务已经完成",
-  "speak": true,
-  "priority": "normal",
-  "interruptible": true
+  "source": "codex-adapter",
+  "source_version": "1",
+  "sequence": 1,
+  "event_id": "event-42",
+  "occurred_at": 1784210000000,
+  "correlation_id": "message-42",
+  "payload": {
+    "role": "assistant",
+    "phase": "complete",
+    "text": "任务已经完成"
+  }
 }
 ```
 
@@ -128,6 +137,7 @@ node name 手工指定输入或输出；显式指定的设备缺失时直接报�
 
 - `assistant_message`
 - `approval_request`
+- `attention`
 - `user_input_required`
 - `task_completed`
 - `task_failed`
@@ -183,6 +193,10 @@ agent_id + session_id + project_id
 
 `slot` 是展示层映射，由 `SessionRegistry` 动态分配。这样语音终端可以操作当前会话，硬件仍可以展示四个或八个槽位，二者不互相绑定。
 
+`project_id` 仍是协议身份，不是文件系统路径。多项目 Agent Gateway 只从
+Bridge 启动时的有界本地注册表解析工作目录；adapter 不发送目录，未配置的
+项目在启动 provider 之前失败，也不会回退到当前目录或其他项目。
+
 ## 6. 实体交互和安全
 
 一个典型审批流程：
@@ -191,7 +205,8 @@ agent_id + session_id + project_id
 Agent 请求权限
   -> Bridge 生成 approval_request
   -> RGB/屏幕显示等待批准
-  -> Voice Gateway 播报目标和命令摘要
+  -> Voice Gateway 只播报固定“需要确认”通知
+  -> 屏幕或 TUI 展示目标和命令摘要
   -> 用户按住确认键或明确语音确认
   -> Bridge 校验 request_id 和有效期
   -> Adapter 执行 approve/reject

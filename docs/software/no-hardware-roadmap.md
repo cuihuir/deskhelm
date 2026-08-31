@@ -104,8 +104,10 @@ Status: In Progress
   audio set.
 - [x] Integrate optional advisory WebRTC VAD into live streaming capture while
   keeping PTT release authoritative and final ASR independent of VAD outcome.
-- [ ] Expand VAD measurements to conversational/noisy audio and live devices,
-  then select the production default.
+- [x] Expand VAD measurements to pinned conversational/noisy audio, bounded
+  threshold sweeps, and an explicit live PipeWire timing diagnostic.
+- [ ] Add confirmed live spoken threshold comparisons and broader language/gain
+  coverage, then select the production VAD default.
 - [x] Benchmark Paraformer for streaming ASR.
 - [x] Benchmark SenseVoice/sherpa-onnx as a final-only alternative ASR baseline.
 - [x] Benchmark Piper and Kokoro for notification TTS.
@@ -114,19 +116,40 @@ Status: In Progress
 - [x] Add fixed Chinese, English, and mixed-language test utterances.
 - [x] Define versioned latency, accuracy, resource, and licensing observations.
 - [x] Record initial real provider and live-device measurements.
+- [x] Replace automatic Agent-response speech with fixed content-free
+  notifications for completion, failure, approval, and required user input.
+- [x] Verify the pure-notification path with a real Codex terminal event and
+  actual speaker output; assistant and private event content remain silent.
+- [x] Verify three consecutive real Codex turns in one persistent session and
+  a real interrupt-failure followed by a successful same-session retry.
+- [x] Verify live owned PipeWire capture and playback process disconnects,
+  followed by successful reuse of the same provider instances.
+- [x] Verify a real Paraformer cold-start ASR timeout followed by a successful
+  same-Gateway retry, plus a controlled model failure followed by successful
+  reuse of the same provider instance.
+- [x] Verify physical USB microphone insertion, explicit stable-name capture,
+  default-source switching, unplug fallback, strict manual-target failure,
+  replug recovery, and restoration of the original default input.
+- [x] Consolidate Bridge, local Voice, one modern Codex session, and right-Alt
+  PTT into an explicit reusable single-project Alpha profile whose model
+  locations are injected through local environment variables.
+- [x] Add a bounded operator-configured project working-directory registry so
+  one Bridge can route sessions from multiple repositories without treating
+  `project_id` or adapter data as a filesystem path.
 - [x] Add a controlled public-phrase ASR diagnostic that correlates privacy-safe
   input signal, accuracy, and latency metadata without playback.
 - [x] Add advisory speech-active segment, duration, and ratio measurements to
   that diagnostic without allowing VAD to gate ASR.
-- [ ] Measure live disconnect, timeout, device-change, and provider-failure
-  recovery; the bounded Gateway timeout contract is implemented, but native
-  hard-cancellation evidence is still missing.
+- [x] Measure live process disconnect, timeout, physical device-change, and
+  provider-failure recovery.
+- [ ] Measure native hard-cancellation behavior during model inference.
 - [x] Define deterministic provider retry, cancellation, process-disconnect,
   and default/manual device-change semantics with fake-boundary tests.
 
 Acceptance criteria:
 
-- The no-hardware POC completes `PTT -> ASR -> Codex -> TTS` locally.
+- The no-hardware POC completes `PTT -> ASR -> Codex -> fixed notification`
+  locally without sending Agent response content to TTS.
 - First partial, final transcript, TTS first audio, and interruption latency are
   measured reproducibly.
 - Model weights and heavyweight runtime dependencies remain outside Bridge and
@@ -134,14 +157,12 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Run blinded TTS listening and measure actual speaker-first-audio plus live
-   PipeWire interruption before selecting a production voice.
-2. Expand VAD coverage to noisy/conversational speech, threshold sweeps, and
-   live PipeWire latency before selecting a default.
+1. Repeat confirmed live VAD utterances for WebRTC modes 0 and 2, then test
+   disconnect/runtime failure without granting VAD endpoint control.
+2. Add a normalized-gain AMI variant and a licensed Chinese conversational set
+   before selecting a production VAD default.
 3. Expand Paraformer/SenseVoice coverage to consented Chinese/mixed coding
    commands with controlled input gain, compare recovery, and retain
    whisper.cpp as a licensing/quality fallback before selecting a default.
-4. Test VAD disconnect/runtime failure, threshold behavior, and repeated live
-   utterances without granting it endpoint control.
-5. Add a multi-project working-directory registry before one Bridge process
-   manages Agent sessions from different repositories.
+4. Keep actual speaker-first-audio measurement deferred until it materially
+   affects a hardware or production voice decision.

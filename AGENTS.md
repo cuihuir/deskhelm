@@ -44,6 +44,10 @@ capability is valuable. Do not split simple work for appearance or assign
 duplicate work to multiple agents. The primary agent owns integration, conflict
 resolution, validation, and final delivery.
 
+When a test or validation task is delegated to a subagent, use a Luna model for
+that subagent. This does not require delegating tests that the primary agent can
+run directly.
+
 ## 6. Keep Changes Focused
 
 Limit code and documentation changes to the smallest scope required to complete
@@ -90,6 +94,15 @@ steps, risks, blockers, and essential context. Keep it as a concise statement
 of current state rather than an append-only activity log. Never include
 secrets, tokens, or sensitive credentials. Leave a short final state when a
 task is complete.
+
+## 12. Use uv for Python Dependencies
+
+Use `uv` for every Python dependency resolution, environment creation,
+synchronization, lock update, and dependency-backed command in this repository.
+Do not use `pip`, `venv`, `virtualenv`, Conda, or direct interpreter package
+installation. Keep Bridge dependencies minimal. Model-backed voice dependencies
+remain in the separate `voice/runtime` uv project and synchronize only into
+ignored or external storage; never add them to the Bridge package.
 
 # DeskHelm Repository Guidelines
 
@@ -176,6 +189,10 @@ Keep third-party reference files outside version control under
   gap, clients request a fresh snapshot before consuming live events.
 - Identify sessions with `agent_id + session_id + project_id`; treat `slot` as a
   presentation mapping only.
+- Keep `project_id` opaque. Map it to a local Agent working directory only
+  through the bounded operator-configured registry; never interpret protocol
+  identity as a path or accept a working directory from an adapter. Once
+  project mappings are configured, reject unmapped projects without fallback.
 - Do not focus sessions implicitly. Only active sessions may be focused;
   disconnecting, replacing, releasing, or expiring the focused session clears
   focus, and restore does not re-focus automatically.
@@ -210,6 +227,68 @@ Keep third-party reference files outside version control under
 - Keep vendor process construction and event parsing in `adapters/`. A provider
   must produce one normalized terminal outcome and honor cancellation and
   timeout of its owned work.
+- Integrate manually operated Codex TUI sessions only through a
+  DeskHelm-managed TUI proxy, `codex app-server`, and `codex --remote`
+  connection. Keep the TUI proxy frontend distinct from the app-server
+  upstream socket and keep the adapter on a separate observer/control
+  connection. Do not inject terminal keystrokes or claim that an unrelated
+  plain Codex process can be attached after launch.
+- Keep the Codex app-server adapter Alpha-only while its WebSocket transport is
+  experimental. Use bounded local Unix WebSocket frames, queues, requests,
+  pending approvals, pending input, timeouts, and reconnect backoff. Keep
+  transient TUI-proxy queue saturation as bounded backpressure: pause upstream
+  reads with stop-aware polling and rely on local socket backpressure rather
+  than dropping, reordering, or disconnecting a healthy streamed turn. Keep
+  voice approval decisions on a distinct bounded priority queue so notification
+  bursts cannot reject a decision. After a voice-first response, retain bounded
+  duplicate-response suppression through `serverRequest/resolved` and until the
+  late TUI response or a fixed expiry; notify approval resolution exactly once
+  so a later approval in the same turn can announce and route independently.
+  Keep thread attachment separate from event subscription: attach directly to
+  one unambiguous loaded thread so a new empty remote TUI accepts controls before
+  its first rollout exists, then retry bounded `thread/resume` calls until that
+  connection is subscribed. A missing rollout is retriable only for a
+  discovered thread; explicit thread failures remain fail-closed. Ignore a
+  bounded, positively identified ephemeral internal thread, but require an
+  explicit selector before choosing among multiple non-ephemeral threads.
+- Keep Alpha `--tui` as a convenience launcher for the exact local remote-TUI
+  command. It must require an interactive terminal and clean up the complete
+  Alpha stack when the TUI exits. The launcher PTY must translate a first raw
+  or Kitty-protocol Ctrl-C into clear-input and forward Ctrl-C only on a second
+  press within a bounded confirmation window; timeout or other input resets
+  the guard.
+- Keep `tools/deskhelm-user-launcher` as a thin source-checkout entry point. It
+  must preserve the invoking working directory, use the already synchronized
+  root environment without dependency installation, and use the bounded PTY
+  relay for every real `--tui` launch so Alpha and Codex retain terminal
+  semantics plus the two-press Ctrl-C guard. Core TUI startup must not consult
+  `project-secrets`. Only `--voice` dynamically injects Alpha voice settings
+  through the checkout's encrypted profile without storing their values.
+  Because `project-secrets` output forwarding is line-buffered, the relay must
+  render directly to the controlling terminal and perform boundary-safe
+  streaming redaction of injected values itself.
+- When an Alpha lifecycle registration declares interaction or approval event
+  capabilities, its publisher connection must also negotiate
+  `interaction_event_v1`; do not retry a deterministic capability mismatch as
+  Bridge startup unavailability.
+- Keep app-server approval and input notifications private-content-free. Voice
+  may map only the bounded exact approval/rejection phrase sets implemented at
+  the composition boundary to one non-expired target approval, must use a
+  one-shot response, and must leave persistent, ambiguous, multi-question, and
+  secret interactions to the Codex TUI. For Codex permission approvals, grant
+  only the requested subset for the current turn; never persist voice-granted
+  permissions to the session.
+- Proxy managed-TUI command and file approvals on their original JSON-RPC
+  response channel. Forward the request to the TUI, retain only bounded
+  correlation metadata, clear DeskHelm state when the keyboard answers first,
+  and suppress a duplicate keyboard response when voice answers first. Proxy
+  disconnect, expiry, or capacity must fail closed without inferring a decision;
+  excess approvals remain keyboard-actionable.
+- Map Codex `waitingOnApproval` thread status to notification-only `attention`
+  state, never by itself to an actionable `approval_request`. The managed TUI
+  proxy supplies the real correlated request; status-derived attention remains
+  a fallback with no request ID. Deduplicate its fixed voice notice with a
+  later correlated request until the status clears.
 - Never place prompts in process command-line arguments. Prefer bounded stdin,
   suppress private stderr from ordinary logs, and terminate the owned process
   group on cancellation or timeout.
@@ -231,9 +310,10 @@ Keep third-party reference files outside version control under
 - Keep model-backed local voice disabled by default. Validate selected audio
   devices and required external artifacts before Bridge startup, keep model
   imports/weights lazy, and do not describe batch PTT capture as VAD integration.
-- Keep the reproducible optional Paraformer/Piper CPU environment pinned in
-  `voice/runtime/requirements-local-voice-py312.txt` and install it only under
-  ignored or external storage. Do not add it to Bridge dependencies.
+- Keep the reproducible optional Paraformer/Piper/Kokoro CPU environment pinned in
+  `voice/runtime/pyproject.toml` plus its committed `uv.lock`, and synchronize
+  it only into ignored or external storage with `uv`. Do not add it to Bridge
+  dependencies.
 - Preserve raw and normalized transcripts separately. Ordinary lifecycle and
   failure events must not contain audio, transcript, prompt, or speech text.
 - Controlled live ASR diagnostics must use versioned public reference phrases,
@@ -327,6 +407,39 @@ a placeholder task runner without an ADR.
 
 Current commands:
 
+- `uv sync --locked`: synchronize the dependency-minimal root development
+  environment.
+- `uv sync --extra ptt --locked`: add the optional host-local `evdev` runtime
+  for the explicit right-Alt PTT controller.
+- `cd voice/runtime && uv sync --locked --python 3.12`: create or synchronize
+  the ignored, pinned optional local-voice runtime. Run this from its project
+  directory so uv resolves the local-voice lock rather than the root lock.
+- `deskhelm alpha --check`: preflight the hardware-independent local Alpha core.
+- `deskhelm alpha --tui`: run the managed Codex TUI from the current project
+  directory. The launcher requires no project secrets or voice runtime, uses a
+  bounded terminal relay for the two-press Ctrl-C guard, routes the TUI through
+  the approval-aware local proxy, and owns Bridge plus Codex app-server cleanup
+  when the TUI exits.
+- `deskhelm alpha --tui --voice`: add local Paraformer voice, directory-selected
+  Piper or Kokoro TTS, and the explicit right-Alt PTT controller. A Kokoro
+  directory uses `zf_xiaobei` for Chinese and `af_heart` for English. Only this
+  mode loads
+  `DESKHELM_ALPHA_ASR_MODEL_DIRECTORY`, `DESKHELM_ALPHA_TTS_DIRECTORY`, and the
+  optional `DESKHELM_ALPHA_VOICE_SOURCE` through `project-secrets`.
+- `deskhelm alpha --check --voice`: preflight the optional local-voice models,
+  runtime, PipeWire selection, and PTT device without opening audio or loading
+  model weights. A missing configured source fails without fallback.
+- After linking `tools/deskhelm-user-launcher` into the user's executable path,
+  run these commands directly from the Agent project directory; the launcher
+  preserves that directory as `--agent-workdir`.
+- `PYTHONPATH=bridge:adapters/codex uv run --project voice/runtime --locked
+  --no-sync python -m unittest tests.test_client_voice_status
+  tests.test_codex_tui_proxy tests.test_codex_app_server_adapter
+  tests.test_codex_app_server_fixtures tests.test_voice_integration
+  tests.test_local_voice_config tests.test_local_alpha -v`: run the focused
+  managed-TUI approval, consecutive-turn, Alpha topology, TTS selection, and
+  exact voice-decision regressions from the isolated runtime.
+
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --plain`: run the Bridge.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --max-connections 16`:
   run with an explicit bounded connection limit.
@@ -345,6 +458,15 @@ Current commands:
 - `PYTHONPATH=bridge:adapters/codex python3 -m deskhelm_bridge bridge
   --agent-provider codex --agent-workdir "$PWD"`: run the opt-in text-only Codex
   gateway with its default read-only sandbox.
+- `PYTHONPATH=bridge:adapters/codex python3 -m deskhelm_bridge bridge
+  --agent-provider codex --agent-project deskhelm=/path/to/deskhelm
+  --agent-project other=/path/to/other`: run strict bounded multi-project
+  routing; unmapped `project_id` values fail before provider work.
+- `PYTHONPATH=bridge:adapters/codex python3 -m unittest
+  tests.test_codex_app_server_transport tests.test_codex_app_server_adapter
+  tests.test_codex_app_server_fixtures -v`: validate the bounded Unix WebSocket,
+  thread resume, approval-attention state, approval/input normalization, and
+  versioned JSON-RPC fixtures without a model request.
 - `PYTHONPATH=bridge:voice python3 -m deskhelm_bridge bridge --voice-provider
   local <explicit-model-and-resource-options> [--voice-vad-provider webrtc]`:
   run the provisional local voice composition from an environment containing
@@ -392,6 +514,25 @@ Current commands:
   references/vendor/vad-bench/run-v1/prepared --observations
   voice/benchmarks/results/webrtc-v1.ndjson`: run the lightweight baseline from
   an isolated environment that provides its optional runtime.
+- `PYTHONPATH=voice uv run --project voice/runtime --locked --no-sync python
+  tools/prepare-vad-benchmark.py --manifest
+  voice/benchmarks/vad-conversation-noise-v2.json --artifact-root
+  references/vendor/vad-bench/run-v2`: verify and prepare the pinned AMI plus
+  ESC-10 conversation/noise set under ignored storage.
+- `PYTHONPATH=voice uv run --project voice/runtime --locked --no-sync python
+  tools/run-vad-benchmark.py --provider webrtc --sweep --manifest
+  voice/benchmarks/vad-conversation-noise-v2.json --prepared
+  references/vendor/vad-bench/run-v2/prepared --observations
+  voice/benchmarks/results/webrtc-v2-sweep.ndjson --summary
+  voice/benchmarks/results/webrtc-v2-sweep-summary.json`: run all four bounded
+  WebRTC profiles; use the same runner with `--provider silero`, `--sweep`, and
+  an explicit ignored model path for the three pinned Silero threshold pairs.
+- `PYTHONPATH=voice uv run --project voice/runtime --locked --no-sync python
+  tools/run-live-vad-diagnostic.py --live-audio --seconds 3 --provider webrtc
+  --webrtc-mode 2 --await-phrase-ready`: run one explicit privacy-safe live VAD
+  timing diagnostic using the fixed public phrase; send one exact `ready` line
+  to start the bounded capture. It reports aggregate signal level plus VAD
+  timing/activity; PCM is retained only in memory and discarded.
 - `PYTHONPATH=voice python tools/prepare-asr-benchmark.py --manifest
   voice/benchmarks/asr-external-v1.json --artifact-root
   references/vendor/paraformer-bench/run-v1`: verify and prepare the pinned ASR
@@ -411,7 +552,9 @@ Current commands:
   --prepared references/vendor/tts-bench/run-v1/prepared --corpus
   voice/benchmarks/utterances-v1.json --observations <results.ndjson> --summary
   <summary.json>`: run a pinned TTS candidate from its isolated runtime.
-- `PYTHONPATH=bridge python3 -m unittest discover -s tests -v`: run tests.
+- `PYTHONPATH=bridge uv run --project voice/runtime --locked --no-sync python -m
+  unittest discover -s tests -v`: run the full no-hardware suite from the
+  already synchronized pinned uv environment; model imports remain lazy.
 - `git diff --check`: detect whitespace errors.
 - `find docs -name '*.md' -type f`: list documentation for review.
 - `rg '<term>' .`: search code and documentation.

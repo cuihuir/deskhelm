@@ -1,6 +1,6 @@
 # Handoff
 
-Date: 2026-08-20
+Date: 2026-08-31
 
 Project: DeskHelm
 
@@ -18,6 +18,93 @@ Bridge state and sessions
   -> PTT, ASR, and interruptible TTS
   -> physical controls
 ```
+
+### Latest Phase: Consecutive Managed-TUI Voice Approvals and Female TTS
+
+Status: implemented and software-verified on 2026-08-28; the implementation,
+tests, runtime locks, and ADRs are organized in local commit `d2261f2` on
+2026-08-31. Stream stability,
+consecutive approval lifecycle, consecutive turn submission, Codex permission
+approval, and Kokoro female TTS are repaired or integrated. The user must
+restart the currently running Alpha before repeating live microphone
+confirmation.
+
+- Codex CLI 0.150.1 added `item/permissions/requestApproval`. The adapter and
+  managed-TUI proxy now correlate that request, grant only its requested subset
+  for the current turn, and reject with an empty permission set. Voice-granted
+  permissions never persist to the session.
+- Exact voice approval phrases are `批准`, `确认`, `同意`, `允许`, and `可以`;
+  exact rejection phrases are `拒绝`, `不同意`, `不允许`, and `取消`. When no
+  approval is pending, the same transcript remains ordinary prompt text.
+- After a completed turn, the next voice prompt now starts a new Codex turn
+  instead of attempting to steer the completed one. Control failures publish a
+  fixed actionable category instead of the generic “工作未完成” notice.
+- Alpha now detects Piper or Kokoro from the configured TTS directory. The
+  current encrypted default selects Kokoro female voice `zf_xiaobei` for
+  Chinese or mixed notifications and `af_heart` for English-only notifications.
+  Kokoro dependencies are pinned in `voice/runtime`; a real in-memory Chinese
+  synthesis produced 24 kHz mono PCM for about 3.325 seconds without playback
+  or file persistence.
+
+- Root cause: a turn started by the Codex TUI receives its server-initiated
+  approval request only on the TUI app-server connection. DeskHelm's separate
+  observer saw only `waitingOnApproval`, which has no request ID and therefore
+  could not safely execute spoken `批准` or `拒绝`.
+- Added a bounded dependency-free local WebSocket proxy between the managed TUI
+  and Codex app-server. Alpha now uses distinct Bridge, TUI-proxy frontend, and
+  app-server upstream sockets; the adapter keeps its separate observer/control
+  connection to the upstream.
+- The proxy forwards ordinary JSON unchanged, captures only bounded approval
+  correlation metadata, and publishes the existing fixed private-content-free
+  approval summary. It never injects terminal keystrokes or infers a decision
+  from status.
+- Voice decisions return on the original TUI/upstream JSON-RPC channel.
+  Keyboard-first forwards normally and clears DeskHelm's pending record;
+  voice-first sends one `accept` or `decline` and suppresses the late duplicate
+  TUI response. Disconnect, expiry, and capacity remain bounded and fail
+  closed; excess approvals stay keyboard-actionable.
+- Alpha waits for the app-server upstream before Bridge startup and for the TUI
+  proxy before launching Codex, then removes all three sockets during cleanup.
+  The existing hardware-independent `--tui`, explicit `--voice`, PTY relay,
+  and two-press Ctrl-C behavior are unchanged.
+- The first real model turn exposed a transport bug: the proxy treated its
+  bounded 64-entry forwarding queue as a fail-fast queue and closed the
+  app-server connection when a notification burst filled it. The TUI reported
+  `Connection reset without closing handshake` and Alpha stopped. Queue
+  saturation now pauses upstream reads with bounded stop-aware polling, so the
+  Unix socket applies backpressure without dropping, reordering, or closing a
+  healthy streamed turn.
+- A deterministic regression sends 128 ordered 4 KiB notifications through a
+  one-entry proxy queue, delays TUI reads briefly, and verifies that every frame
+  arrives before another bidirectional request succeeds.
+- Live acceptance then found a second lifecycle bug: the first spoken approval
+  executed correctly, but the second approval in the same session did not
+  react. The proxy removed its voice-first duplicate suppression as soon as it
+  forwarded `serverRequest/resolved`; the real TUI sent its late response after
+  that notification, so DeskHelm forwarded a duplicate decision back to
+  app-server. The approval attention state also lacked an exact proxy
+  acknowledgement boundary for announcing the next approval.
+- Voice-first suppression now survives `serverRequest/resolved` until the late
+  TUI response or a fixed 30-second post-resolution expiry. It is bounded by the
+  approval capacity, acknowledges the adapter exactly once, accepts later reuse
+  of the same JSON-RPC ID as a new token, and clears attention so a later
+  approval in the same turn can announce independently. Voice decisions use a
+  separate bounded priority queue, so streamed-notification backpressure cannot
+  reject them.
+- The consecutive-approval regression covers this exact order: voice decision,
+  app-server resolution, late TUI duplicate, reused request ID, and a second
+  voice decision. The burst test also resolves a voice approval while 128
+  notifications cross a one-entry forwarding queue.
+- Focused proxy, adapter, Alpha, Voice integration, and TTS-selection tests pass
+  66/66. The exact voice phrase tests cover approval, ordinary prompt fallback
+  without a pending request, and ambiguity refusal. The resource-limited
+  complete no-hardware suite passes 333/333. A real Codex CLI 0.150.1 run from
+  `/home/tope/project/wechat_miniprogram` completed a streamed model turn through
+  `deskhelm alpha --tui`, displayed the requested `STREAM_OK`, exited normally
+  through `/quit`, printed `local alpha stopped`, and left no DeskHelm sockets.
+  The test requested no tools or file changes. Live `deskhelm alpha --tui
+  --voice` must be restarted to load the consecutive-approval repair before
+  final microphone confirmation.
 
 Phase 0 is working and pushed to `main`. The Bridge has a Unix socket transport,
 normalized `AgentEvent v1`, CLI simulator, Codex hook adapter, `StateStore`,
@@ -146,6 +233,161 @@ benchmark of multilingual `base`/`small` is also complete: `base` achieved
 24/24 successful observations, while `small` achieved 21/24 and failed the
 short `zero` clip in all repetitions. Neither model is selected for production.
 No model weights or raw observations are tracked in Git.
+
+The recovery-measurement phase has started with a no-hardware baseline. The
+full dependency-free suite passes, and current PipeWire discovery resolves the
+internal analog-stereo source and sink as both defaults. This differs from the
+earlier USB-microphone baseline and establishes a concrete default-device
+change state. Real disconnect, reconnect, and in-flight cancellation evidence
+still needs a user-performed physical device action; no audio was opened during
+this baseline check.
+
+The user then reported switching the default input. A bounded two-second input
+diagnostic succeeded and discarded its PCM, but PipeWire continued to expose
+only the same internal analog-stereo source as the default. This verifies that
+the current source is usable after the attempted switch, not default-device
+change recovery; a source with a distinct stable name must appear before that
+claim can be tested.
+
+The user selected the internal microphone for subsequent work. An explicit
+stable-name two-second diagnostic also succeeded and discarded its PCM, proving
+both default and manual-selection paths for
+`alsa_input.pci-0000_00_1f.3.analog-stereo`. Missing manual sources still fail
+closed by contract, but live removal cannot be measured with this fixed source.
+
+An attempted controlled ASR diagnostic stopped during runtime preflight. The
+current host, the bounded `ubuntu24-r23` container, and retained benchmark
+virtual environments lack both optional ASR imports (`funasr` and
+`sherpa_onnx`); the retained host environments report Python 3.14.6 rather than
+the previously recorded Python 3.12 runtime. No packages were installed, no
+model was loaded, and no microphone capture began. Rebuilding an ignored,
+pinned Python 3.12 runtime requires explicit user authorization because it
+downloads large optional model-runtime dependencies.
+
+The user approved a repository-wide uv migration. `uv` now owns Python
+dependency resolution and environment synchronization: the root has `uv.lock`,
+and `voice/runtime` is an independent Python 3.12 uv project with its committed
+lock file. Its ignored `.venv` was rebuilt from 93 pinned packages, including
+FunASR, NumPy, Piper, WebRTC VAD, and sherpa-onnx. Paraformer successfully ran
+the controlled diagnostic. SenseVoice remains unavailable in this environment:
+the `sherpa-onnx` wheel requires its matching external native ONNX Runtime ABI,
+which is not provided by the pinned PyPI `onnxruntime` wheel. No unpinned native
+artifact was added.
+
+The exact-`ready` diagnostic path now handles stdin descriptors that cannot be
+polled by `selectors`, returning the existing bounded not-ready outcome instead
+of raising. With a PTY-assisted readiness exchange, the user confirmed speaking
+the public Chinese repeat phrase during a 11,944.938 ms internal-microphone
+capture. Paraformer completed with keyword accuracy `1.0`, CER `0.181818`,
+estimated first partial `4,893.686 ms`, and final ASR `10,171.631 ms`. The
+diagnostic retained no PCM or recognized text. Peak fraction `1.0` and clipped
+sample fraction `0.00363125` leave input-gain clipping as an open risk.
+
+The reusable single-project Alpha startup phase is now complete. `deskhelm
+alpha` preflights environment-injected Paraformer/Piper artifacts, the isolated
+voice uv runtime, Codex version, PipeWire selection, and the stable right-Alt
+device without opening audio or loading model weights. It then owns one Bridge
+child, one modern Codex session registration, and one PTT child. A real startup
+smoke reached both `local alpha active` and `right-Alt PTT armed`; explicit
+termination released the session, stopped both child process groups, removed
+the temporary socket, and left no `pw-cat` process.
+
+The bounded multi-project Agent routing phase is now complete under ADR 0031.
+Bridge accepts repeated operator-owned `project_id=directory` mappings, validates
+them before startup, and resolves each complete session to its configured Agent
+working directory. `project_id` remains opaque protocol identity; adapters
+cannot supply paths, and once mappings are configured an unmapped project fails
+before any provider run or provider session record is created. The registry is
+immutable until Bridge restart, defaults to 64 entries, and preserves the
+existing single-directory and single-project Alpha behavior.
+
+The noisy/conversational VAD evidence phase is now complete under ADR 0032. A
+backward-compatible manifest v2 pins an 18-second annotated AMI meeting clip and
+ESC-10 rain/clock noise, prepares clean plus 10 dB/0 dB SNR scenarios, and runs
+bounded WebRTC and Silero profile sweeps. WebRTC mode 0 led aggregate replay F1
+at `0.849`; the current live mode 2 reached `0.807`. Silero remained highly
+precise but had low recall at all three tested threshold pairs. A three-second
+ambient PipeWire negative control measured 181.362 ms to first chunk and
+0.107/0.138 ms VAD processing p50/p95 with no speech event. This evidence does
+not select or change the production default. The confirmed spoken mode 0/2
+comparison is recorded below; normalized-gain and Chinese conversational
+coverage plus live failure/recovery checks remain required. VAD stays optional,
+disabled by default, advisory, and unable to end capture or gate final ASR.
+
+The confirmed-live comparison preparation is now implemented. The live VAD
+tool selects a versioned public corpus phrase, can wait up to 60 seconds for one
+exact `ready` line by default under a configurable 120-second maximum, and
+marks every result as requiring separate post-run speech confirmation.
+Unpollable stdin falls back to a bounded daemon reader, so a chat-driven run
+cannot block indefinitely or start recording on a failed readiness exchange.
+This changes diagnostic synchronization only; it does not change the Gateway
+live mode, VAD authority, or audio retention.
+
+The first confirmed live mode comparison is complete on the current built-in
+default source. The user separately confirmed fully speaking `zh-repeat-01`
+during both six-second captures. Mode 0 emitted one 140 ms segment; mode 2
+emitted no speech event. First-chunk timing was 180.146/178.516 ms and VAD
+processing p50/p95 was 0.041/0.048 ms versus 0.045/0.050 ms. Mode 0 was only
+marginally less severe; both profiles failed the spoken condition and neither
+is acceptable as the live default. The diagnostic intentionally omitted signal
+level metadata, so low/clipped input and profile mismatch remain unresolved.
+PCM was discarded and no transcript or provider output was retained.
+
+After a user-requested closer-microphone repeat, mode 0 detected only 100 ms and
+mode 2 again detected no speech; the user confirmed fully speaking both times.
+Distance therefore produced no usable improvement. The live diagnostic now
+derives peak, RMS, clipping, and near-silence fractions incrementally without
+retaining complete PCM, plus the same provisional input-level hint used by the
+controlled ASR diagnostic. This is the next evidence boundary; it cannot change
+system gain or grant VAD endpoint control.
+
+The enhanced signal run resolved the failure. On the default built-in source,
+the confirmed phrase measured only `0.001831` peak, `0.000114` RMS, and
+`0.996492` near-silence fraction with no clipping; read-only PipeWire inspection
+showed that source at 7% (`-70.40 dB`) on the internal-microphone port. The
+connected PCM2902 USB source was available at 93% (`-1.98 dB`). DeskHelm made no
+gain change. A user-confirmed explicit USB/mode 2 capture then measured
+`0.328552` peak, `0.052386` RMS, `0.013756` near-silence fraction, no clipping,
+and three segments totaling 2,800 ms. The earlier misses were therefore
+dominated by the default source level, while mode 2 is usable on this phrase
+with a healthy source. One phrase remains insufficient for production VAD
+selection.
+
+The bidirectional manual-Codex phase is now software-complete under ADR 0033.
+The Alpha supervises one experimental `codex app-server`, prints the exact
+`codex --remote unix://...` command for a manually operated TUI, and runs one
+long-lived adapter beside Bridge and right-Alt PTT. The adapter performs the
+required JSON-RPC initialization, directly attaches one loaded user thread,
+retries resume until its event subscription is active, observes completion and
+human-attention events, continues the same thread from PTT, and handles one-shot
+approval or rejection through the exact phrases `批准` and `拒绝`. One
+positively identified ephemeral internal thread is ignored; multiple user
+threads remain ambiguous. Notifications remain fixed and private-content-free.
+This does not attach to an unrelated plain `codex` process. Live validation now
+covers a manually entered completion and a correlated Bridge-submitted
+same-thread completion; a live approval prompt remains unexercised.
+
+Alpha now also supports the optional single-terminal `--tui` mode. After the
+app-server socket, Bridge session, and PTT controller are ready, it launches the
+same remote Codex command as a foreground child in the current interactive
+terminal. TUI input is protected by the launcher PTY: the first Ctrl-C clears
+current input, and only a second press within the bounded confirmation window
+reaches Codex.
+TUI exit or a background-component failure triggers bounded cleanup of the
+TUI, session, PTT, Bridge, app-server, and both sockets. Omitting `--tui`
+preserves the existing printed-command workflow.
+
+The source checkout now has a user-level launcher for cross-project use. The
+current workstation's `~/.local/bin/deskhelm` resolves to
+`tools/deskhelm-user-launcher`. It preserves the invoking directory as the
+Alpha Agent working directory, runs the already synchronized root environment,
+and dynamically loads only the required Alpha settings from this checkout's
+encrypted `project-secrets` profile. Users can therefore start the managed TUI
+from another repository with only `deskhelm alpha --tui`. The live TUI path now
+uses a standard-library PTY relay so Alpha and Codex retain interactive terminal
+semantics. Because the outer encrypted-settings wrapper forwards complete
+lines, the relay writes live TUI updates directly to the controlling terminal
+and performs boundary-safe streaming redaction of the injected Alpha values.
 
 ## Completed Work
 
@@ -304,6 +546,25 @@ No model weights or raw observations are tracked in Git.
   failures. WebRTC recorded F1 0.894 and replay p50/p95 0.19/0.31 ms; Silero
   recorded F1 0.859 and 2.98/4.57 ms. The quiet trimmed corpus is explicitly
   insufficient for final production selection.
+- Accepted ADR 0032 and added manifest v2 support for bounded source clips,
+  annotation-derived non-overlapping speech intervals, deterministic real-noise
+  SNR mixtures, and v1 compatibility.
+- Pinned AMI `ES2008a` conversation audio plus manual annotation identity and
+  ESC-10 rain/clock sources by revision, SHA-256, and CC BY licenses. Prepared
+  audio and results remain ignored.
+- Added bounded WebRTC modes 0-3 and Silero threshold sweeps with independent
+  identities/summaries plus an explicit live PipeWire VAD timing diagnostic
+  that discards PCM and emits no transcript or provider output.
+- Added an opt-in exact-`ready` handshake and versioned public phrase to the
+  live VAD diagnostic so separately confirmed mode comparisons do not race the
+  capture window.
+- Added streaming aggregate signal-level metrics to the live VAD diagnostic so
+  confirmed misses can be separated from low/clipped input without saving PCM.
+- Identified the built-in source's 7% input level as the live miss root cause
+  and verified explicit USB/mode 2 speech activity with healthy signal metadata.
+- Completed 15/15 observations per profile. WebRTC modes 0/1/2/3 recorded F1
+  `0.849/0.827/0.807/0.716`; Silero threshold pairs recorded
+  `0.377/0.295/0.252`. No provider failure or mix clipping occurred.
 - Accepted ADR 0014: use `funasr/paraformer-zh-streaming` as the first streaming
   ASR baseline at immutable tag `apache-2.0-20260804`, resolved commit
   `fd2af606b37d7fb8b3b8a218c5be5b07b53ef6ba`, with a verified `model.pt`
@@ -474,6 +735,53 @@ No model weights or raw observations are tracked in Git.
   fixture, observability, privacy, and idempotency lessons.
 - Added the project constitution and durable DeskHelm-specific collaboration
   rules to `AGENTS.md`.
+- Accepted ADR 0026: Paraformer/Piper is the explicit local voice alpha; VAD
+  remains advisory and no model, device, or cloud fallback is implicit.
+- Added the reusable `deskhelm alpha` supervisor with environment-injected
+  model locations, fixed single-project targeting, read-only preflight, modern
+  session ownership, and bounded child cleanup.
+- Added privacy-safe system guidance for microphone, no-transcript, ASR timeout,
+  playback, and speech-queue failures. Voice failure cannot block Agent/text
+  work or an existing Voice event observer.
+- Adopted uv as the sole Python dependency manager. Added root and local-voice
+  lock files, while keeping the optional model runtime separate from Bridge.
+- Made the controlled ASR readiness handshake tolerate unpollable stdin with a
+  bounded safe failure, and added regression coverage.
+- Rebuilt the ignored local-voice uv environment and completed a
+  user-confirmed internal-microphone Paraformer diagnostic without retaining
+  PCM or transcript text.
+- Accepted ADR 0031 and added a bounded, immutable, operator-configured project
+  working-directory registry for multi-repository Agent routing.
+- Added repeated `--agent-project PROJECT_ID=PATH` CLI mappings with strict
+  fail-closed routing, eager directory validation, and compatibility with the
+  existing `--agent-workdir` single-directory mode.
+- Added registry, gateway, CLI, and socket-level tests for invalid mappings,
+  capacity, two-project routing, and rejection before provider work.
+- Accepted ADR 0033 and added a generic long-lived Agent runtime boundary that
+  is mutually exclusive with the owned-process Agent Gateway.
+- Added a bounded dependency-free Unix WebSocket Codex app-server adapter with
+  initialization, thread discovery/resume, reconnect, prompt/steer/interrupt,
+  terminal normalization, approvals, and limited structured input handling.
+- Updated Alpha to supervise app-server, Bridge, and PTT, print the manual
+  remote-TUI command, and clean up all child processes and both local sockets.
+- Added optional `deskhelm alpha --tui` foreground launch with an interactive
+  terminal requirement, bounded app-server readiness wait, guarded two-press
+  Ctrl-C behavior, exit-status propagation, and complete stack cleanup on TUI
+  exit.
+- Added `tools/deskhelm-user-launcher` for direct `deskhelm alpha --tui` use
+  from any project directory. It preserves the caller's working directory,
+  reuses the synchronized root environment, and loads the current Alpha
+  settings dynamically from the DeskHelm `project-secrets` profile without
+  storing their values.
+- Added `tools/run-with-pty.py` to preserve terminal input, output, resize, job
+  control, and exit-status behavior behind `project-secrets`. It renders live
+  TUI output directly and performs boundary-safe streaming redaction so
+  no-newline cursor updates remain interactive.
+- Fixed Alpha lifecycle registration to negotiate `interaction_event_v1` when
+  its declared app-server capabilities include interaction and approval events;
+  Bridge no longer rejects the otherwise live Alpha session connection.
+- Added fixed notification and exact-phrase voice approval handling without
+  exposing commands, paths, patches, reasons, questions, prompts, or secrets.
 
 ## Key Decisions
 
@@ -498,8 +806,9 @@ No model weights or raw observations are tracked in Git.
 - The text Agent Gateway is opt-in, uses a fixed worker pool without an
   unbounded pending queue, and retains only a bounded set of provider session
   IDs and interaction sequences.
-- `project_id` remains an identity rather than a path. The initial gateway uses
-  one explicitly configured working directory for all sessions.
+- `project_id` remains an identity rather than a path. Working directories come
+  only from operator configuration; adapters cannot provide them. Configured
+  project registries are strict and immutable until Bridge restart.
 - A `dispatched` result means bounded work was accepted, not completed. Agent
   completion, cancellation, timeout, and failure use interaction terminal
   events.
@@ -507,6 +816,17 @@ No model weights or raw observations are tracked in Git.
   logged, and owned process groups are terminated on cancellation or timeout.
 - The Codex provider is disabled by default and uses a read-only sandbox unless
   workspace-write is selected explicitly.
+- Manual Codex integration uses the official app-server JSON-RPC surface, not
+  terminal inspection or keystroke injection. It requires a TUI started with
+  the Alpha's printed `codex --remote` command.
+- The app-server adapter is Alpha-only while its Unix WebSocket transport is
+  experimental. One Bridge may compose either this long-lived runtime or the
+  existing owned-process Agent Gateway, never both.
+- Voice approval recognizes only exact normalized `批准` and `拒绝`, requires
+  exactly one non-expired approval for the complete target, copies its metadata
+  exactly, and uses only one-shot app-server `accept` or `decline` decisions.
+- A single non-secret app-server input question may consume the next PTT prompt;
+  secret or multi-question input remains in the Codex TUI.
 - Streams and queues require explicit bounds, ordering, cancellation,
   correlation, and slow-consumer behavior.
 - Approval and rejection require precise targets and must not be blindly
@@ -619,9 +939,12 @@ No model weights or raw observations are tracked in Git.
 - Model-backed local voice is an explicit experimental composition, not a
   production default. Startup validates the selected devices and required
   external files but does not load FunASR, PyTorch, Piper, or ONNX Runtime.
-- The current local path uses PTT release as its capture endpoint. Streaming
-  capture alone is not VAD or partial ASR; do not claim live endpoint timing
-  until a provider-owned VAD session consumes chunks before final aggregation.
+- The current local path uses PTT release as its capture endpoint. Optional
+  advisory VAD may consume streaming chunks before final aggregation, but it
+  cannot trim capture, end PTT, skip final ASR, or publish partial transcripts.
+- Manifest v2 noisy/conversational replay and bounded parameter sweeps are
+  comparative evidence only. They do not change the live mode or select a
+  production VAD without confirmed spoken and broader language/gain evidence.
 - An explicit empty provider recognition maps to `voice_no_transcript`; other
   capture, format, runtime, and model failures remain `voice_input_failed`.
 - The live diagnostic substitutes a fixed public TTS response for Codex. Its
@@ -646,6 +969,41 @@ No model weights or raw observations are tracked in Git.
 
 - `AGENTS.md`: constitution and repository rules.
 - `README.md`: project overview and current quickstart.
+- `docs/decisions/0033-bidirectional-codex-app-server-adapter.md`: supported
+  manual-TUI attachment model, privacy boundaries, approval safety, and limits.
+- `bridge/deskhelm_bridge/agent_runtime.py`: generic long-lived Agent runtime
+  composition contract.
+- `adapters/codex/deskhelm_codex_adapter/app_server.py`: bounded Codex JSON-RPC
+  lifecycle, same-thread controls, approvals, and input-request adapter.
+- `adapters/codex/deskhelm_codex_adapter/app_server_transport.py`: bounded
+  dependency-free Unix WebSocket transport.
+- `tests/test_codex_app_server_adapter.py` and
+  `tests/test_codex_app_server_transport.py`: runtime and transport regression
+  coverage, including the root full-suite import path.
+- `bridge/deskhelm_bridge/project_registry.py`: bounded validated mapping from
+  opaque project identity to operator-approved Agent working directories.
+- `tests/test_project_registry.py`: registry validation, capacity, and strict
+  resolution coverage.
+- `docs/decisions/0031-operator-configured-project-working-directories.md`:
+  multi-project path ownership, bounds, strictness, and compatibility decision.
+- `docs/decisions/0032-pinned-noisy-conversation-vad-evidence.md`: annotated
+  conversation/noise evidence, bounded sweeps, live timing, and advisory-only
+  VAD decision.
+- `docs/research/2026-08-26-vad-noisy-conversation-expansion.md`: pinned source
+  provenance, measured profile results, live negative control, and limitations.
+- `bridge/deskhelm_bridge/alpha.py`: reusable local Alpha preflight, session
+  registration, Bridge/PTT process supervision, and cleanup.
+- `tools/deskhelm-user-launcher`: user-level source-checkout entry point with
+  dynamic encrypted Alpha configuration.
+- `tools/run-with-pty.py`: standard-library PTY relay for the redacted managed
+  TUI launch.
+- `tests/test_run_with_pty.py`: PTY stream and exit-status regression coverage.
+- `bridge/deskhelm_bridge/client.py`: negotiated adapter-session publisher used
+  to hold the Alpha target active.
+- `tests/test_local_alpha.py`: artifact injection, fixed composition, preflight,
+  and cleanup coverage.
+- `docs/decisions/0026-local-voice-alpha-profile.md`: selected providers and
+  reusable single-project startup behavior.
 - `docs/software/no-hardware-roadmap.md`: active milestone plan.
 - `docs/architecture/multimodal-agent-console.md`: component architecture.
 - `docs/research/2026-08-14-local-voice-stack.md`: ASR and TTS research.
@@ -763,8 +1121,8 @@ No model weights or raw observations are tracked in Git.
   selection, signal-only input reports, and generated output tones.
 - `voice/deskhelm_voice/local_gateway.py`: provisional provider selection,
   artifact preflight, bounds, and lazy Voice Gateway construction.
-- `voice/runtime/requirements-local-voice-py312.txt`: pinned optional combined
-  Paraformer/SenseVoice/Piper CPU runtime.
+- `voice/runtime/pyproject.toml` and `voice/runtime/uv.lock`: uv-pinned
+  optional combined Paraformer/SenseVoice/Piper CPU runtime.
 - `voice/deskhelm_voice/streaming.py`: frame-positioned PCM chunks, speech
   boundaries, and segment models.
 - `voice/deskhelm_voice/benchmark.py`: bounded runners, observation models,
@@ -772,6 +1130,8 @@ No model weights or raw observations are tracked in Git.
 - `voice/benchmarks/utterances-v1.json`: stable synthetic benchmark corpus.
 - `voice/benchmarks/vad-external-v1.json`: pinned public VAD audio provenance,
   checksums, format, speakers, and deterministic scenario recipes.
+- `voice/benchmarks/vad-conversation-noise-v2.json`: pinned AMI conversation,
+  annotation intervals, ESC-10 noise, and deterministic SNR scenarios.
 - `voice/benchmarks/asr-external-v1.json`: pinned public ASR audio references,
   checksums, licenses, speakers, and expected transcripts.
 - `voice/benchmarks/tts-candidates-v1.json`: pinned TTS runtime/model identity,
@@ -798,9 +1158,13 @@ No model weights or raw observations are tracked in Git.
   provider.
 - `voice/deskhelm_voice/tts_manifest.py`: bounded TTS candidate and artifact
   manifest validation.
-- `tools/prepare-vad-benchmark.py`: bounded download, verification, conversion,
-  composition, and local prepared-index generation.
-- `tools/run-vad-benchmark.py`: isolated candidate runner and NDJSON writer.
+- `tools/prepare-vad-benchmark.py`: bounded download, clipping, verification,
+  deterministic SNR mixing, conversion, and local prepared-index generation.
+- `tools/run-vad-benchmark.py`: isolated candidate/sweep runner, NDJSON writer,
+  and per-profile summary output.
+- `tools/run-live-vad-diagnostic.py`: explicit bounded PipeWire/VAD timing
+  diagnostic with incremental signal metrics, a bounded public-phrase readiness
+  handshake, and privacy-safe derived output.
 - `tools/prepare-asr-benchmark.py`: bounded ASR download, checksum verification,
   conversion, and prepared-index generation.
 - `tools/run-asr-benchmark.py`: explicit Paraformer/SenseVoice verification and
@@ -814,7 +1178,8 @@ No model weights or raw observations are tracked in Git.
 - `tools/run-local-voice-live.py`: explicit privacy-safe live capture, ASR,
   fixed-response TTS, playback, and timing diagnostic.
 - `tools/run-local-asr-diagnostic.py`: controlled public-phrase microphone and
-  selectable ASR diagnostic with privacy-safe signal, accuracy, and latency.
+  selectable ASR diagnostic with privacy-safe signal, accuracy, latency, and
+  bounded unpollable-stdin readiness handling.
 - `bridge/deskhelm_bridge/voice_integration.py`: transcript, interaction, and
   control composition between Bridge and Voice.
 - `adapters/codex/deskhelm_codex_adapter/provider.py`: Codex command, stdin,
@@ -829,6 +1194,9 @@ No model weights or raw observations are tracked in Git.
   failure records, NDJSON, and CLI summary coverage.
 - `tests/test_vad_providers.py`: manifest, prepared checksum, WebRTC buffering,
   format, and hysteresis coverage.
+- `tests/test_vad_tools.py`: manifest compatibility, annotated preparation,
+  SNR mixing, sweep bounds, live signal aggregation/privacy, and readiness
+  coverage.
 - `tests/test_asr_providers.py`: ASR manifest/prepared-set, measured streaming
   result, lazy loading, input bounds, cancellation, and failure-reuse coverage.
 - `tests/test_tts_providers.py`: TTS manifest, benchmark metrics, provider
@@ -842,7 +1210,10 @@ No model weights or raw observations are tracked in Git.
 - `tests/test_local_voice_live_tool.py`: explicit live-audio bounds and
   transcript/audio-free summary coverage.
 - `tests/test_local_asr_diagnostic_tool.py`: controlled phrase selection,
-  signal hints, privacy suppression, fixed failures, and metric coverage.
+  signal hints, privacy suppression, fixed failures, metric coverage, and
+  unpollable-stdin readiness coverage.
+- `voice/runtime/pyproject.toml` and `voice/runtime/uv.lock`: isolated pinned
+  Python 3.12 local-voice uv environment; the old requirements file is removed.
 - `tests/test_whisper_cpp_benchmark_tool.py`: pinned artifact metadata and
   benchmark runner bounds.
 - `bridge/deskhelm_bridge/transport.py`: hello and protocol-error wire models.
@@ -870,6 +1241,58 @@ import optional model runtimes. The focused local ASR diagnostic module has 11
 tests covering corpus selection, signal/VAD metrics, provider-output
 suppression, fixed failures, lazy final-only behavior, recovery boundaries,
 batch phrase selection/privacy output, and the bounded exact-`ready` handshake.
+
+On 2026-08-21, the same limited full suite again passed 231/231 tests in 6.980
+seconds. `git diff --check` passed. Read-only `deskhelm audio status --list`
+resolved the current default capture and playback devices as
+`alsa_input.pci-0000_00_1f.3.analog-stereo` and
+`alsa_output.pci-0000_00_1f.3.analog-stereo`; no live audio device was opened.
+
+The user then authorized uv as the sole Python dependency manager. uv 0.12.5
+created a root lock and an isolated `voice/runtime` Python 3.12.14 environment
+from its 93-package committed lock. The full no-hardware suite passed 232/232
+in 6.657 seconds with `PYTHONPATH=bridge uv run --project voice/runtime
+--locked python -m unittest discover -s tests -v`. The root project's minimal
+uv environment also synchronized successfully. Running the full suite from that
+minimal environment is not canonical because provider tests require NumPy and
+the editable distribution introduces a second Voice module namespace.
+
+Final alpha-runtime validation refreshed the local-voice lock explicitly for
+Python 3.12, synchronized its ignored environment, and passed 233/233
+no-hardware tests in 9.952 seconds. The strict `uv sync --locked` completed
+before the suite; `git diff --check` passed.
+
+The uv voice runtime imported FunASR successfully. sherpa-onnx could not load
+because its wheel requires external `libonnxruntime.so` ABI `VERS_1.27.1`, while
+the pinned PyPI ONNX Runtime wheel exposes a different ABI; no external native
+library was downloaded or retained. A real user-confirmed Paraformer diagnostic
+therefore used the internal analog-stereo microphone. It captured 382,238 bytes
+over 11,944.938 ms, completed with keyword accuracy `1.0`, CER `0.181818`,
+estimated first partial `4,893.686 ms`, and final ASR `10,171.631 ms`. WebRTC
+VAD reported two advisory segments totaling 7,420 ms. The output retained no
+PCM or recognized text. Peak `1.0` and clipped-sample fraction `0.00363125`
+indicate possible input clipping.
+
+After the reported default-input switch, `deskhelm audio status --list` still
+resolved only `alsa_input.pci-0000_00_1f.3.analog-stereo`. An explicit
+two-second input diagnostic captured 1,939.6 ms with peak `1.0000` and RMS
+`0.1707`, then discarded the PCM. It proves the observed default remains
+usable, but not a device-change/rebind path because its stable name did not
+change. The full-scale peak suggests the input gain may clip and should be
+rechecked separately from recovery behavior.
+
+The user then selected the internal microphone explicitly. The same bounded
+manual-source diagnostic captured 1,939.6 ms with peak `1.0000` and RMS
+`0.1706`, then discarded the PCM. It validates the stable manual target without
+any fallback; it does not constitute live missing-device recovery evidence.
+
+A subsequent live ASR diagnostic preflight did not start capture. The current
+host, `ubuntu24-r23` system Python, and retained benchmark virtual environments
+lack `funasr` and `sherpa_onnx`; the retained host environments report Python
+3.14.6 rather than the recorded Python 3.12 runtime. Container resource limits
+remain compliant (CPUs 4-23, 18 CPUs, 18 GiB memory, 20 GiB memory plus swap,
+and 2,048 PIDs). No package installation, model load, audio capture, PCM
+retention, or transcript processing occurred.
 
 The first live SenseVoice multi-phrase batch completed four fresh captures with
 `ok` status and the user confirmed all four phrases were spoken. The user also
@@ -1034,51 +1457,189 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   voice/benchmarks/results/kokoro-v1.ndjson
 ```
 
+On 2026-08-26, the resource-limited isolated Python 3.12 suite passed 257/257
+tests in 5.786 seconds with `--locked --no-sync`; `git diff --check` passed.
+The actual Alpha `--check` passed against the existing ignored Paraformer and
+Piper artifacts, current Codex installation, PipeWire defaults, and stable PTT
+device without opening audio. A real no-input startup smoke registered the
+modern session and armed right-Alt PTT. Direct supervisor termination removed
+the exact temporary socket and left no Bridge, PTT, `uv`, Python, or `pw-cat`
+process from the smoke run.
+
+After the multi-project registry phase, the resource-limited complete
+no-hardware suite passed 264/264 tests in 5.727 seconds. Focused registry,
+gateway, CLI, and Bridge socket tests covered eager validation, strict unmapped
+rejection, two-project routing, and preservation of legacy single-directory
+composition. `git diff --check` passed.
+
+After the noisy/conversational VAD phase, focused VAD tests passed 16/16. The
+resource-limited isolated Python 3.12 suite then passed 269/269 tests in 5.971
+seconds with `--locked --no-sync`. This includes manifest v1/v2 validation,
+annotated clip preparation, deterministic SNR mixing, profile isolation and
+capacity, live diagnostic privacy/bounds, and all prior Bridge/Voice coverage.
+The first full run exposed a test-only duplicate Voice package identity; the
+new tool test now aliases the existing package instead of loading a second
+copy. The rerun passed, and `git diff --check` passed.
+
+After adding the confirmed-live readiness handshake, focused VAD tool tests
+passed 7/7 and the resource-limited complete suite passed 272/272 in 6.136
+seconds. Coverage includes exact readiness input, bounded fallback for
+unpollable stdin, versioned public phrase selection, and preservation of the
+existing privacy and capture bounds. Command help and `git diff --check` also
+passed.
+
+Two readiness-gated live WebRTC captures then completed successfully on the
+same default built-in source. The user separately confirmed fully speaking the
+public phrase in both. Mode 0 detected one 140 ms segment; mode 2 detected none.
+Both retained approximately six seconds of PCM only in memory and discarded it.
+This is valid negative live-quality evidence, not a provider/runtime failure.
+
+The signal-metadata follow-up passed 8/8 focused tests. After the unrelated
+concurrent C++ build finished, the resource-limited complete no-hardware suite
+passed 273/273 in 6.206 seconds, and `git diff --check` passed. Live evidence
+then classified the built-in source as `too_quiet` at 7% volume and confirmed
+the explicit USB source as `within_diagnostic_range`; USB WebRTC mode 2 detected
+three speech segments totaling 2,800 ms. All PCM was discarded.
+
+A final readiness-gated built-in/mode 2 retry was performed after the user moved
+closer to the microphone and separately confirmed reading the complete phrase.
+It remained `too_quiet`: peak `0.001587`, RMS `0.000156`, `0.992523`
+near-silence fraction, no clipping, and zero detected speech segments. This
+confirms that the earlier built-in failure was not resolved by speaking closer.
+Alpha now accepts `DESKHELM_ALPHA_VOICE_SOURCE` as a persistent local stable-name
+selection, with explicit `--voice-source` taking precedence. Either path keeps
+the existing fail-closed behavior when the selected device is unavailable. The
+focused Alpha/audio composition suite passes 19/19, the resource-limited full
+no-hardware suite passes 274/274 in 6.170 seconds, the current USB stable name
+passes a read-only manual PipeWire selection check, and `git diff --check`
+passes.
+
+The operator then stored `DESKHELM_ALPHA_VOICE_SOURCE` in the encrypted local
+project settings. A fresh dynamically injected read-only resolution selected
+`PCM2902 Audio Codec` with `source_uses_default=false`, confirming that Alpha's
+stored selection targets the USB microphone rather than the PipeWire default.
+The operator also stored the existing external ASR/TTS model directories. A
+fresh three-name status check returned ready, and the dynamically injected
+Alpha `--check` passed without opening audio or loading model weights. No model
+path was written to Git.
+
+A resource-limited live Alpha session then started with the encrypted settings,
+registered the `next_keyboard` session, and armed right-Alt PTT. The user
+performed one PTT test and explicitly confirmed hearing the fixed completion
+notification with no microphone-input failure guidance. This verifies the
+configured USB path through live capture, final ASR, Agent dispatch, completion,
+TTS, and playback. Voice failure guidance remains terminal-only rather than
+spoken under the pure-notification policy.
+Ctrl-C ended the foreground resource wrapper without removing its child scope,
+so the exact transient service was stopped explicitly. The Bridge socket and
+all scoped Alpha, PTT, and `pw-cat` processes were then confirmed absent.
+
+After the Codex app-server adapter phase, the focused adapter and transport
+tests passed 8/8 using the documented full-suite `PYTHONPATH=bridge` import
+environment. The resource-limited isolated Python 3.12 suite then passed
+287/287 tests in 6.996 seconds with `--locked --no-sync`; it opened no live
+audio and loaded no model weights. A fresh dynamically injected Alpha
+`--check` also passed against the current encrypted device and model settings
+without opening audio or loading model weights. `git diff --check` passed. A
+real local `codex-cli 0.149.0` Unix WebSocket check completed `initialize`,
+`thread/loaded/list`, and no-model `thread/resume`; the temporary synthetic
+thread and app-server process were removed afterward. An actual model turn in
+the manually started remote TUI remains intentionally unverified.
+
+After adding Alpha `--tui`, the focused Alpha and app-server suite passed 21/21.
+The resource-limited complete suite passed 293/293 tests in 7.247 seconds. A
+fresh dynamically injected `deskhelm alpha --tui --check` passed with the
+current encrypted device and model settings without opening audio, loading
+models, or starting a TUI. A real local PTY smoke transferred foreground
+ownership to a separate child process group and restored the terminal with exit
+status zero. CLI help exposes the new flag, and both the default printed-command
+path and foreground-TUI cleanup path remain covered. A live interactive Codex
+turn is still required for terminal and voice confirmation.
+
+After adding the user launcher, its Bash syntax, executable bit, and installed
+symlink target were verified. From `/home/tope/project/device-api`, both
+`deskhelm --help` and `deskhelm alpha --help` succeeded without requiring Alpha
+configuration. A fresh three-name encrypted-config check was ready, and the
+direct cross-project command `deskhelm alpha --tui --check` passed without
+opening audio, loading models, or starting a TUI. The resource-limited focused
+Alpha suite passed 12/12, and `git diff --check` passed.
+
+The first direct interactive test from `/home/tope/project/wechat_miniprogram`
+exposed two launcher-path defects. `project-secrets` output redaction removed
+the child's stdout TTY, and Alpha's lifecycle publisher omitted the interaction
+transport capability required by its own registration. The PTY relay and
+publisher negotiation fixes are now live-verified in that exact directory:
+`deskhelm alpha --tui` reached `local alpha active`, armed right-Alt PTT, opened
+Codex 0.149.0 with the displayed directory
+`~/project/wechat_miniprogram`, and exited through Codex shutdown after Ctrl-C.
+Both DeskHelm sockets, the Alpha process, its `pw-cat` children, and the
+transient Codex app-server were absent afterward. Focused PTY, Alpha, and Bridge
+publisher tests passed 16/16. The complete resource-limited no-hardware suite
+then passed 296/296 in 7.284 seconds, and `git diff --check` passed.
+
+The user's first follow-up TUI reached Codex but appeared unable to accept
+input. Process inspection showed correct PTY foreground ownership and no evdev
+keyboard grab. The actual failure was visual: `project-secrets` forwarded child
+output with `readline()`, so Codex's no-newline keystroke redraws remained
+buffered even though input reached the TUI. The relay now writes to the
+controlling terminal itself and redacts the three injected Alpha values across
+arbitrary output chunk boundaries. In a fresh real run from
+`/home/tope/project/wechat_miniprogram`, `/status` appeared immediately in the
+input area and executed successfully, proving both typing and Enter handling.
+Ctrl-C then shut down the complete stack, and both sockets plus DeskHelm and
+`pw-cat` processes were absent afterward. Focused PTY and Alpha tests passed
+16/16. The complete resource-limited no-hardware suite passed 298/298 in 7.264
+seconds, and `git diff --check` passed.
+
 ## Remaining Work
 
-1. Decide whether further whisper.cpp tuning or a coding-command corpus is
+1. Restart the currently running Alpha, then live-verify first and second voice
+   approvals, a second voice-started turn after the first completes, and Kokoro
+   female notification playback on the same managed thread.
+2. Confirm complete process and socket cleanup after exiting that restarted TUI.
+3. Add a controlled normalized-gain AMI variant and a licensed Chinese
+   conversational set before selecting a production VAD default.
+4. Test live VAD disconnect, runtime failure, manual-source disappearance, and
+   provider reuse without enabling auto-endpointing.
+5. Decide whether further whisper.cpp tuning or a coding-command corpus is
    justified; the first base/small run is complete but does not select a
    production ASR.
-2. Measure real/default-device disconnect, timeout, device-change, and native
-   runtime restart recovery; the timeout contract and in-process provider
-   reload are implemented, but live/native hard cancellation evidence is still
-   missing.
-3. Choose and add the repository license; the GitHub repository is currently
+6. Measure native hard cancellation during model inference; timeout, provider
+   retry, process disconnect, physical device switching, and restart recovery
+   are already covered.
+7. Choose and add the repository license; the GitHub repository is currently
    public but has no root license file.
-4. Run blinded Piper/Kokoro listening, actual speaker-first-audio measurement,
-   and live PipeWire interruption tests. Repeat controlled Chinese/mixed
-   commands and compare an alternative ASR before selecting production defaults.
-5. Expand VAD to noisy/conversational labeled audio and live-device threshold
-   measurements.
-6. Repeat controlled live VAD utterances and test threshold, disconnect,
-   runtime-failure, and reconnect behavior without enabling auto-endpointing.
-7. Add a multi-project working-directory registry before one Bridge process
-   manages Agent sessions from different repositories.
+8. Run blinded Piper/Kokoro listening and repeat controlled Chinese/mixed
+   commands before selecting production defaults. Keep acoustic
+   speaker-first-audio deferred until it affects a product decision.
 
 ## Risks and Blockers
 
-- The text Agent Gateway is disabled by default. Without
-  `--agent-provider codex`, Agent commands other than focus still return
-  `handler_unavailable`.
-- The current text gateway handles prompt submission and interruption.
-  Approval and rejection remain unavailable; speech handlers exist only when a
-  Voice Gateway is explicitly composed into the Bridge.
+- Agent integrations remain disabled by default. The legacy `codex` gateway
+  handles prompt submission and interruption but not approval; the Alpha-only
+  `codex-app-server` runtime adds one-shot approval and rejection for its
+  explicitly managed remote TUI.
+- Codex app-server and its Unix WebSocket transport are experimental. DeskHelm
+  cannot attach to an unrelated already-running plain Codex TUI; multiple
+  loaded threads are ambiguous, and secret or multi-question input remains in
+  the manually operated TUI.
 - PipeWire discovery, diagnostics, external PTT, streaming capture, an opt-in
   Paraformer/Piper composition, combined-runtime execution, advisory WebRTC
-  VAD, and one earlier successful full path exist. Automatic VAD endpointing,
-  partial transcript publication, real Codex use in the live path, and live
-  recovery are not implemented or tested.
+  VAD, real Codex turns, pure notifications, and live recovery are verified.
+  Automatic VAD endpointing and partial transcript publication remain outside
+  the Alpha.
 - The benchmark runner records VAD compute/detection timing, batch ASR final
   latency, Paraformer offline first-partial estimates, and provider-chunk TTS
   first audio/interruption. Live capture-to-decision/partial,
   playback-to-speaker first audio, mid-inference interruption, and recovery
   timing remain unmeasured.
-- Basic live default/manual input, default output, streaming PCM capture, and one
-  earlier ASR/TTS playback path are verified. The best synchronized spoken run
+- Live default/manual input, output, streaming PCM, process disconnect,
+  physical hot-plug/default switching, ASR timeout, and provider retry are
+  verified. The best synchronized spoken run
   recovered all expected keywords with 0.181818 CER, which is improved but still
   unsuitable for exact code-sensitive commands. Repeated command coverage,
-  alternative-ASR comparison, startup calibration, hot unplug, default-device
-  changes, and actual speaker-first-audio latency need explicit product behavior.
+  alternative-ASR comparison, startup calibration, and actual
+  speaker-first-audio latency need explicit product behavior.
 - Adapter registrations are process-local and must be re-established after a
   Bridge restart. No durable session history or replay is promised.
 - Approval tracking is bounded. When its capacity is exhausted, new approval
@@ -1093,22 +1654,24 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   machine because the system Python environment does not include `setuptools`;
   source-tree imports, both module entry points, and `pyproject.toml` metadata
   were validated directly.
-- Codex compatibility currently has official-document and synthetic JSONL
-  fixture evidence plus fake-subprocess coverage, but no locally captured
-  authenticated model run. Claude and Gemini compatibility still lack
-  versioned fixture sets.
-- One configured Agent working directory currently applies to every gateway
-  session. Multi-project path ownership is not yet modeled.
-- Initial WebRTC and Silero VAD replay quality/latency and licenses are measured,
-  but the corpus lacks conversational speech, Chinese, noise, music, keyboard
-  sounds, distant microphones, and live recovery. Production VAD is unselected.
+- Codex compatibility has official-document and synthetic JSONL fixtures,
+  fake-subprocess coverage, and repeated authenticated local runs. Claude and
+  Gemini compatibility still lack versioned fixture sets.
+- WebRTC and Silero VAD now have both the original FSDD set and one annotated
+  AMI conversation set with real rain/clock noise and parameter sweeps. The
+  evidence still lacks Chinese conversation, controlled gain variants, music,
+  keyboard sounds, distant microphones, readiness-gated live signal metadata,
+  and live VAD failure/recovery. The first built-in mode 0/2 comparison missed
+  essentially the complete phrase because the default input was at 7%; an
+  explicit healthy USB mode 2 run detected 2,800 ms. Production VAD remains
+  unselected.
 - Paraformer is measured on a tiny public set, one synchronized live Chinese
   command, one immediate four-phrase batch, and one handshake four-phrase
   batch. The handshake batch trailed SenseVoice on CER and latency, while mixed
   coding keyword scores in the historical run used the pre-fix spacing metric;
   English spacing, isolated digits, about 3.09 GiB peak RSS, and cancellation
-  only between inference calls remain product risks. It is not selected as the
-  sole production ASR.
+  only between inference calls remain product risks. It is the local alpha ASR,
+  not a final production selection.
 - SenseVoice is final-only and cannot provide partials or cancel its native
   decode midway. It missed most isolated English digit clips, and its custom
   FunASR Model License 1.1 requires review before packaging or production use.
@@ -1124,20 +1687,337 @@ git check-ignore -v references/vendor/paraformer-bench/py312/bin/python \
   The provider still requires an external compatible `v1.9.2` build and
   explicit model/library paths, and must not silently replace another ASR.
 - Piper and Kokoro performance, resources, provider-chunk first audio,
-  interruption boundaries, and licenses are measured, but human quality and
-  actual playback latency are not. Piper produced a very small full-scale
-  sample fraction and its GPL runtime needs packaging review.
+  interruption boundaries, and licenses are measured, and live PipeWire
+  interruption is verified. Blinded human quality and acoustic first-audio are
+  not measured. Piper's GPL runtime still needs packaging review.
 
 ## Next Step
 
-The keyword metric whitespace normalization is now fixed. Rerun the selected
-handshake phrases only if corrected keyword scores are needed for the provider
-gate. The whisper.cpp base/small benchmark and cancellation probe are complete;
-next decide whether a larger coding-command corpus or provider tuning is worth
-the cost before any opt-in configuration work. Then measure disconnect/default-
-device change, native provider restart, and hard-cancellation behavior across
-the selected local voice paths. Expand live VAD threshold/noise evidence
-without granting endpoint control, and separately define actual
-speaker-first-audio and interruption instrumentation. Keep every provider
-replaceable and obtain the repository license decision before packaging models
-or accepting external contributions.
+After the user stops the currently running pre-change Alpha, start `deskhelm
+alpha --tui --voice` again and verify two consecutive approvals, one later
+voice-started turn, the Kokoro female notification voice, and complete cleanup
+after exiting the TUI.
+
+## Phase History
+
+Local voice alpha is now fixed as Paraformer ASR plus Piper TTS. The first
+live PTT run reached the fixed ASR-timeout failure after roughly 36 seconds;
+two subsequent user-confirmed PTT commands completed and had audible Piper
+output. The explicit output-tone check was audible. A live cancellation probe
+then emitted `speech_cancelled` after audio began; the diagnostic response is
+now Chinese-only to avoid Piper's poor English-brand-name pronunciation.
+
+The alpha does not yet meet interactive latency expectations. The diagnostic
+holds capture for six seconds, and current Paraformer final results took about
+9.7-21.1 seconds after release. Its `speech_started` event precedes Piper
+synthesis, so speaker-first-audio remains unmeasured; the user observed further
+audible playback delay. Do not market this as low latency. Next decide whether
+to first add real PTT release plus speaker-first-audio instrumentation and
+persistent warm providers, or replace/tune the selected ASR path. ADR 0027
+selects an explicit foreground terminal right-Alt PTT mode with one complete
+active-session target. A future microcontroller button replaces the key source
+and drives LEDs from Voice lifecycle state; it does not change PTT authorization
+or targeting. Arbitrary application text fields remain a future IBus/Fcitx
+integration. Then measure default-device disconnect/reconnect and input gain
+behavior. Keep VAD advisory, do not add automatic provider fallback, and defer
+SenseVoice until its matching verified native ABI is available. Obtain the
+repository license decision before packaging models or accepting external
+contributions.
+
+Right-Alt coexistence with the user's required `keyd` left-Alt mappings is now
+verified. `keyd` forwards unmodified `KEY_RIGHTALT` press, repeat, and release
+events through its virtual keyboard; DeskHelm must listen only on the stable
+`/dev/input/deskhelm-ptt-kbd` path rather than configuring `keyd` or opening
+the physical keyboard. The next live check is to run the explicit controller
+against that path with a temporary complete Bridge session and confirm accepted
+press/release capture behavior. This validates physical PTT control only; the
+temporary session has no Agent response path, and the alpha's latency remains
+an open issue.
+
+That controller check is now running with the internal microphone and was
+confirmed by the user: holding right `Alt` activates microphone capture while
+the `keyd` left-Alt mappings remain untouched. Model runtime memory rose during
+the check, consistent with lazy ASR loading. The temporary target deliberately
+has no prompt or assistant-message capability, so this proves the physical PTT
+and capture path but cannot produce an automatic spoken reply. Wire a real
+Agent session before treating the test as end-to-end ASR-to-TTS behavior.
+
+The real-session voice phase is now entered. ADR 0028 defines the new
+privacy-safe latency boundaries as TTS audio-ready and first PipeWire write;
+they are not a claim of acoustic speaker-first-audio. The focused PTT,
+Voice-to-Agent integration, and live-diagnostic tests pass under the documented
+single Voice-module import path, and `git diff --check` passes. Strict uv
+validation is currently blocked because the uncommitted root `pyproject.toml`
+adds the `ptt` extra after the untracked root lock was generated; do not rewrite
+that lock implicitly. A real run still needs an explicitly registered active
+Agent session and the ignored local model artifact paths.
+
+The temporary session was then replaced by a complete local Codex session using
+the Bridge's bounded read-only gateway. The right-Alt controller remains bound
+to the `keyd` virtual keyboard. The no-GUI controller now also subscribes only
+to target-scoped, Voice-Gateway system failure messages and prints that fixed
+guidance; it never displays audio, transcripts, prompts, or assistant text.
+This closes the prior silent-failure gap during physical PTT testing.
+
+The user then confirmed a successful live end-to-end run through the real
+local Codex session: right-Alt activation, internal-microphone capture,
+Paraformer recognition, bounded read-only Codex processing, and Piper playback
+all completed. This is functional Alpha evidence only; capture-to-response and
+speaker-first-audio latency remain unmeasured and are not low-latency claims.
+
+ADR 0028 starts the performance-closure phase. Voice Gateway now emits
+privacy-safe `tts_audio_ready` after a complete TTS provider result and
+`playback_started` after PipeWire accepts its first PCM write. These are timing
+handoff boundaries, not acoustic speaker-first-audio evidence. Focused gateway,
+Bridge integration, and live diagnostic tests passed (30 tests); a full suite
+and a new bounded live timing run remain next.
+
+The full no-hardware suite now passes 237/237 in 5.760 seconds under the
+isolated Python 3.12 local-voice runtime. Two deterministic regression tests
+also verify the Voice lifecycle ordering from speech acceptance through PipeWire
+handoff and that PipeWire invokes the first-write callback exactly once. The
+focused Voice Gateway, PipeWire, and live-diagnostic suite passes 42/42.
+
+The bounded live timing run then completed through capture, Paraformer, Piper,
+and PipeWire. A follow-up revealed provider logs reaching the diagnostic
+terminal, so Paraformer now suppresses third-party stdout, stderr, and Python
+logging only around its model load and inference boundary, restoring the prior
+logging state afterwards. The clean repeat emitted only the final privacy-safe
+JSON: release-to-transcript was 7,030.224 ms, TTS result was 889.935 ms,
+PipeWire first write was 0.656 ms later, and first write to completion was
+2,581.790 ms. The diagnostic retained no audio or recognized text. Actual
+speaker-first-audio and Codex turn timing remain unmeasured.
+
+The user explicitly deferred acoustic loopback measurement. ADR 0029 therefore
+starts content-free Voice-to-Agent turn timing instead: it will use only
+target-scoped generated identifiers, monotonic timestamps, and terminal status
+inside an explicit local diagnostic. It must not open audio devices, retain
+interaction content, extend `InteractionEvent v1`, or claim acoustic latency.
+
+The Agent Gateway now preserves the originating `submit_prompt` command ID as
+an internal turn ID and places it only on the corresponding terminal
+interaction's existing correlation field. This is the minimum correlation
+needed for the local timer; provider message correlation remains unchanged and
+no text is retained. Focused Agent and Voice integration tests pass 8/8.
+
+The first `VoiceAgentTurnTimer` is now implemented as an explicit in-process
+callback. It records only monotonic numeric deltas from dispatch to Agent
+terminal, speech start, and PipeWire first-write, and emits one bounded result
+without a turn ID or text. `VoiceBridgeIntegration` supplies the generated turn
+ID only for Voice-originated replies; other speech retains its existing random
+ID behavior. The timer is inactive unless a composition explicitly supplies a
+result sink. Focused timer, Agent, and Voice integration tests pass 10/10.
+
+The Bridge CLI now exposes that sink only through `--voice-turn-timing`. The
+flag requires both Voice and Agent providers and writes one numeric-only JSON
+record to stderr per terminal Voice-originated turn. Default startup remains
+unchanged, and the output omits interaction text, PCM, and the internal turn ID.
+
+The timer now tolerates Agent/Voice thread reordering: successful Agent turns
+wait for the matching speech terminal before emitting, so a fast Agent terminal
+does not erase later speech-start or PipeWire-first-write timing. Failed Agent
+turns still emit immediately. Focused tests pass 18/18, the complete
+no-hardware suite passes 244/244 in 5.489 seconds, and `git diff --check` passes.
+
+The first live `--voice-turn-timing` run completed against a real local Codex
+session. From transcript dispatch, speech was accepted after 4,004.357 ms,
+PipeWire received its first write after 4,848.857 ms, and the Agent terminal
+arrived after 4,995.123 ms. These values exclude ASR and acoustic output. No
+interaction content or PCM was retained. The run also exposed and fixed a PTT
+CLI cleanup issue: Ctrl-C now exits without printing a KeyboardInterrupt
+traceback. All temporary processes and the explicit temporary socket were
+removed after the run.
+
+The end-to-end latency-closure phase has started. The same opt-in timer now
+correlates accepted PTT release and `transcript_ready` with the existing Agent,
+speech, and PipeWire stages, producing one same-turn numeric record from release
+through software playback handoff. It still makes no acoustic claim and stores
+no content. Focused tests pass 16/16; the complete no-hardware suite passes
+246/246 in 5.677 seconds, and `git diff --check` passes.
+
+The repeated live cold/warm run is complete with three right-Alt PTT turns in
+one persistent Bridge process. Release-to-transcript was 7,597.163 ms cold,
+then 214.626 and 201.639 ms warm. Release-to-speech-start was 13,861.000 ms,
+then 4,354.864 and 5,085.818 ms; release-to-first-PipeWire-write was 14,826.557
+ms, then 4,441.793 and 5,152.520 ms. Release-to-Agent-terminal was 24,041.706
+ms, then 14,449.440 and 15,204.418 ms. From transcript dispatch, speech-start
+was 6,263.794, 4,140.205, and 4,884.157 ms; first write was 7,229.352,
+4,227.134, and 4,950.859 ms; Agent terminal was 16,444.500, 14,234.781, and
+15,002.757 ms. The two warm turns averaged 208.132 ms to transcript and
+4,797.156 ms to first write, confirming that the large first-turn ASR model
+load is removed after warm-up while Agent processing remains the dominant warm
+latency. These are software timing boundaries only; no acoustic latency or
+interaction content was measured or retained. The PTT controller, temporary
+publisher, persistent Bridge child, and exact temporary socket were cleaned up
+after the run.
+
+The next latency split is implemented. The opt-in timer now records the first
+complete assistant response before it is enqueued for speech and observes the
+existing `tts_audio_ready` event. Numeric output therefore separates Agent
+response readiness, speech queue handoff, complete Piper synthesis, and
+PipeWire first write while retaining the existing ASR and Agent-terminal
+boundaries. It still receives no interaction text and emits no internal turn
+identifier. Focused timer, Voice integration, and local composition tests pass
+17/17 using the repository's single Voice-module import path. Successful Agent
+turns with no assistant speech and speech-queue rejection now terminate their
+timing records with missing stages instead of retaining capacity. The complete
+no-hardware suite passes 247/247 in 5.694 seconds from the existing isolated
+voice runtime. Strict `uv run --project voice/runtime --locked` remains blocked
+because the current uncommitted root lock needs synchronization; it was not
+rewritten implicitly. A repeated warm live run with these finer boundaries is
+the next evidence step.
+
+The first split-boundary live attempt was aborted after the user reported that
+long speech would not stop. Its cold-path numeric record showed 6,594.815 ms
+release-to-transcript, 8,932.513 ms dispatch-to-complete-assistant-response,
+0.224 ms assistant-to-speech-start, 1,444.216 ms Piper synthesis, and 0.656 ms
+audio-ready-to-first-PipeWire-write. The Agent terminal arrived 153,558.289 ms
+after dispatch, far after playback began, so terminal time is not a useful
+spoken-response latency boundary for this run. Two subsequent PTT captures
+reported the fixed `voice_input_failed` status even though a separate bounded
+one-second PipeWire input diagnostic succeeded. The exact Bridge child and its
+active `pw-cat` playback process were terminated, and the PTT controller,
+publisher, and temporary socket were removed. Do not resume performance runs
+until live right-Alt playback interruption and retry behavior are verified.
+
+The isolated live interruption check then passed without starting Codex. A
+bounded interruptible Piper utterance was dispatched through the real Bridge
+and PipeWire path; the user pressed right Alt during playback and confirmed
+that speech stopped. Process inspection showed no remaining playback `pw-cat`,
+while the Bridge, publisher, and PTT controller remained alive, proving that
+right-Alt press cancels current speech rather than the unrelated Agent run.
+After release, the PTT path again reported the fixed `voice_input_failed`
+status. All isolated test processes and the temporary socket were removed.
+The next step is to diagnose this repeatable post-interruption capture failure
+before resuming latency measurements.
+
+That failure is diagnosed and fixed: microphone capture and ASR were not the
+failing stages. Pressing right Alt during a still-active Agent run correctly
+cancelled playback and captured a new utterance, but the one-active-run bound
+rejected its downstream `submit_prompt`; the Gateway's broad exception mapping
+misreported that rejection as `voice_input_failed`. Prompt-sink absence or
+rejection now emits the distinct privacy-safe `voice_prompt_failed` code, and
+the PTT controller presents fixed guidance that the voice instruction could
+not be submitted. Capture/model failures remain `voice_input_failed`. Focused
+Voice Gateway, integration, and right-Alt tests pass 31/31; the complete
+no-hardware suite passes 248/248 in 5.907 seconds under the resource-limited
+isolated voice runtime, and `git diff --check` passes. The next live check is to
+repeat interruption during an active Codex run and confirm the corrected busy
+message before resuming split warm-latency measurements.
+
+The corrected busy path is now verified live with a real read-only Codex run.
+After right-Alt interruption, three attempted follow-up utterances while the
+original run remained active all produced the fixed guidance that the voice
+instruction could not be submitted; none was mislabeled as microphone input
+failure. The user also observed that speech stopped immediately but a later
+partial utterance played. This is consistent with the current contract: PTT
+press cancels only the current interruptible playback and does not cancel Codex
+or suppress a later complete assistant message from the same active run. All
+temporary Bridge, Codex, publisher, PTT, playback, and socket resources were
+removed. Before resuming latency work, decide whether right-Alt interruption
+should also mute subsequent speech from the same Agent turn while allowing the
+Agent run itself to continue; that would be a new product behavior and requires
+an ADR update before implementation.
+
+The user selected pure notification mode. ADR 0030 now supersedes automatic
+assistant-response speech from ADR 0009 for this path: assistant messages,
+tool output, progress, prompts, and final response text never enter TTS or
+notification state. Only `task_completed`, `task_failed`, `approval_request`,
+and `user_input_required` enqueue short fixed content-free notifications.
+Explicit targeted `speak` controls remain available, and right Alt still
+cancels only current interruptible playback before starting PTT; it does not
+cancel Codex. Turn timing now names notification readiness instead of assistant
+readiness and remains numeric-only. Focused integration, timer, Gateway, and
+composition tests pass 42/42. The complete no-hardware suite passes 250/250 in
+5.940 seconds under the resource-limited isolated voice runtime, and
+`git diff --check` passes. A live speaker-only check of the fixed completion
+notification then traversed `speech_started`, `tts_audio_ready`,
+`playback_started`, and `speech_completed` with no failure. It did not open the
+microphone or start Codex. The user confirmed hearing the complete fixed phrase,
+so the pure-notification completion path is verified through actual speaker
+output.
+
+The pure-notification event-closure phase is complete. A temporary modern
+adapter session submitted a real read-only Codex prompt through the bounded
+gateway. The interaction subscriber observed one assistant message followed by
+`task_completed` but printed no response text, and the user heard only the fixed
+completion notification. A second modern publisher emitted
+`approval_request`, `user_input_required`, and `task_failed` events containing
+private synthetic content; the user confirmed hearing the three fixed category
+notifications in order and none of the private content. All temporary Bridge,
+Codex, publisher, controller, PipeWire, socket, and directory resources were
+removed. The next development phase is live recovery testing: device changes,
+disconnects, timeouts, provider failures, and repeated turns. Focused Voice
+integration, timer, Gateway, and composition tests pass 42/42; the complete
+resource-limited no-hardware suite passes 250/250 in 5.769 seconds, and
+`git diff --check` passes.
+
+The first live recovery slice is implemented and software-verified. A new
+Agent Gateway regression test proves that a failed terminal run releases its
+session and permits the next prompt. In one persistent resource-limited Bridge,
+the same modern adapter session then completed three real Codex turns without
+restarting Bridge, Codex session state, or Piper; every control was accepted,
+every terminal was `task_completed`, and no response text was printed. A
+follow-up real run accepted an immediate `interrupt`, emitted `task_failed`
+without an assistant message, then accepted a same-session retry that emitted
+one assistant message and `task_completed`; response text again remained
+silent. The expected audible sequence was three completion notifications,
+followed by one failure and one completion notification; the user confirmed
+hearing that sequence. All temporary processes, PipeWire sessions, sockets,
+and directories were removed. Live audio disconnect, device-change, and
+provider-runtime recovery remain next. Focused Agent, Voice Gateway, PipeWire,
+and audio-selection recovery tests pass 49/49; the complete resource-limited
+no-hardware suite passes 251/251 in 5.522 seconds, and `git diff --check`
+passes. For future delegated test or validation work, use a Luna-model
+subagent; direct primary-agent test execution remains allowed.
+
+The first live audio-process recovery slice is software-verified. Two fresh
+PipeWire inventory snapshots independently resolved the same current default
+source and sink. During a real microphone capture, the owned `pw-cat` process
+was forcibly terminated after receiving audio; the provider reported only the
+fixed `PipeWire capture process failed` category, retained no PCM, and the same
+provider then completed a fresh roughly 297 ms capture. The playback equivalent
+reported the fixed `PipeWire playback input failed` category after its owned
+process was terminated, then the same provider completed a fresh 250 ms
+low-volume tone. A missing manually selected source failed closed with no
+fallback. No `pw-cat` process remained. The user heard several short beeps,
+consistent with the first playback beginning before forced termination and the
+final 250 ms recovery playback completing; this confirms audible playback
+recovery as well as the software result. Physical hot-unplug, actual
+default-device switching, ASR timeout, and model-runtime recovery remain next.
+Focused PipeWire and audio selection tests pass 22/22, the previously completed
+full suite remains 251/251, and `git diff --check` passes.
+
+The live ASR recovery slice is software-verified with the real pinned
+Paraformer model and public prepared Chinese audio. A deliberately tiny 50 ms
+Gateway deadline during cold model startup emitted `voice_asr_timeout`; after
+raising only the next request's bounded deadline, the same Gateway, ASR worker,
+and provider returned a 19-character transcript without printing its text.
+The loaded real model was then wrapped to inject exactly one private controlled
+`generate` failure. The provider released its inference lock, and the same
+instance successfully decoded the next request. The diagnostic retained no PCM
+and printed neither transcript nor failure text. A Luna test subagent ran the
+focused and complete regressions. It reported focused Voice Gateway and ASR
+provider tests passing 32/32 in 0.51 seconds, the resource-limited complete
+suite passing 251/251 in 5.779 seconds, and `git diff --check` passing. Physical
+hot-unplug and actual default-device switching are now the remaining live
+recovery checks.
+
+Physical audio hot-plug and default switching are live-verified with a PCM2902
+USB microphone. Insertion exposed the stable source
+`alsa_input.usb-C-Media_Electronics_Inc._USB_PnP_Sound_Device-00.analog-mono`
+and WirePlumber selected it as default. A two-second explicit USB capture had
+valid signal (7.46% peak, 3.19% RMS), and fresh DeskHelm snapshots followed
+temporary default changes between built-in and USB sources. After physical
+unplug, default discovery fell back to the built-in microphone while explicit
+USB selection returned `configured PipeWire source is unavailable` with exit
+status 1 and no fallback. Replug restored the same stable node and a successful
+one-second capture (10.51% peak, 5.12% RMS). The original built-in microphone
+was restored as system default using a freshly resolved, non-persisted
+PipeWire object ID. PCM was discarded after signal measurement. A Luna test
+subagent reported focused PipeWire and audio-selection tests passing 22/22 in
+0.575 seconds, `git diff --check` passing, and no residual `pw-cat` process.
+The reusable local Alpha startup profile described in the current-state
+sections is now implemented and verified. The multi-project working-directory
+registry is also complete; the next roadmap item is expanded noisy and
+conversational VAD coverage.

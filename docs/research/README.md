@@ -46,3 +46,6 @@
 - [`2026-08-20-whisper-cpp-fallback.md`](2026-08-20-whisper-cpp-fallback.md)
   — whisper.cpp 的官方运行时/API/模型/许可证事实、DeskHelm 适配风险和
   下一阶段 native provider 原型边界。
+- [`2026-08-26-vad-noisy-conversation-expansion.md`](2026-08-26-vad-noisy-conversation-expansion.md)
+  — AMI 对话、ESC-10 真实噪声、WebRTC/Silero 参数扫描和实时 PipeWire
+  负对照的第二轮 VAD 证据。

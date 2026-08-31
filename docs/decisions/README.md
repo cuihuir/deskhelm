@@ -54,3 +54,38 @@ without claiming hard cancellation for native provider calls.
 [`0025-isolated-whisper-cpp-shim-provider.md`](0025-isolated-whisper-cpp-shim-provider.md)
 keeps the whisper.cpp fallback behind a pinned, DeskHelm-specific C ABI and
 explicit provider opt-in without adding native dependencies to Bridge.
+
+[`0026-local-voice-alpha-profile.md`](0026-local-voice-alpha-profile.md)
+selects the explicit Paraformer/Piper local alpha, defines its reusable
+environment-injected startup profile, and publishes fixed privacy-safe voice
+failure guidance without blocking text or Agent work.
+
+[`0027-right-alt-ptt-and-ime-scope.md`](0027-right-alt-ptt-and-ime-scope.md)
+defines an explicit terminal right-Alt PTT mode and future hardware controller,
+while reserving arbitrary application text entry for IBus/Fcitx integration.
+
+[`0028-voice-latency-observability.md`](0028-voice-latency-observability.md)
+defines privacy-safe TTS and PipeWire handoff timing without claiming actual
+speaker-first-audio measurement.
+
+[`0029-private-voice-agent-turn-timing.md`](0029-private-voice-agent-turn-timing.md)
+defers acoustic loopback and defines bounded, local numeric timing for a
+Voice-originated Agent turn without exposing interaction content.
+
+[`0030-notification-gated-agent-speech.md`](0030-notification-gated-agent-speech.md)
+keeps all Agent response content silent and uses fixed notifications only for
+completion, failure, approval, or required user input.
+
+[`0031-operator-configured-project-working-directories.md`](0031-operator-configured-project-working-directories.md)
+maps opaque project identities to bounded operator-approved Agent working
+directories without accepting filesystem paths from adapters or protocol data.
+
+[`0032-pinned-noisy-conversation-vad-evidence.md`](0032-pinned-noisy-conversation-vad-evidence.md)
+adds a backward-compatible annotated conversation/noise manifest, bounded
+candidate sweeps, and a privacy-safe live timing diagnostic while keeping VAD
+advisory and leaving the production default unselected.
+
+[`0033-bidirectional-codex-app-server-adapter.md`](0033-bidirectional-codex-app-server-adapter.md)
+selects the experimental Codex app-server Unix WebSocket protocol for an
+Alpha-only bidirectional manual-session adapter with bounded thread discovery,
+privacy-safe notifications, and exact-phrase voice approval decisions.

@@ -61,12 +61,13 @@ the second, final-only ASR baseline through a compact INT8 sherpa-onnx runtime.
 These providers are not selected by the Voice Gateway yet. Paraformer and
 SenseVoice remain candidates, not production ASR for mixed coding commands.
 `piper_tts.py` and
-`kokoro_tts.py` provide the first lazy, bounded streaming TTS adapters. Piper
-Chaowen is the initial low-latency notification baseline; Kokoro remains the
-quality candidate. Neither is selected as production TTS. The opt-in local
-composition currently uses Piper; Kokoro remains benchmark-only. Keep model
-weights and provider-specific heavyweight dependencies outside the repository
-and Bridge.
+`kokoro_tts.py` provide lazy, bounded streaming TTS adapters. Piper Chaowen is
+the initial low-latency notification baseline; Kokoro remains the
+quality-oriented candidate and is now selectable by the Alpha artifact
+directory. Kokoro uses female voice `zf_xiaobei` for Chinese or mixed text and
+female voice `af_heart` for English-only text. Neither is selected as production
+TTS. Keep model weights and provider-specific heavyweight dependencies outside
+the repository and Bridge.
 
 `whisper_cpp.py` provides an explicit fallback provider that loads a
 DeskHelm-specific shared-library shim and model path lazily. It accepts only
@@ -78,8 +79,9 @@ dependency to Bridge. See
 [`native/whisper-cpp-shim/README.md`](native/whisper-cpp-shim/README.md).
 
 `local_gateway.py` provides the first opt-in application composition. It
-preflights PipeWire selection plus required Paraformer/Piper artifact files,
-then constructs lazy model providers without opening audio or loading weights.
+preflights PipeWire selection plus required Paraformer and selected Piper or
+Kokoro artifact files, then constructs lazy model providers without opening
+audio or loading weights.
 The Gateway can attach optional advisory WebRTC VAD to the frame-positioned
 stream. It publishes only bounded speech start/end frame positions and a fixed
 failure code; PTT release still ends capture and the complete bounded recording
@@ -89,9 +91,12 @@ implemented.
 Paraformer returning no text is reported as the fixed safe error
 `voice_no_transcript`, distinct from capture, format, runtime, or model failures
 reported as `voice_input_failed`. A Gateway deadline reports
-`voice_asr_timeout`; the next explicit PTT request is the only retry boundary.
-Neither error includes audio or transcript content. Provider cancellation is
-cooperative; a native decoder may continue after the Gateway has returned.
+`voice_asr_timeout`. A transcript that cannot be dispatched downstream reports
+`voice_prompt_failed` instead of incorrectly blaming microphone input; this
+includes a busy Agent session rejecting a second run. The next explicit PTT
+request is the only retry boundary. No failure includes audio or transcript
+content. Provider cancellation is cooperative; a native decoder may continue
+after the Gateway has returned.
 
 `LocalAudioConfig.pw_cat_command_prefix` allows an application to execute a
 compatible host `pw-cat` when a container's version lacks required raw-PCM
@@ -100,10 +105,21 @@ options. Native execution defaults to `pw-cat`; the verified Distrobox path is
 
 ## Unified Local Runtime and Live Diagnostic
 
-`runtime/requirements-local-voice-py312.txt` pins the optional CPU runtime used
-to execute Paraformer, SenseVoice, and Piper together. It includes Piper's
-Chinese runtime dependencies `g2pw` and `sentence-stream`. Install it only into
-ignored or external storage; do not add these dependencies to Bridge.
+`runtime/pyproject.toml` and its committed `uv.lock` pin the optional CPU
+runtime used to execute Paraformer, SenseVoice, Piper, and Kokoro together. It
+includes Piper's Chinese runtime dependencies `g2pw` and `sentence-stream`, plus
+Kokoro's pinned `misaki[zh]` frontend and English spaCy model. Synchronize it
+only into ignored or external storage; do not add these dependencies to Bridge:
+
+```bash
+cd voice/runtime && uv sync --locked --python 3.12
+```
+
+The uv environment supplies the pinned Python layer for Paraformer, Piper, and
+the sherpa-onnx bindings. SenseVoice additionally requires the matching
+verified upstream native ONNX Runtime ABI; do not substitute an arbitrary PyPI
+`onnxruntime` wheel or enable SenseVoice until that external artifact is
+verified and configured.
 
 `tools/run-local-voice-live.py` is an explicit bounded microphone/speaker
 diagnostic. It requires `--live-audio`, captures for 2-15 seconds, discards PCM,
@@ -114,7 +130,8 @@ speaker-first-audio because `SPEECH_STARTED` currently precedes synthesis.
 The verified container invocation uses:
 
 ```bash
-PYTHONPATH=voice /ignored/py312/bin/python tools/run-local-voice-live.py \
+PYTHONPATH=voice uv run --project voice/runtime \
+  tools/run-local-voice-live.py \
   --live-audio \
   --asr-model-directory /ignored/paraformer-snapshot \
   --tts-model /ignored/piper/voice.onnx \
@@ -146,7 +163,7 @@ or ASR output must not be interpreted until the user confirms whether they
 actually spoke during that capture.
 
 ```bash
-PYTHONPATH=voice /ignored/py312/bin/python \
+PYTHONPATH=voice uv run --project voice/runtime \
   tools/run-local-asr-diagnostic.py \
   --live-audio \
   --asr-provider paraformer \
@@ -198,10 +215,12 @@ and measurement documentation. `deskhelm_voice.benchmark` provides bounded fake
 or production provider runners, NDJSON observations, ASR accuracy scoring, VAD
 segmentation metrics, and latency/resource summaries without model dependencies.
 `vad-external-v1.json` pins six public FSDD clips and seven deterministic
-silence-composition scenarios. `asr-external-v1.json` pins an official Chinese
-sample, a non-redistributable official English sample with unverified audio
-license, and six CC BY-SA 4.0 FSDD clips. Downloaded audio, prepared WAV files,
-models, and raw observations remain ignored.
+silence-composition scenarios. `vad-conversation-noise-v2.json` adds a pinned
+AMI meeting clip with annotation-derived speech intervals and real ESC-10 rain
+and clock-tick mixtures at 10 dB and 0 dB SNR. `asr-external-v1.json` pins an
+official Chinese sample, a non-redistributable official English sample with
+unverified audio license, and six CC BY-SA 4.0 FSDD clips. Downloaded audio,
+prepared WAV files, models, and raw observations remain ignored.
 
 ```bash
 PYTHONPATH=voice python3 -m deskhelm_voice.benchmark score-asr \
@@ -227,6 +246,36 @@ PYTHONPATH=voice python tools/run-vad-benchmark.py \
   --prepared references/vendor/vad-bench/run-v1/prepared \
   --observations voice/benchmarks/results/webrtc-v1.ndjson
 ```
+
+Prepare the second conversation/noise set and run the bounded WebRTC sweep from
+the pinned uv runtime:
+
+```bash
+PYTHONPATH=voice uv run --project voice/runtime --locked --no-sync python \
+  tools/prepare-vad-benchmark.py \
+  --manifest voice/benchmarks/vad-conversation-noise-v2.json \
+  --artifact-root references/vendor/vad-bench/run-v2
+
+PYTHONPATH=voice uv run --project voice/runtime --locked --no-sync python \
+  tools/run-vad-benchmark.py --provider webrtc --sweep \
+  --manifest voice/benchmarks/vad-conversation-noise-v2.json \
+  --prepared references/vendor/vad-bench/run-v2/prepared \
+  --observations voice/benchmarks/results/webrtc-v2-sweep.ndjson \
+  --summary voice/benchmarks/results/webrtc-v2-sweep-summary.json
+```
+
+The sweep keeps profiles separate and does not change the live default. For one
+bounded live timing sample, run `tools/run-live-vad-diagnostic.py` with explicit
+`--live-audio`; it reports only PipeWire/VAD timings and derived speech events,
+aggregate peak/RMS/clipping/near-silence signal metadata, then discards PCM.
+Its input-level hint is provisional and never changes system gain. For
+chat-driven spoken evidence, add
+`--await-phrase-ready`: the tool prints the selected versioned public phrase and
+waits up to 60 seconds for one exact `ready` line before opening the capture.
+Every result still requires post-run confirmation that the phrase was spoken.
+See
+[`2026-08-26-vad-noisy-conversation-expansion.md`](../docs/research/2026-08-26-vad-noisy-conversation-expansion.md)
+for the first results and their limits.
 
 Prepare and run the pinned Paraformer set from an isolated Python 3.12
 environment containing FunASR and matched CPU-only PyTorch/torchaudio:
@@ -294,5 +343,5 @@ PYTHONPATH=bridge python3 -m unittest \
   tests.test_vad_benchmark tests.test_vad_providers tests.test_asr_providers \
   tests.test_tts_providers tests.test_voice_gateway \
   tests.test_voice_integration tests.test_local_voice_config \
-  tests.test_local_voice_live_tool -v
+  tests.test_local_voice_live_tool tests.test_vad_tools -v
 ```
