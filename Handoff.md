@@ -105,8 +105,20 @@ confirmation.
   The test requested no tools or file changes. Live `deskhelm alpha --tui
   --voice` must be restarted to load the consecutive-approval repair before
   final microphone confirmation.
+- A 2026-08-31 isolated live `codex exec` probe against Codex CLI 0.151.0
+  verified text-only Agent behavior without audio: a `workspace-write` turn
+  created one exact expected file while preserving its source fixture, and
+  read-only turns completed without creating a requested file or modifying the
+  fixture. Prompts were delivered on stdin and Agent output was discarded.
+  A noninteractive PTY cannot substitute for the managed, human-operated
+  remote TUI: it did not create a discoverable user thread. A direct app-server
+  probe did verify two client initializations but confirmed that an explicitly
+  created pre-rollout thread cannot be resumed by a second client. This remains
+  a documented fail-closed boundary, not a DeskHelm defect; managed-TUI
+  approval validation still requires the interactive live check listed below.
 
-Phase 0 is working and pushed to `main`. The Bridge has a Unix socket transport,
+Phase 0 is working. The earlier baseline is pushed to `main`; the newer local
+commits listed above require a separate push. The Bridge has a Unix socket transport,
 normalized `AgentEvent v1`, CLI simulator, Codex hook adapter, `StateStore`,
 in-process subscriptions, `SessionRegistry`, terminal projection, bounded
 concurrent connections, and negotiated state publishers. `InteractionEvent v1`
