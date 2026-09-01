@@ -19,7 +19,27 @@ Bridge state and sessions
   -> physical controls
 ```
 
-### Latest Phase: App-Server Disconnect Approval Safety
+### Latest Phase: Manual Managed-TUI Smoke Test
+
+Status: live-verified on 2026-09-01 in an isolated temporary work directory;
+no repository or runtime source files changed. The temporary directory and its
+single generated file were removed after validation.
+
+- `deskhelm alpha --tui` started the managed app-server, Bridge, proxy, and
+  remote Codex TUI successfully. A real text-only turn completed with the
+  requested fixed response and no tool or file activity.
+- A separate `workspace-write` turn created one temporary file with its exact
+  expected content. The TUI reported completion, independent local inspection
+  verified the result, and cleanup removed the file and directory.
+- This is a real managed-TUI transport and lifecycle check, not a live approval
+  decision check: workspace-write needed no approval, and microphone/voice
+  routes remain intentionally out of scope. The deterministic disconnect and
+  stale-approval regression below remains the approval-safety evidence.
+- The automated terminal harness had to emit Kitty-protocol Enter after the
+  TUI requested that keyboard mode; an ordinary interactive terminal supplies
+  the required protocol itself. No DeskHelm source change is indicated.
+
+### Previous Phase: App-Server Disconnect Approval Safety
 
 Status: software-verified on 2026-09-01. This focused regression phase adds
 coverage only; no runtime behavior changed. It verifies that a direct
