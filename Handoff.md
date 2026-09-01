@@ -1,6 +1,6 @@
 # Handoff
 
-Date: 2026-08-31
+Date: 2026-09-01
 
 Project: DeskHelm
 
@@ -19,15 +19,27 @@ Bridge state and sessions
   -> physical controls
 ```
 
-### Latest Phase: Consecutive Managed-TUI Voice Approvals and Female TTS
+### Latest Phase: App-Server Disconnect Approval Safety
 
-Status: implemented and software-verified on 2026-08-28; the implementation,
-tests, runtime locks, and ADRs are organized in local commit `d2261f2` on
-2026-08-31. Stream stability,
-consecutive approval lifecycle, consecutive turn submission, Codex permission
-approval, and Kokoro female TTS are repaired or integrated. The user must
-restart the currently running Alpha before repeating live microphone
-confirmation.
+Status: software-verified on 2026-09-01. This focused regression phase adds
+coverage only; no runtime behavior changed. It verifies that a direct
+app-server approval cannot survive a transport disconnect, while the known
+thread can reconnect and complete a later text-controlled turn with the right
+correlation.
+
+- Added a deterministic adapter regression for this order: direct approval,
+  synthetic disconnect, same-thread reattachment, rejected stale decision,
+  then successful fresh turn completion. Approval and source-path values remain
+  private in the published event and test assertion surface.
+- The first version of the test mismatched the fake `turn/start` response ID
+  with the injected lifecycle notification and therefore modeled a different
+  turn. Correcting the fixture made the expected correlation pass without a
+  production-code change.
+- Resource-limited focused adapter, managed-TUI proxy, and control-router
+  tests pass 40/40. Manual microphone and human-managed TUI validation remains
+  intentionally out of scope for this unattended phase.
+
+### Previous Phase: Consecutive Managed-TUI Voice Approvals and Female TTS
 
 - Codex CLI 0.150.1 added `item/permissions/requestApproval`. The adapter and
   managed-TUI proxy now correlate that request, grant only its requested subset

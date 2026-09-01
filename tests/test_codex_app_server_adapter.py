@@ -875,6 +875,111 @@ class CodexAppServerAdapterTests(unittest.TestCase):
         )
         self.assertGreaterEqual(len(resume_messages), 1)
 
+    def test_disconnect_invalidates_direct_approval_then_recovers_thread(self) -> None:
+        self.transport.inject(
+            {
+                "method": "item/fileChange/requestApproval",
+                "id": "disconnect-approval",
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-before-disconnect",
+                    "itemId": "item-before-disconnect",
+                    "startedAtMs": 1,
+                    "reason": "private reason",
+                    "grantRoot": "/private/path",
+                },
+            }
+        )
+        approval = self.events.get(timeout=1)
+        self.assertIs(approval.kind, InteractionKind.APPROVAL_REQUEST)
+        self.assertEqual(self.router.pending_approval_count(), 1)
+
+        initial_connects = self.transport.connect_count
+        self.transport.inject(ConnectionError("synthetic disconnect"))
+        self._wait_for(
+            lambda: self.transport.connect_count > initial_connects
+            and self.adapter.attached_thread_id() == "thread-1"
+        )
+        self.assertEqual(self.router.pending_approval_count(), 0)
+
+        now_ms = int(time.time() * 1000)
+        stale_decision = ControlCommand(
+            kind=ControlKind.APPROVE,
+            agent_id=self.session.agent_id,
+            session_id=self.session.session_id,
+            project_id=self.session.project_id,
+            issued_by="test-controller",
+            issued_at=now_ms,
+            expires_at=approval.payload.expires_at,
+            idempotency_key="approval-after-disconnect",
+            payload=ApprovalDecisionPayload(
+                request_id=approval.payload.request_id,
+                summary=approval.payload.summary,
+                request_expires_at=approval.payload.expires_at,
+            ),
+        )
+        rejected = self.router.route(stale_decision, now_ms=now_ms)
+        self.assertEqual(
+            rejected.code,
+            ControlResultCode.APPROVAL_ALREADY_DECIDED,
+        )
+
+        prompt = self._prompt("continue after reconnect", "after-disconnect")
+        accepted = self.router.route(prompt, now_ms=prompt.issued_at)
+        self._wait_for(
+            lambda: bool(
+                self.transport.messages(
+                    lambda message: message.get("method") == "turn/start"
+                    and message.get("params", {}).get("threadId") == "thread-1"
+                )
+            )
+        )
+        self.transport.inject(
+            {
+                "method": "turn/started",
+                "params": {
+                    "threadId": "thread-1",
+                    "turn": {
+                        "id": "turn-deskhelm",
+                        "items": [],
+                        "status": "inProgress",
+                    },
+                },
+            }
+        )
+        self.transport.inject(
+            {
+                "method": "turn/completed",
+                "params": {
+                    "threadId": "thread-1",
+                    "turn": {
+                        "id": "turn-deskhelm",
+                        "items": [],
+                        "status": "completed",
+                    },
+                },
+            }
+        )
+        deadline = time.monotonic() + 1
+        terminal = None
+        while time.monotonic() < deadline:
+            try:
+                event = self.events.get(timeout=0.1)
+            except Empty:
+                continue
+            if event.correlation_id == prompt.command_id and event.kind in {
+                InteractionKind.TASK_COMPLETED,
+                InteractionKind.TASK_FAILED,
+            }:
+                terminal = event
+                break
+
+        self.assertEqual(accepted.code, ControlResultCode.DISPATCHED)
+        self.assertIsNotNone(terminal)
+        assert terminal is not None
+        self.assertIs(terminal.kind, InteractionKind.TASK_COMPLETED)
+        self.assertEqual(terminal.correlation_id, prompt.command_id)
+
     def test_secret_user_input_stays_in_tui(self) -> None:
         self.transport.inject(
             {
