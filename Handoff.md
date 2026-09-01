@@ -31,10 +31,14 @@ single generated file were removed after validation.
 - A separate `workspace-write` turn created one temporary file with its exact
   expected content. The TUI reported completion, independent local inspection
   verified the result, and cleanup removed the file and directory.
-- This is a real managed-TUI transport and lifecycle check, not a live approval
-  decision check: workspace-write needed no approval, and microphone/voice
-  routes remain intentionally out of scope. The deterministic disconnect and
-  stale-approval regression below remains the approval-safety evidence.
+- A third read-only TUI turn requested one isolated file write and displayed
+  Codex's explicit command-approval card. The operator selected the one-time
+  approval (not persistent permission); the command completed and an
+  independent inspection verified its exact expected result before cleanup.
+  This confirms the managed TUI's original approval channel. Microphone/voice
+  routes remain intentionally out of scope; the deterministic disconnect and
+  stale-approval regression below remains the DeskHelm control-router safety
+  evidence.
 - The automated terminal harness had to emit Kitty-protocol Enter after the
   TUI requested that keyboard mode; an ordinary interactive terminal supplies
   the required protocol itself. No DeskHelm source change is indicated.
