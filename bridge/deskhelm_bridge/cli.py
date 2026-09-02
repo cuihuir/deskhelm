@@ -203,6 +203,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="read-only",
     )
     alpha.add_argument(
+        "--yolo",
+        action="store_true",
+        help=(
+            "start the remote Codex TUI with full access and no approvals; "
+            "extremely dangerous"
+        ),
+    )
+    alpha.add_argument(
         "--tui",
         action="store_true",
         help="launch the Codex remote TUI in the current terminal",

@@ -420,6 +420,9 @@ Current commands:
   bounded terminal relay for the two-press Ctrl-C guard, routes the TUI through
   the approval-aware local proxy, and owns Bridge plus Codex app-server cleanup
   when the TUI exits.
+- `deskhelm alpha --tui --yolo`: explicitly launch that managed Codex TUI with
+  Codex's full-access, no-approval mode. This bypasses the normal sandbox and
+  approval boundary; use only when that level of access is intended.
 - `deskhelm alpha --tui --voice`: add local Paraformer voice, directory-selected
   Piper or Kokoro TTS, and the explicit right-Alt PTT controller. A Kokoro
   directory uses `zf_xiaobei` for Chinese and `af_heart` for English. Only this

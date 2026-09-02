@@ -19,7 +19,21 @@ Bridge state and sessions
   -> physical controls
 ```
 
-### Latest Phase: Project-Labelled Voice Notifications
+### Latest Phase: Explicit Managed-TUI YOLO Mode
+
+Status: implemented and software-verified on 2026-09-02.
+
+- `deskhelm alpha --tui --yolo` now launches the managed remote Codex TUI with
+  Codex's explicit full-access, no-approval `--yolo` mode. Default Alpha still
+  launches read-only Codex with `on-request` approvals.
+- YOLO affects only the remote TUI command; it does not weaken Bridge, proxy,
+  session, or queue bounds. Since Codex bypasses approvals, neither keyboard
+  nor voice approval routing is invoked in that mode.
+- Resource-limited Alpha regression validation passed 18/18, including exact
+  remote command construction. A separate `deskhelm alpha --check --yolo`
+  preflight against an isolated temporary socket also passed.
+
+### Previous Phase: Project-Labelled Voice Notifications
 
 Status: implemented and software-verified on 2026-09-02.
 

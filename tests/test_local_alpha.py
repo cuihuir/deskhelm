@@ -251,6 +251,38 @@ class LocalAlphaProfileTests(unittest.TestCase):
 
             self.assertEqual(profile.source_name, "cli-source")
 
+    def test_yolo_remote_tui_command_bypasses_sandbox_and_approvals(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = build_parser().parse_args(
+                [
+                    "alpha",
+                    "--yolo",
+                    "--agent-workdir",
+                    str(root),
+                    "--socket",
+                    str(root / "alpha.sock"),
+                ]
+            )
+            profile = LocalAlphaProfile.from_args(args, {})
+            runtime = LocalAlphaRuntime(
+                uv_executable=None,
+                codex_executable="codex",
+                codex_version="codex-cli test",
+                environment={},
+            )
+
+            self.assertTrue(profile.yolo_enabled)
+            self.assertEqual(
+                _remote_tui_command(profile, runtime),
+                [
+                    "codex",
+                    "--remote",
+                    f"unix://{profile.codex_app_server_socket}",
+                    "--yolo",
+                ],
+            )
+
     def test_check_does_not_start_bridge_or_ptt(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -30,6 +30,11 @@ prints the `codex --remote unix://...` command that a user can start manually.
 An optional `--tui` convenience mode launches that exact command as a
 foreground child in the current interactive terminal and treats TUI exit as
 the Alpha shutdown boundary.
+An explicit Alpha `--yolo` option passes Codex's corresponding full-access,
+no-approval flag only to that remote TUI. It is disabled by default and does
+not alter the bounded Bridge or proxy; because Codex does not request
+approvals in this mode, its normal keyboard and voice approval paths have no
+request to route.
 "Manual Codex session" in this integration means a manually operated TUI that
 connects to this DeskHelm-managed app-server. DeskHelm cannot attach safely to
 an unrelated plain `codex` process that was started without `--remote`.

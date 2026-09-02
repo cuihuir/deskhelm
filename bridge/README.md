@@ -88,6 +88,7 @@ explicit additions. It never stores local model paths in repository files:
 deskhelm alpha --check
 deskhelm alpha --tui
 deskhelm alpha --tui --voice
+deskhelm alpha --tui --yolo
 ```
 
 For a source checkout, `tools/deskhelm-user-launcher` is linked once as the
@@ -113,8 +114,10 @@ workspace-write sandbox and `on-request` approval policy. `--voice-source`
 overrides `DESKHELM_ALPHA_VOICE_SOURCE`; either form uses the same strict
 stable-name selection and never falls back when the source is unavailable. Use
 `--voice-sink`, `--voice-pw-cat-command-prefix`, or `--codex-sandbox
-workspace-write` only as explicit local overrides. `--voice-turn-timing`
-remains opt-in.
+workspace-write` only as explicit local overrides. `--yolo` is a separate,
+explicit remote-TUI mode that passes Codex's full-access, no-approval flag and
+therefore bypasses the sandbox and approval flow; it is intentionally never the
+default. `--voice-turn-timing` remains opt-in.
 
 `--tui` starts the printed remote command as a foreground child in the current
 interactive terminal. The launcher relay preserves terminal input, output,

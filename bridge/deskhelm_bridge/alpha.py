@@ -139,6 +139,7 @@ class LocalAlphaProfile:
     uv_executable: str
     codex_executable: str
     codex_sandbox: str
+    yolo_enabled: bool
     launch_tui: bool
     voice_enabled: bool
     source_name: str | None
@@ -205,6 +206,7 @@ class LocalAlphaProfile:
             uv_executable=args.uv_executable,
             codex_executable=args.codex_executable,
             codex_sandbox=args.codex_sandbox,
+            yolo_enabled=args.yolo,
             launch_tui=args.tui,
             voice_enabled=args.voice,
             source_name=(
@@ -608,10 +610,15 @@ def _remote_tui_command(
     profile: LocalAlphaProfile,
     runtime: LocalAlphaRuntime,
 ) -> list[str]:
-    return [
+    command = [
         runtime.codex_executable,
         "--remote",
         f"unix://{profile.codex_app_server_socket}",
+    ]
+    if profile.yolo_enabled:
+        return [*command, "--yolo"]
+    return [
+        *command,
         "--sandbox",
         profile.codex_sandbox,
         "--ask-for-approval",
