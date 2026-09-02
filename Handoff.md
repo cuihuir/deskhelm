@@ -1,6 +1,6 @@
 # Handoff
 
-Date: 2026-09-01
+Date: 2026-09-02
 
 Project: DeskHelm
 
@@ -19,7 +19,21 @@ Bridge state and sessions
   -> physical controls
 ```
 
-### Latest Phase: Manual Managed-TUI Smoke Test
+### Latest Phase: Voice Source Preflight Diagnosis
+
+Status: diagnosed on 2026-09-02; no source or dependency changes required.
+
+- The encrypted manual voice-source selection is currently absent from the
+  PipeWire inventory. Alpha correctly fails closed rather than silently falling
+  back to a different microphone.
+- PipeWire currently exposes the built-in analog-stereo source as its default.
+  An explicit temporary selection of that source passes the complete
+  no-audio `deskhelm alpha --check --voice` preflight.
+- To use a manually selected USB microphone again, reconnect it and verify its
+  stable node name before restoring that selection. Do not replace the saved
+  selection merely to force fallback.
+
+### Previous Phase: Manual Managed-TUI Smoke Test
 
 Status: live-verified on 2026-09-01 in an isolated temporary work directory;
 no repository or runtime source files changed. The temporary directory and its
