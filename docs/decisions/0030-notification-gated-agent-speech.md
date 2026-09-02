@@ -24,7 +24,8 @@ intermediate Agent progress.
   Agent turn is active.
 - Never retain or speak assistant response content. After `task_completed`,
   speak only a fixed, content-free completion notification.
-- Speak fixed, content-free notifications for `task_failed`,
+- Speak fixed category notifications, prefixed with the bounded target project
+  identity, for `task_failed`,
   `approval_request`, active `attention`, and `user_input_required`, because
   each requires human attention. Do not speak approval summaries, input
   prompts, tool output, or failure details.
@@ -43,7 +44,7 @@ intermediate Agent progress.
   speech, including after the turn reaches a terminal state.
 - The completion notification begins only after the Agent terminal, avoiding a
   busy-session barge-in dead end without exposing response content to TTS.
-- Human-attention notifications reveal only their fixed category, not private
-  interaction content.
+- Human-attention notifications reveal only their fixed category and bounded
+  target project identity, not private interaction content.
 - No assistant response text enters the notification speech queue or its
   process-local state.

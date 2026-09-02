@@ -19,7 +19,25 @@ Bridge state and sessions
   -> physical controls
 ```
 
-### Latest Phase: Voice Source Preflight Diagnosis
+### Latest Phase: Project-Labelled Voice Notifications
+
+Status: implemented and software-verified on 2026-09-02.
+
+- Automatic completion, failure, approval-attention, and input-required
+  notifications now begin with the bounded target project identity, for
+  example `项目 deskhelm，Codex 已完成工作，请查看结果。`.
+- The label is derived only from the opaque `project_id`, is normalized to a
+  64-character safe display value, and never resolves or announces a working
+  directory. Explicit `speak` controls remain unchanged.
+- The notification path continues to omit prompts, assistant text, approval
+  summaries, tool output, and failure details. A regression verifies a
+  non-default project label without exposing private failure content.
+- Resource-limited focused validation passed 15/15:
+  `PYTHONPATH=bridge:adapters/codex uv run --project voice/runtime --locked
+  --no-sync python -m unittest tests.test_voice_integration
+  tests.test_client_voice_status -v`.
+
+### Previous Phase: Voice Source Preflight Diagnosis
 
 Status: diagnosed on 2026-09-02; no source or dependency changes required.
 

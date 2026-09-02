@@ -308,11 +308,12 @@ class VoiceBridgeIntegration:
     def _enqueue_notification(
         self, target: VoiceTarget, text: str, speech_id: str = ""
     ) -> None:
+        notification = _project_notification(target.project_id, text)
         try:
-            item = SpeechItem(target=target, text=text)
+            item = SpeechItem(target=target, text=notification)
             if speech_id:
                 item = SpeechItem(
-                    target=target, text=text, speech_id=speech_id
+                    target=target, text=notification, speech_id=speech_id
                 )
             self.voice_gateway.enqueue_speech(item)
         except RuntimeError:
@@ -375,6 +376,22 @@ _COMPLETION_NOTIFICATION = "Codex 已完成工作，请查看结果。"
 _FAILURE_NOTIFICATION = "Codex 工作未完成，请查看详情。"
 _APPROVAL_NOTIFICATION = "Codex 需要你的确认。"
 _INPUT_NOTIFICATION = "Codex 需要你提供信息。"
+
+_MAX_NOTIFICATION_PROJECT_NAME_CHARS = 64
+
+
+def _project_notification(project_id: str, text: str) -> str:
+    """Keep project labels short and suitable for the fixed speech path."""
+    project_name = " ".join(project_id.split())
+    project_name = "".join(
+        character
+        for character in project_name
+        if character.isalnum() or character in " ._-"
+    ).strip(" ._-")
+    project_name = project_name[:_MAX_NOTIFICATION_PROJECT_NAME_CHARS]
+    if not project_name:
+        project_name = "当前项目"
+    return f"项目 {project_name}，{text}"
 
 _TASK_FAILURE_NOTIFICATIONS = {
     "codex_connection_lost": "Codex 控制连接中断，正在重连。",

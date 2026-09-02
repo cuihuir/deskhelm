@@ -121,7 +121,10 @@ class VoiceIntegrationTests(unittest.TestCase):
 
         self.assertEqual(agent.requests[0].prompt, "请帮我总结")
         self.assertEqual(transcript.raw_text, "请 帮我 总结")
-        self.assertEqual(tts.requests, ["Codex 已完成工作，请查看结果。"])
+        self.assertEqual(
+            tts.requests,
+            ["项目 deskhelm，Codex 已完成工作，请查看结果。"],
+        )
         self.assertGreater(len(playback.requests[0].data), 0)
         self.assertEqual(playback.requests[0].sample_rate_hz, 24000)
         self.assertIsNotNone(timings[0].dispatch_to_notification_ready_ms)
@@ -253,9 +256,12 @@ class VoiceIntegrationTests(unittest.TestCase):
             self._terminal_event(InteractionKind.TASK_COMPLETED, sequence=2)
         )
         self.assertTrue(playback.completed.wait(timeout=1))
-        self.assertEqual(tts.requests, ["Codex 已完成工作，请查看结果。"])
+        self.assertEqual(
+            tts.requests,
+            ["项目 deskhelm，Codex 已完成工作，请查看结果。"],
+        )
 
-    def test_human_attention_events_use_fixed_notifications(self) -> None:
+    def test_human_attention_events_use_project_labelled_notifications(self) -> None:
         tts = FakeTtsProvider()
         voice = VoiceGateway(
             FakeCaptureProvider([]),
@@ -305,9 +311,9 @@ class VoiceIntegrationTests(unittest.TestCase):
         self.assertEqual(
             tts.requests,
             [
-                "Codex 需要你的确认。",
-                "Codex 需要你提供信息。",
-                "Codex 工作未完成，请查看详情。",
+                "项目 deskhelm，Codex 需要你的确认。",
+                "项目 deskhelm，Codex 需要你提供信息。",
+                "项目 deskhelm，Codex 工作未完成，请查看详情。",
             ],
         )
 
@@ -366,14 +372,20 @@ class VoiceIntegrationTests(unittest.TestCase):
             )
         )
         time.sleep(0.05)
-        self.assertEqual(tts.requests, ["Codex 需要你的确认。"])
+        self.assertEqual(
+            tts.requests,
+            ["项目 deskhelm，Codex 需要你的确认。"],
+        )
 
         publish(False, 4)
         publish(True, 5)
         self._wait_for(lambda: len(tts.requests) == 2)
         self.assertEqual(
             tts.requests,
-            ["Codex 需要你的确认。", "Codex 需要你的确认。"],
+            [
+                "项目 deskhelm，Codex 需要你的确认。",
+                "项目 deskhelm，Codex 需要你的确认。",
+            ],
         )
 
     def test_control_failure_uses_actionable_notification(self) -> None:
@@ -408,8 +420,45 @@ class VoiceIntegrationTests(unittest.TestCase):
         self._wait_for(lambda: len(tts.requests) == 1)
         self.assertEqual(
             tts.requests,
-            ["语音指令未被 Codex 接受，请查看终端。"],
+            ["项目 deskhelm，语音指令未被 Codex 接受，请查看终端。"],
         )
+
+    def test_notification_uses_target_project_without_private_payload(self) -> None:
+        tts = FakeTtsProvider()
+        voice = VoiceGateway(
+            FakeCaptureProvider([]),
+            FakeAsrProvider([]),
+            tts,
+            FakePlaybackProvider(),
+        )
+        self.resources.append(voice)
+        integration = VoiceBridgeIntegration(voice, self.router, self.hub)
+        integration.register()
+        self.resources.append(integration)
+
+        self.hub.publish(
+            InteractionEvent(
+                kind=InteractionKind.TASK_FAILED,
+                agent_id="codex",
+                session_id="client-session",
+                project_id="client-portal",
+                source="fake-agent",
+                source_version="1",
+                sequence=1,
+                correlation_id="client-failure",
+                payload=TaskPayload(
+                    message="private failure detail",
+                    error_code="failed",
+                ),
+            )
+        )
+
+        self._wait_for(lambda: len(tts.requests) == 1)
+        self.assertEqual(
+            tts.requests,
+            ["项目 client-portal，Codex 工作未完成，请查看详情。"],
+        )
+        self.assertNotIn("private failure detail", tts.requests[0])
 
     def test_voice_failure_publishes_friendly_system_message(self) -> None:
         received = []
