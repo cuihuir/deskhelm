@@ -31,6 +31,8 @@ required because a newly opened remote TUI has no rollout for `thread/resume`
 until its first turn. Attachment makes the thread immediately targetable.
 Codex's `/resume` picker uses one additional short-lived proxy connection; it
 forwards normal app-server traffic but never owns voice approvals.
+Once that picker confirms its selected thread, the separate adapter observer
+resumes the same thread so later voice prompts target the visible TUI session.
 The adapter separately retries bounded `thread/resume` calls until its
 connection is subscribed to manually started turns. A successful DeskHelm
 `turn/start` also establishes the subscription. Explicit thread resume errors

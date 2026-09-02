@@ -97,6 +97,10 @@ TUI connection plus at most one short-lived auxiliary connection used by the
 Codex `/resume` session picker, opening one separate upstream WebSocket for
 each. The auxiliary connection forwards normal app-server traffic but never
 replaces the primary approval channel or participates in voice approval routing.
+After its `thread/resume` response confirms a thread identity, the proxy tells
+the separate adapter observer to resume the same thread before later voice
+controls are sent. This keeps the visible TUI thread and DeskHelm's voice target
+aligned without copying prompt or approval content between connections.
 Frames, queues, approval records, connection timeouts, and cleanup remain
 bounded. A full forwarding queue pauses upstream reads with bounded stop-aware
 polling so the local socket applies backpressure; transient saturation never

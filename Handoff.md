@@ -19,7 +19,23 @@ Bridge state and sessions
   -> physical controls
 ```
 
-### Latest Phase: Managed-TUI Resume Picker Connection
+### Latest Phase: Resume-Aware Voice Thread Targeting
+
+Status: implemented and software-verified on 2026-09-02; restart Alpha before
+using voice after a resumed session.
+
+- The resume-picker connection fixed in the previous phase allowed the TUI to
+  switch threads, but its separate DeskHelm adapter observer remained attached
+  to the prior thread. Voice prompts could therefore be submitted invisibly to
+  that old thread.
+- A confirmed proxied `thread/resume` now gives only the selected thread ID to
+  the adapter, which resumes its own observer connection before routing later
+  voice controls. Prompts, approval content, and rich interaction data remain
+  private to their original connections.
+- Resource-limited proxy and app-server adapter regressions pass 30/30,
+  including a voice prompt routed to the picker-selected thread.
+
+### Previous Phase: Managed-TUI Resume Picker Connection
 
 Status: implemented and software-verified on 2026-09-02; restart Alpha before
 retrying `/resume`.

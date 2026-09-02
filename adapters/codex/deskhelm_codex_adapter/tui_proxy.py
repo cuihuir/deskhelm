@@ -54,6 +54,7 @@ class TuiApprovalProxy(Protocol):
         self,
         on_approval_request: Callable[[ProxiedApprovalRequest], None],
         on_approval_resolved: Callable[[str], None],
+        on_thread_resumed: Callable[[str], None],
     ) -> None: ...
 
     def resolve_approval(self, token: str, decision: str) -> None: ...
@@ -84,6 +85,7 @@ class _SuppressedApproval:
 class _UpstreamMessage:
     value: dict[str, Any]
     track_approvals: bool
+    resume_requests: set[tuple[str, str]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +158,11 @@ class CodexTuiProxy:
         init=False,
         repr=False,
     )
+    _on_thread_resumed: Callable[[str], None] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         for path, name in (
@@ -188,8 +195,16 @@ class CodexTuiProxy:
         self,
         on_approval_request: Callable[[ProxiedApprovalRequest], None],
         on_approval_resolved: Callable[[str], None],
+        on_thread_resumed: Callable[[str], None],
     ) -> None:
-        if not callable(on_approval_request) or not callable(on_approval_resolved):
+        if not all(
+            callable(callback)
+            for callback in (
+                on_approval_request,
+                on_approval_resolved,
+                on_thread_resumed,
+            )
+        ):
             raise ValueError("proxy callbacks must be callable")
         with self._lock:
             if self._worker is not None:
@@ -210,6 +225,7 @@ class CodexTuiProxy:
             self._listener = listener
             self._on_approval_request = on_approval_request
             self._on_approval_resolved = on_approval_resolved
+            self._on_thread_resumed = on_thread_resumed
             self._stop.clear()
             worker = Thread(
                 target=self._run,
@@ -272,6 +288,7 @@ class CodexTuiProxy:
             self._worker = None
             self._on_approval_request = None
             self._on_approval_resolved = None
+            self._on_thread_resumed = None
         self.frontend_socket_path.unlink(missing_ok=True)
 
     def _run(self) -> None:
@@ -339,6 +356,7 @@ class CodexTuiProxy:
         events: Queue[object] = Queue(maxsize=self.max_queued_events)
         decisions: Queue[object] = Queue(maxsize=self.max_pending_approvals)
         connection_stop = Event()
+        resume_requests: set[tuple[str, str]] = set()
         with self._lock:
             if self._stop.is_set():
                 upstream.close()
@@ -351,7 +369,13 @@ class CodexTuiProxy:
                 self._connection_stop = connection_stop
         reader = Thread(
             target=self._read_upstream,
-            args=(upstream, events, connection_stop, is_primary),
+            args=(
+                upstream,
+                events,
+                connection_stop,
+                is_primary,
+                resume_requests,
+            ),
             name="deskhelm-codex-tui-upstream",
             daemon=True,
         )
@@ -377,6 +401,7 @@ class CodexTuiProxy:
                             upstream,
                             message,
                             track_approvals=is_primary,
+                            resume_requests=resume_requests,
                         )
                 elif processed == 0:
                     if not self._process_one_event(
@@ -406,13 +431,18 @@ class CodexTuiProxy:
         events: Queue[object],
         connection_stop: Event,
         track_approvals: bool,
+        resume_requests: set[tuple[str, str]],
     ) -> None:
         try:
             while not self._stop.is_set() and not connection_stop.is_set():
                 message = upstream.receive_message(0.1)
                 if message is None:
                     continue
-                event = _UpstreamMessage(message, track_approvals)
+                event = _UpstreamMessage(
+                    message,
+                    track_approvals,
+                    resume_requests,
+                )
                 while not self._stop.is_set() and not connection_stop.is_set():
                     try:
                         events.put(event, timeout=_QUEUE_POLL_SECONDS)
@@ -439,6 +469,7 @@ class CodexTuiProxy:
                 frontend,
                 event.value,
                 track_approvals=event.track_approvals,
+                resume_requests=event.resume_requests,
             )
         elif isinstance(event, _VoiceDecision):
             upstream.send_message(
@@ -472,8 +503,12 @@ class CodexTuiProxy:
         message: dict[str, Any],
         *,
         track_approvals: bool,
+        resume_requests: set[tuple[str, str]],
     ) -> None:
         frontend.send_message(message)
+        resumed_thread_id = _resumed_thread_id(message, resume_requests)
+        if resumed_thread_id:
+            self._notify_thread_resumed(resumed_thread_id)
         if not track_approvals:
             return
         method = message.get("method")
@@ -537,7 +572,11 @@ class CodexTuiProxy:
         message: dict[str, Any],
         *,
         track_approvals: bool,
+        resume_requests: set[tuple[str, str]],
     ) -> None:
+        resume_request = _resume_request_key(message)
+        if resume_request is not None:
+            resume_requests.add(resume_request)
         if not track_approvals:
             upstream.send_message(message)
             return
@@ -673,6 +712,15 @@ class CodexTuiProxy:
             return
         try:
             callback(token)
+        except Exception:
+            pass
+
+    def _notify_thread_resumed(self, thread_id: str) -> None:
+        callback = self._on_thread_resumed
+        if callback is None:
+            return
+        try:
+            callback(thread_id)
         except Exception:
             pass
 
@@ -893,3 +941,37 @@ def _rpc_id(value: object) -> str | int:
 
 def _rpc_key(value: str | int) -> tuple[str, str]:
     return ("string" if isinstance(value, str) else "integer", str(value))
+
+
+def _resume_request_key(message: dict[str, Any]) -> tuple[str, str] | None:
+    if message.get("method") != "thread/resume":
+        return None
+    try:
+        return _rpc_key(_rpc_id(message.get("id")))
+    except ValueError:
+        return None
+
+
+def _resumed_thread_id(
+    message: dict[str, Any],
+    resume_requests: set[tuple[str, str]],
+) -> str:
+    if "method" in message or "error" in message:
+        return ""
+    try:
+        request_key = _rpc_key(_rpc_id(message.get("id")))
+    except ValueError:
+        return ""
+    if request_key not in resume_requests:
+        return ""
+    resume_requests.discard(request_key)
+    result = message.get("result")
+    if not isinstance(result, dict):
+        return ""
+    thread = result.get("thread")
+    if not isinstance(thread, dict):
+        return ""
+    thread_id = thread.get("id")
+    if not isinstance(thread_id, str) or not thread_id or len(thread_id) > 512:
+        return ""
+    return thread_id

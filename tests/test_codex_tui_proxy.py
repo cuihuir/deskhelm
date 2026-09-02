@@ -145,12 +145,17 @@ class CodexTuiProxyTests(unittest.TestCase):
         self.upstream.start()
         self.requests: Queue = Queue()
         self.resolved: Queue[str] = Queue()
+        self.resumed: Queue[str] = Queue()
         self.proxy = CodexTuiProxy(
             frontend_socket_path=root / "frontend.sock",
             upstream_socket_path=self.upstream.socket_path,
             connect_timeout_seconds=1,
         )
-        self.proxy.start(self.requests.put, self.resolved.put)
+        self.proxy.start(
+            self.requests.put,
+            self.resolved.put,
+            self.resumed.put,
+        )
         self.tui = UnixWebSocketTransport(
             self.proxy.frontend_socket_path,
             connect_timeout_seconds=1,
@@ -214,6 +219,29 @@ class CodexTuiProxyTests(unittest.TestCase):
             self.upstream.receive(),
             {"id": "primary-approval", "result": {"decision": "accept"}},
         )
+
+    def test_auxiliary_session_picker_reports_the_confirmed_thread(self) -> None:
+        picker = UnixWebSocketTransport(
+            self.proxy.frontend_socket_path,
+            connect_timeout_seconds=1,
+        )
+        self.addCleanup(picker.close)
+        picker.connect()
+        resume = {
+            "method": "thread/resume",
+            "id": "picker-resume",
+            "params": {"threadId": "thread-resumed"},
+        }
+        picker.send_message(resume)
+        self.assertEqual(self.upstream.receive(connection_index=1), resume)
+        response = {
+            "id": "picker-resume",
+            "result": {"thread": {"id": "thread-resumed"}},
+        }
+        self.upstream.send(response, connection_index=1)
+
+        self.assertEqual(picker.receive_message(1), response)
+        self.assertEqual(self.resumed.get(timeout=1), "thread-resumed")
 
     def test_permissions_approval_grants_exact_subset_for_one_turn(self) -> None:
         permissions = {
@@ -364,7 +392,11 @@ class CodexTuiProxyTests(unittest.TestCase):
             connect_timeout_seconds=1,
             max_pending_approvals=1,
         )
-        self.proxy.start(self.requests.put, self.resolved.put)
+        self.proxy.start(
+            self.requests.put,
+            self.resolved.put,
+            self.resumed.put,
+        )
         self.tui = UnixWebSocketTransport(
             self.proxy.frontend_socket_path,
             connect_timeout_seconds=1,
@@ -404,7 +436,11 @@ class CodexTuiProxyTests(unittest.TestCase):
             connect_timeout_seconds=1,
             max_queued_events=1,
         )
-        self.proxy.start(self.requests.put, self.resolved.put)
+        self.proxy.start(
+            self.requests.put,
+            self.resolved.put,
+            self.resumed.put,
+        )
         self.tui = UnixWebSocketTransport(
             self.proxy.frontend_socket_path,
             connect_timeout_seconds=1,

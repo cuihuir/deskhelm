@@ -183,13 +183,15 @@ class _FakeTuiProxy:
     def __init__(self) -> None:
         self.on_request = None
         self.on_resolved = None
+        self.on_thread_resumed = None
         self.pending: set[str] = set()
         self.decisions: list[tuple[str, str]] = []
         self.closed = False
 
-    def start(self, on_request, on_resolved) -> None:
+    def start(self, on_request, on_resolved, on_thread_resumed) -> None:
         self.on_request = on_request
         self.on_resolved = on_resolved
+        self.on_thread_resumed = on_thread_resumed
 
     def inject(self, request: ProxiedApprovalRequest) -> None:
         self.pending.add(request.token)
@@ -207,6 +209,9 @@ class _FakeTuiProxy:
 
     def confirm_resolved(self, token: str) -> None:
         self.on_resolved(token)
+
+    def resume_thread(self, thread_id: str) -> None:
+        self.on_thread_resumed(thread_id)
 
     def close(self) -> None:
         self.closed = True
@@ -671,6 +676,30 @@ class CodexAppServerAdapterTests(unittest.TestCase):
         self.assertNotEqual(
             second_approval.payload.request_id,
             approval.payload.request_id,
+        )
+
+    def test_session_picker_resume_retargets_voice_prompts(self) -> None:
+        proxy = _FakeTuiProxy()
+        self._replace_adapter(tui_proxy=proxy)
+        self._wait_for(
+            lambda: self.adapter.attached_thread_id() == "thread-1"
+        )
+
+        proxy.resume_thread("thread-resumed")
+        self._wait_for(
+            lambda: self.adapter.subscribed_thread_id() == "thread-resumed"
+        )
+
+        result = self.router.route(self._prompt("语音新指令", "resumed"))
+        self.assertEqual(result.code, ControlResultCode.DISPATCHED)
+        self._wait_for(
+            lambda: bool(
+                self.transport.messages(
+                    lambda message: message.get("method") == "turn/start"
+                    and message.get("params", {}).get("threadId")
+                    == "thread-resumed"
+                )
+            )
         )
 
     def test_keyboard_resolution_clears_proxied_router_approval(self) -> None:

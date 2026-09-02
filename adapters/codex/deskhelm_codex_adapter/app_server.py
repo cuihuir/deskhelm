@@ -287,6 +287,7 @@ class CodexAppServerAdapter:
                     proxy.start(
                         self._handle_proxied_approval,
                         self._handle_proxied_approval_resolved,
+                        self._handle_proxied_thread_resumed,
                     )
             except BaseException:
                 if proxy is not None:
@@ -1066,6 +1067,21 @@ class CodexAppServerAdapter:
         router = self._router
         if request_id and router is not None:
             router.resolve_approval(request_id)
+
+    def _handle_proxied_thread_resumed(self, thread_id: str) -> None:
+        thread_id = _bounded_string(thread_id, "resumed thread_id")
+        with self._lock:
+            if self.thread_id and thread_id != self.thread_id:
+                return
+            if thread_id == self._attached_thread_id:
+                return
+            self._attached_thread_id = thread_id
+            self._subscribed_thread_id = ""
+            self._resume_thread_id = thread_id
+            self._active_turn_id = ""
+            self._active_correlation_id = ""
+            self._turn_submission_pending = ""
+            self._next_discovery_at = time.monotonic()
 
     def _handle_approval_request(
         self,
