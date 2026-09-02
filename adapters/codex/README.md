@@ -28,8 +28,10 @@ and exposes the real server-initiated command/file/permission approval request t
 adapter without copying its private content. The adapter performs the JSON-RPC initialization
 handshake and attaches directly to one loaded thread. Direct attachment is
 required because a newly opened remote TUI has no rollout for `thread/resume`
-until its first turn. Attachment makes the thread immediately targetable, but
-the adapter separately retries bounded `thread/resume` calls until its
+until its first turn. Attachment makes the thread immediately targetable.
+Codex's `/resume` picker uses one additional short-lived proxy connection; it
+forwards normal app-server traffic but never owns voice approvals.
+The adapter separately retries bounded `thread/resume` calls until its
 connection is subscribed to manually started turns. A successful DeskHelm
 `turn/start` also establishes the subscription. Explicit thread resume errors
 remain fail-closed, and bounded metadata reads exclude one positively

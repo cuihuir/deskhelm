@@ -19,7 +19,21 @@ Bridge state and sessions
   -> physical controls
 ```
 
-### Latest Phase: Explicit Managed-TUI YOLO Mode
+### Latest Phase: Managed-TUI Resume Picker Connection
+
+Status: implemented and software-verified on 2026-09-02; restart Alpha before
+retrying `/resume`.
+
+- The managed TUI proxy previously serialized all frontend connections. Codex
+  opens a second short-lived app-server connection for its `/resume` picker,
+  so that connection could not complete its WebSocket handshake.
+- The proxy now permits one bounded auxiliary picker connection alongside the
+  primary TUI. It forwards normal app-server frames only and cannot replace the
+  primary approval channel or receive voice approval decisions.
+- Resource-limited TUI-proxy, app-server adapter, and Alpha tests pass 46/46,
+  including a primary-approval regression while the auxiliary picker connects.
+
+### Previous Phase: Explicit Managed-TUI YOLO Mode
 
 Status: implemented and software-verified on 2026-09-02.
 

@@ -92,17 +92,21 @@ later explicit selection interface exists. Frames, queues, requests, pending
 approvals, pending user-input requests, timeouts, and reconnect backoff remain
 bounded.
 
-The TUI proxy is also dependency-free and bounded. It accepts one local TUI
-connection at a time, opens a separate upstream WebSocket connection, and uses
-bounded frames, queues, approval records, connection timeouts, and cleanup. A
-full forwarding queue pauses upstream reads with bounded stop-aware polling so
-the local socket applies backpressure; transient saturation never drops,
-reorders, or disconnects an otherwise healthy streamed turn. Voice decisions
-use a separate bounded priority queue so they do not compete with streamed
-notifications. A command or file approval request is forwarded to the TUI
-before the adapter is notified with a proxy-local correlation token. A voice decision sends the
-response on that original upstream connection. A later duplicate TUI response
-for the same JSON-RPC request is suppressed even when it arrives after
+The TUI proxy is also dependency-free and bounded. It accepts one primary local
+TUI connection plus at most one short-lived auxiliary connection used by the
+Codex `/resume` session picker, opening one separate upstream WebSocket for
+each. The auxiliary connection forwards normal app-server traffic but never
+replaces the primary approval channel or participates in voice approval routing.
+Frames, queues, approval records, connection timeouts, and cleanup remain
+bounded. A full forwarding queue pauses upstream reads with bounded stop-aware
+polling so the local socket applies backpressure; transient saturation never
+drops, reorders, or disconnects an otherwise healthy streamed turn. Voice
+decisions use a separate bounded priority queue so they do not compete with
+streamed notifications. A command or file approval request on the primary TUI
+is forwarded before the adapter is notified with a proxy-local correlation
+token. A voice decision sends the response on that original upstream channel.
+A later duplicate TUI response for the same JSON-RPC request is suppressed even
+when it arrives after
 `serverRequest/resolved`. The suppression record is bounded, retained only
 until the late response or a fixed post-resolution expiry, and reports one
 resolution callback so the next approval in the same turn can notify again. If

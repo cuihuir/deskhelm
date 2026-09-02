@@ -244,6 +244,9 @@ Keep third-party reference files outside version control under
   duplicate-response suppression through `serverRequest/resolved` and until the
   late TUI response or a fixed expiry; notify approval resolution exactly once
   so a later approval in the same turn can announce and route independently.
+  Allow at most one additional short-lived TUI connection for Codex's `/resume`
+  session picker. It may forward app-server traffic but must never replace the
+  primary TUI's approval channel or participate in voice approval routing.
   Keep thread attachment separate from event subscription: attach directly to
   one unambiguous loaded thread so a new empty remote TUI accepts controls before
   its first rollout exists, then retry bounded `thread/resume` calls until that

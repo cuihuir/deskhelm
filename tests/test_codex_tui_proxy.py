@@ -34,7 +34,8 @@ class _FakeUpstreamServer:
         self.connected = Event()
         self.failure: list[BaseException] = []
         self._listener: socket.socket | None = None
-        self._connection: socket.socket | None = None
+        self._connections: list[socket.socket] = []
+        self._connections_lock = Lock()
         self._send_lock = Lock()
         self._worker = Thread(target=self._accept, daemon=True)
 
@@ -43,8 +44,8 @@ class _FakeUpstreamServer:
         if not self.ready.wait(timeout=1):
             raise AssertionError("fake upstream did not start")
 
-    def send(self, value: dict) -> None:
-        connection = self._require_connection()
+    def send(self, value: dict, connection_index: int = 0) -> None:
+        connection = self._require_connection(connection_index)
         payload = json.dumps(value, separators=(",", ":")).encode("utf-8")
         with self._send_lock:
             connection.sendall(_server_frame(payload))
@@ -58,8 +59,10 @@ class _FakeUpstreamServer:
         with self._send_lock:
             connection.sendall(frames)
 
-    def receive(self, timeout_seconds: float = 1.0) -> dict | None:
-        connection = self._require_connection()
+    def receive(
+        self, timeout_seconds: float = 1.0, connection_index: int = 0
+    ) -> dict | None:
+        connection = self._require_connection(connection_index)
         connection.settimeout(timeout_seconds)
         try:
             return _read_client_json(connection)
@@ -67,9 +70,10 @@ class _FakeUpstreamServer:
             return None
 
     def close(self) -> None:
-        connection = self._connection
-        self._connection = None
-        if connection is not None:
+        with self._connections_lock:
+            connections = tuple(self._connections)
+            self._connections.clear()
+        for connection in connections:
             try:
                 connection.shutdown(socket.SHUT_RDWR)
             except OSError:
@@ -87,37 +91,50 @@ class _FakeUpstreamServer:
             listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self._listener = listener
             listener.bind(str(self.socket_path))
-            listener.listen(1)
+            listener.listen(2)
             self.ready.set()
-            connection, _ = listener.accept()
-            header = _read_until(connection, b"\r\n\r\n")
-            key = _header_value(header, "Sec-WebSocket-Key")
-            accept = base64.b64encode(
-                hashlib.sha1((key + WEBSOCKET_GUID).encode("ascii")).digest()
-            ).decode("ascii")
-            connection.sendall(
-                (
-                    "HTTP/1.1 101 Switching Protocols\r\n"
-                    "Upgrade: websocket\r\n"
-                    "Connection: Upgrade\r\n"
-                    f"Sec-WebSocket-Accept: {accept}\r\n"
-                    "\r\n"
-                ).encode("ascii")
-            )
-            self._connection = connection
-            self.connected.set()
+            while True:
+                connection, _ = listener.accept()
+                header = _read_until(connection, b"\r\n\r\n")
+                key = _header_value(header, "Sec-WebSocket-Key")
+                accept = base64.b64encode(
+                    hashlib.sha1(
+                        (key + WEBSOCKET_GUID).encode("ascii")
+                    ).digest()
+                ).decode("ascii")
+                connection.sendall(
+                    (
+                        "HTTP/1.1 101 Switching Protocols\r\n"
+                        "Upgrade: websocket\r\n"
+                        "Connection: Upgrade\r\n"
+                        f"Sec-WebSocket-Accept: {accept}\r\n"
+                        "\r\n"
+                    ).encode("ascii")
+                )
+                with self._connections_lock:
+                    self._connections.append(connection)
+                self.connected.set()
         except BaseException as error:
-            self.failure.append(error)
-            self.connected.set()
+            if self._listener is not None:
+                self.failure.append(error)
+                self.connected.set()
 
-    def _require_connection(self) -> socket.socket:
+    def _require_connection(self, connection_index: int = 0) -> socket.socket:
         if not self.connected.wait(timeout=1):
             raise AssertionError("proxy did not connect upstream")
         if self.failure:
             raise AssertionError("fake upstream failed") from self.failure[0]
-        if self._connection is None:
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            with self._connections_lock:
+                if len(self._connections) > connection_index:
+                    return self._connections[connection_index]
+            time.sleep(0.01)
+        with self._connections_lock:
+            connection_count = len(self._connections)
+        if connection_count <= connection_index:
             raise AssertionError("fake upstream has no connection")
-        return self._connection
+        raise AssertionError("fake upstream connection index is invalid")
 
 
 class CodexTuiProxyTests(unittest.TestCase):
@@ -165,6 +182,37 @@ class CodexTuiProxyTests(unittest.TestCase):
         self.assertEqual(
             self.upstream.receive(),
             {"id": "approval-1", "result": {"decision": "accept"}},
+        )
+
+    def test_auxiliary_session_picker_connection_keeps_primary_approvals_owned(self) -> None:
+        picker = UnixWebSocketTransport(
+            self.proxy.frontend_socket_path,
+            connect_timeout_seconds=1,
+        )
+        self.addCleanup(picker.close)
+        picker.connect()
+
+        picker_request = {"method": "thread/list", "id": 2, "params": {}}
+        picker.send_message(picker_request)
+        self.assertEqual(
+            self.upstream.receive(connection_index=1),
+            picker_request,
+        )
+        picker_approval = _approval("picker-approval")
+        self.upstream.send(picker_approval, connection_index=1)
+        self.assertEqual(picker.receive_message(1), picker_approval)
+        with self.assertRaises(Empty):
+            self.requests.get(timeout=0.05)
+
+        primary_approval = _approval("primary-approval")
+        self.upstream.send(primary_approval)
+        self.assertEqual(self.tui.receive_message(1), primary_approval)
+        request = self.requests.get(timeout=1)
+        self.assertEqual(request.rpc_id, "primary-approval")
+        self.proxy.resolve_approval(request.token, "accept")
+        self.assertEqual(
+            self.upstream.receive(),
+            {"id": "primary-approval", "result": {"decision": "accept"}},
         )
 
     def test_permissions_approval_grants_exact_subset_for_one_turn(self) -> None:

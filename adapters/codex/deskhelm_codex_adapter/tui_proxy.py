@@ -38,6 +38,7 @@ _ACCEPT_POLL_SECONDS = 0.1
 _CONNECTION_POLL_SECONDS = 0.02
 _QUEUE_POLL_SECONDS = 0.1
 _RESOLVED_SUPPRESSION_MILLISECONDS = 30_000
+_MAX_TUI_CONNECTIONS = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +83,7 @@ class _SuppressedApproval:
 @dataclass(frozen=True, slots=True)
 class _UpstreamMessage:
     value: dict[str, Any]
+    track_approvals: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +128,8 @@ class CodexTuiProxy:
         repr=False,
     )
     _connection_generation: int = field(default=0, init=False)
+    _primary_connection_generation: int = field(default=0, init=False)
+    _active_connection_count: int = field(default=0, init=False)
     _next_token: int = field(default=1, init=False)
     _pending_by_token: dict[str, _PendingApproval] = field(
         default_factory=dict,
@@ -196,7 +200,8 @@ class CodexTuiProxy:
             try:
                 listener.bind(str(self.frontend_socket_path))
                 self.frontend_socket_path.chmod(0o600)
-                listener.listen(1)
+                # Codex opens a short-lived second connection for /resume.
+                listener.listen(_MAX_TUI_CONNECTIONS)
                 listener.settimeout(_ACCEPT_POLL_SECONDS)
             except BaseException:
                 listener.close()
@@ -280,14 +285,46 @@ class CodexTuiProxy:
                 continue
             except OSError:
                 return
-            try:
-                self._serve_connection(connection)
-            except Exception:
-                pass
-            finally:
-                connection.close()
+            with self._lock:
+                if self._active_connection_count >= _MAX_TUI_CONNECTIONS:
+                    connection.close()
+                    continue
+                self._active_connection_count += 1
+                self._connection_generation += 1
+                generation = self._connection_generation
+                is_primary = self._primary_connection_generation == 0
+                if is_primary:
+                    self._primary_connection_generation = generation
+            Thread(
+                target=self._serve_accepted_connection,
+                args=(connection, generation, is_primary),
+                name="deskhelm-codex-tui-connection",
+                daemon=True,
+            ).start()
 
-    def _serve_connection(self, connection: socket.socket) -> None:
+    def _serve_accepted_connection(
+        self,
+        connection: socket.socket,
+        generation: int,
+        is_primary: bool,
+    ) -> None:
+        try:
+            self._serve_connection(connection, generation, is_primary)
+        except Exception:
+            pass
+        finally:
+            connection.close()
+            if is_primary:
+                self._clear_connection(generation)
+            with self._lock:
+                self._active_connection_count -= 1
+
+    def _serve_connection(
+        self,
+        connection: socket.socket,
+        generation: int,
+        is_primary: bool,
+    ) -> None:
         frontend = _ServerWebSocketConnection(
             connection,
             max_message_bytes=self.max_message_bytes,
@@ -306,16 +343,15 @@ class CodexTuiProxy:
             if self._stop.is_set():
                 upstream.close()
                 return
-            self._connection_generation += 1
-            generation = self._connection_generation
-            self._frontend = frontend
-            self._upstream = upstream
-            self._events = events
-            self._decisions = decisions
-            self._connection_stop = connection_stop
+            if is_primary:
+                self._frontend = frontend
+                self._upstream = upstream
+                self._events = events
+                self._decisions = decisions
+                self._connection_stop = connection_stop
         reader = Thread(
             target=self._read_upstream,
-            args=(upstream, events, connection_stop),
+            args=(upstream, events, connection_stop, is_primary),
             name="deskhelm-codex-tui-upstream",
             daemon=True,
         )
@@ -337,7 +373,11 @@ class CodexTuiProxy:
                 if frontend.has_input():
                     message = frontend.receive_message(0.1)
                     if message is not None:
-                        self._handle_tui_message(upstream, message)
+                        self._handle_tui_message(
+                            upstream,
+                            message,
+                            track_approvals=is_primary,
+                        )
                 elif processed == 0:
                     if not self._process_one_event(
                         frontend,
@@ -350,26 +390,29 @@ class CodexTuiProxy:
                             events,
                             timeout_seconds=_CONNECTION_POLL_SECONDS,
                         )
-                self._expire_pending()
+                if is_primary:
+                    self._expire_pending()
         finally:
             connection_stop.set()
             upstream.close()
             frontend.close()
             reader.join(timeout=1.0)
-            self._clear_connection(generation)
+            if is_primary:
+                self._clear_connection(generation)
 
     def _read_upstream(
         self,
         upstream: AppServerTransport,
         events: Queue[object],
         connection_stop: Event,
+        track_approvals: bool,
     ) -> None:
         try:
             while not self._stop.is_set() and not connection_stop.is_set():
                 message = upstream.receive_message(0.1)
                 if message is None:
                     continue
-                event = _UpstreamMessage(message)
+                event = _UpstreamMessage(message, track_approvals)
                 while not self._stop.is_set() and not connection_stop.is_set():
                     try:
                         events.put(event, timeout=_QUEUE_POLL_SECONDS)
@@ -392,7 +435,11 @@ class CodexTuiProxy:
         except Empty:
             return False
         if isinstance(event, _UpstreamMessage):
-            self._handle_upstream_message(frontend, event.value)
+            self._handle_upstream_message(
+                frontend,
+                event.value,
+                track_approvals=event.track_approvals,
+            )
         elif isinstance(event, _VoiceDecision):
             upstream.send_message(
                 {
@@ -423,8 +470,12 @@ class CodexTuiProxy:
         self,
         frontend: _ServerWebSocketConnection,
         message: dict[str, Any],
+        *,
+        track_approvals: bool,
     ) -> None:
         frontend.send_message(message)
+        if not track_approvals:
+            return
         method = message.get("method")
         if method == _SERVER_REQUEST_RESOLVED:
             params = message.get("params")
@@ -484,7 +535,12 @@ class CodexTuiProxy:
         self,
         upstream: AppServerTransport,
         message: dict[str, Any],
+        *,
+        track_approvals: bool,
     ) -> None:
+        if not track_approvals:
+            upstream.send_message(message)
+            return
         if "method" in message or "id" not in message:
             upstream.send_message(message)
             return
@@ -592,7 +648,7 @@ class CodexTuiProxy:
 
     def _clear_connection(self, generation: int) -> None:
         with self._lock:
-            if generation != self._connection_generation:
+            if generation != self._primary_connection_generation:
                 return
             unresolved = tuple(self._pending_by_token) + tuple(
                 suppressed.token
@@ -607,6 +663,7 @@ class CodexTuiProxy:
             self._events = None
             self._decisions = None
             self._connection_stop = None
+            self._primary_connection_generation = 0
         for token in unresolved:
             self._notify_resolved(token)
 
