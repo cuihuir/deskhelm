@@ -61,11 +61,11 @@ temporary sockets. No DeskHelm process is running.
 
 Open issues:
 
-- Not yet exercised by a person: the voice host's speech path (hold right
-  Alt and speak, then hear a notice). The user checked the v2 page and the
-  dashboard on 2026-11-03: both stay in sync. Their first voice start
-  failed because the configured USB microphone was unplugged, which is the
-  intended refusal; the message now names the setting and `--default-source`.
+- Checked by the user on 2026-11-03: the v2 page and the dashboard stay in
+  sync, and the voice host's speech path works end to end with
+  `--default-source`. Their first voice start failed because the configured
+  USB microphone was unplugged, which is the intended refusal; the message
+  now names the setting and `--default-source`.
 - The page still merges the interaction stream in the browser; the target
   view model in Python is not done. The browser sends no idempotency key,
   which matters only if a POST is retried.
