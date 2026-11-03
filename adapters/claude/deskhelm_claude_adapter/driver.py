@@ -17,6 +17,7 @@ import uuid
 
 from deskhelm_host.driver import FactSink, SessionState
 from deskhelm_host.vendor import VendorClosed, VendorProcess
+from deskhelm_protocol.model import MAX_TEXT_CHARS as MAX_REPLY_CHARS
 from deskhelm_protocol import (
     ApprovalOverflow,
     ApprovalSupport,
@@ -100,6 +101,8 @@ class ClaudeSession:
         self._assistant_ref = ""
         self._assistant_seen = False
         self._delta = ""
+        # What streamed of the current reply, for a reply that is cut off.
+        self._streamed = ""
         self._catalog: dict[str, Any] | None = None
         self._reader: Thread | None = None
 
@@ -158,7 +161,7 @@ class ClaudeSession:
             starts_turn = self._turn_ref is None
             if starts_turn:
                 self._turn_ref = command_id
-                self._assistant_ref, self._assistant_seen, self._delta = "", False, ""
+                self._assistant_ref, self._assistant_seen, self._delta, self._streamed = "", False, "", ""
             self._emit(
                 FactKind.MESSAGE,
                 {"message_ref": command_id, "role": "user", "phase": "complete", "command_id": command_id},
@@ -225,6 +228,7 @@ class ClaudeSession:
             delta = event.get("delta") if isinstance(event, dict) else None
             if isinstance(delta, dict) and delta.get("type") == "text_delta" and isinstance(delta.get("text"), str):
                 self._delta += delta["text"]
+                self._streamed = (self._streamed + delta["text"])[:MAX_REPLY_CHARS]
                 self._assistant_seen = True
                 self._assistant_ref = self._assistant_ref or uuid.uuid4().hex
         elif kind == "assistant":
@@ -315,7 +319,8 @@ class ClaudeSession:
         failed = value.get("is_error") is True or value.get("subtype") not in {None, "success"}
         result = value.get("result") if isinstance(value.get("result"), str) else ""
         if self._assistant_ref:
-            self._emit_assistant("complete", "")
+            # Cut off before Claude sent the whole reply: complete with what streamed.
+            self._emit_assistant("complete", self._streamed)
         if not failed and result and not self._assistant_seen:
             self._complete_assistant(result)
         if self._interrupting:
@@ -379,13 +384,15 @@ class ClaudeSession:
             self._emit_assistant("delta", text)
 
     def _emit_assistant(self, phase: str, text: str) -> None:
+        # A complete reply replaces what streamed, so it keeps up to the
+        # protocol's limit; deltas stay small.
         self._emit(
             FactKind.MESSAGE,
             {"message_ref": self._assistant_ref, "role": "assistant", "phase": phase},
-            {"text": _clip(text)},
+            {"text": text[:MAX_REPLY_CHARS] if phase == "complete" else _clip(text)},
         )
         if phase == "complete":
-            self._assistant_ref = ""
+            self._assistant_ref, self._streamed = "", ""
 
     def _finish_turn(self, meta: dict[str, Any]) -> None:
         for provider_ref in list(self._pending):

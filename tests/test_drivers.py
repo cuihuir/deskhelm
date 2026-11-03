@@ -83,6 +83,29 @@ class ClaudeDriverTests(_DriverCase):
             "request": {"subtype": "can_use_tool", "tool_name": tool, "input": {"command": "secret-argument"}},
         }
 
+    def delta(self, text: str) -> dict:
+        return {"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": text}}}
+
+    def replies(self) -> list[str]:
+        return [content["text"] for meta, content in self.facts.of(FactKind.MESSAGE)
+                if meta["role"] == "assistant" and meta["phase"] == "complete"]
+
+    def test_a_reply_cut_off_mid_stream_completes_with_what_streamed(self) -> None:
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "write"})
+        self.feed(self.delta("Hello "), self.delta("there"), {"type": "result", "subtype": "success", "result": ""})
+        self.facts.wait_for(FactKind.TURN_TERMINAL)
+
+        self.assertEqual(self.replies(), ["Hello there"])
+
+    def test_a_long_reply_completes_whole(self) -> None:
+        text = "x" * 20_000
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "write"})
+        self.feed({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}},
+                  {"type": "result", "subtype": "success", "result": text})
+        self.facts.wait_for(FactKind.TURN_TERMINAL)
+
+        self.assertEqual(self.replies(), [text])
+
     def test_approval_overflow_is_declined_instead_of_dropped(self) -> None:
         self.feed(*(self.control_request(f"req-{index}") for index in range(MAX_PENDING_APPROVALS + 1)))
         self.facts.wait_for(FactKind.REQUEST_OPENED, MAX_PENDING_APPROVALS)

@@ -434,6 +434,22 @@ class ProjectionTests(unittest.TestCase):
 
         self.assertEqual((replaced["replace"], "replace" in extended), (True, False))
 
+    def test_a_completed_message_leaves_its_deltas_out_of_the_window(self) -> None:
+        harness = _Harness()
+        harness.host("host")
+        harness.fact("host", "message", {"message_ref": "u1", "role": "user", "phase": "complete"}, {"text": "go"})
+        for piece in ("Hel", "lo"):
+            harness.fact("host", "message", {"message_ref": "a1", "role": "assistant", "phase": "delta"}, {"text": piece})
+        harness.fact("host", "message", {"message_ref": "a1", "role": "assistant", "phase": "complete"}, {"text": "Hello"})
+        for piece in ("cut", " off"):
+            harness.fact("host", "message", {"message_ref": "a2", "role": "assistant", "phase": "delta"}, {"text": piece})
+        harness.fact("host", "message", {"message_ref": "a2", "role": "assistant", "phase": "complete"}, {"text": ""})
+        harness.client("web", streams=("interaction",))
+        replayed = [frame["event"]["payload"] for frame in harness.take("web", "interaction")]
+
+        self.assertEqual([(payload["phase"], payload["text"]) for payload in replayed],
+                         [("complete", "go"), ("complete", "Hello"), ("delta", "cut"), ("delta", " off"), ("complete", "")])
+
     def test_only_the_operator_tier_reads_interaction_content(self) -> None:
         harness = _Harness()
         harness.client("device", tier="device", streams=("interaction",))

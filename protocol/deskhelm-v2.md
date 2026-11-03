@@ -151,7 +151,10 @@ for the operator tier only; `sessions` is optional. The Bridge answers with
 replays each session's recent window as `interaction` frames with
 `"replay": true`, and then sends live `interaction` frames. The window is
 bounded per session (200 events, 256 KiB), held in memory only, never
-written to disk, and dropped when the session ends. Interaction events keep
+written to disk, and dropped when the session ends. A message's `complete`
+fact carries its whole text, even after deltas, so the window drops that
+message's deltas once it completes and a long streamed reply cannot push
+earlier activity out. Interaction events keep
 the v1 `InteractionEvent` shape; approval events name the Bridge approval id
 as `request_id`.
 

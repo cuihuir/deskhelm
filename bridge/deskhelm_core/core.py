@@ -781,6 +781,10 @@ class Core:
             "correlation_id": correlation,
             "payload": payload,
         }
+        if kind == "message" and payload.get("phase") == "complete" and payload.get("text"):
+            # A complete message carries its whole text, so its deltas leave the
+            # window instead of crowding out earlier activity.
+            self._drop_deltas(record, correlation, payload.get("role"))
         size = len(json.dumps(event, ensure_ascii=False))
         record.window.append(event)
         record.window_bytes += size
@@ -794,6 +798,21 @@ class Core:
         for state in self._connections.values():
             if Stream.INTERACTION in state.streams and _wanted(state, record.key):
                 self._send(state.connection_id, frame)
+
+    def _drop_deltas(self, record: SessionRecord, correlation: str, role: object) -> None:
+        kept: deque[dict[str, Any]] = deque()
+        for event in record.window:
+            payload = event["payload"]
+            if (
+                event["kind"] == "message"
+                and event["correlation_id"] == correlation
+                and payload.get("phase") == "delta"
+                and payload.get("role") == role
+            ):
+                record.window_bytes -= len(json.dumps(event, ensure_ascii=False))
+            else:
+                kept.append(event)
+        record.window = kept
 
     def _set_focus(self, key: SessionKey | None) -> None:
         if self._focus != key:
