@@ -31,6 +31,14 @@ Required fields are `agent_id`, `slot`, and `state`. Valid states are:
 
 `slot` is zero-based. `progress`, when present, is a number from `0` to `1`. `updated_at` is Unix time in milliseconds. Phase 0 transports one event per line over a local Unix domain stream socket.
 
+## Protocol v2
+
+[`deskhelm-v2.md`](deskhelm-v2.md) defines the architecture v2 protocol from
+ADR 0043: host and client roles on one socket, content-free facts, effects
+with receipts, a resumable console projection, a bounded interaction window,
+and commands that name Bridge approval ids. The v1 documents below describe
+the Bridge that v2 replaces.
+
 ## Rich Interaction Protocol
 
 - [`local-transport-v1.md`](local-transport-v1.md) defines framing,
