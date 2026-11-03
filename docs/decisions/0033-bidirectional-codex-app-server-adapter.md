@@ -193,3 +193,24 @@ working directory from app-server protocol fields.
   single user thread ambiguous.
 - Production adoption requires a later review after Codex declares the
   app-server WebSocket transport supported and stable.
+
+## Amendment: Subscription in Codex 0.166.0 (2026-11-03)
+
+A live check of `deskhelm_host codex` against Codex CLI 0.166.0 showed three
+behaviors that differ from the assumptions above:
+
+- `turn/start` does not subscribe the connection that sends it. That
+  connection receives the response but no turn or item events. The adapter
+  therefore keeps retrying `thread/resume` after its own first prompt. The
+  retry succeeds once the first user message creates a rollout.
+- `thread/status/changed` reaches every connection, subscribed or not, so it
+  does not prove subscription either. Only a resume result, a server request,
+  or turn events on the adapter connection prove it.
+- A subscribed adapter receives each server request that the TUI receives.
+  With a TUI proxy, the adapter ignores its own copy of an approval request,
+  and the decision still travels on the TUI's channel. Without a proxy, it
+  answers the request directly as before.
+
+Codex sends a user message as both `item/started` and `item/completed`. Only
+`item/completed` is published, so ADR 0042 echo suppression consumes one
+copy. User input requests still reach the adapter directly.

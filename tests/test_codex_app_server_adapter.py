@@ -541,20 +541,35 @@ class CodexAppServerAdapterTests(unittest.TestCase):
         self.assertIs(terminal.kind, InteractionKind.TASK_COMPLETED)
         self.assertEqual(terminal.correlation_id, "turn-manual")
 
-    def test_first_prompt_subscribes_thread_without_rollout(self) -> None:
+    def test_first_prompt_keeps_resuming_until_the_thread_is_subscribed(self) -> None:
+        # Starting a turn does not subscribe this connection (Codex 0.166.0),
+        # so resume retries go on until the first message creates a rollout.
         transport = _FakeAppServerTransport()
         transport.resume_missing_rollout = True
         self._replace_adapter(transport)
-        self._wait_for(
-            lambda: bool(
+
+        def resumes() -> int:
+            return len(
                 transport.messages(
                     lambda message: message.get("method") == "thread/resume"
                 )
             )
-        )
 
+        self._wait_for(lambda: resumes() > 0)
         command = self._prompt("continue from voice", "empty-thread")
         result = self.router.route(command, now_ms=command.issued_at)
+        self._wait_for(
+            lambda: bool(
+                transport.messages(
+                    lambda message: message.get("method") == "turn/start"
+                )
+            )
+        )
+        after_prompt = resumes()
+        self._wait_for(lambda: resumes() > after_prompt)
+        self.assertEqual(self.adapter.subscribed_thread_id(), "")
+
+        transport.resume_missing_rollout = False
         self._wait_for(
             lambda: self.adapter.subscribed_thread_id() == "thread-1"
         )
@@ -743,6 +758,37 @@ class CodexAppServerAdapterTests(unittest.TestCase):
 
         self.assertEqual(result.code, ControlResultCode.DISPATCHED)
         self.assertEqual(self.router.pending_approval_count(), 0)
+
+    def test_with_a_tui_proxy_the_direct_copy_of_an_approval_is_ignored(self) -> None:
+        # Codex sends one request to every subscribed connection.
+        proxy = _FakeTuiProxy()
+        self._replace_adapter(tui_proxy=proxy)
+        params = {"threadId": "thread-1", "turnId": "turn-manual", "itemId": "item-1"}
+        self.transport.inject(
+            {"method": "item/commandExecution/requestApproval", "id": 0, "params": params}
+        )
+        proxy.inject(
+            ProxiedApprovalRequest(
+                token="proxy-approval-1",
+                rpc_id=0,
+                method="item/commandExecution/requestApproval",
+                params=params,
+            )
+        )
+
+        approval = self._take(InteractionKind.APPROVAL_REQUEST)
+        self._wait_for(lambda: self.transport.incoming.empty())
+        time.sleep(0.05)
+
+        self.assertEqual(self.router.pending_approval_count(), 1)
+        self.assertEqual(self.transport.messages(lambda message: message.get("id") == 0), [])
+        self.assertFalse(
+            any(
+                event.kind is InteractionKind.APPROVAL_REQUEST
+                for event in self._pending_events()
+            )
+        )
+        self.assertTrue(approval.payload.request_id)
 
     def test_proxied_tui_approval_routes_voice_on_original_channel(self) -> None:
         proxy = _FakeTuiProxy()
@@ -1494,6 +1540,41 @@ class CodexAppServerAdapterTests(unittest.TestCase):
 
         self.assertEqual(echoed.payload.text, "typed in the terminal")
         self.assertEqual(echoed.correlation_id, "typed-in-tui")
+        self.assertFalse(
+            any(
+                event.kind is InteractionKind.MESSAGE
+                for event in self._pending_events()
+            )
+        )
+
+    def test_a_started_and_completed_user_item_is_one_message(self) -> None:
+        command = self._prompt("echoed twice", "echo-twice")
+        self.router.route(command, now_ms=command.issued_at)
+        self._take(InteractionKind.MESSAGE)
+        for method, item_id, text in (
+            ("item/started", "vendor-echo", "echoed twice"),
+            ("item/completed", "vendor-echo", "echoed twice"),
+            ("item/started", "typed", "typed in the terminal"),
+            ("item/completed", "typed", "typed in the terminal"),
+        ):
+            self.transport.inject(
+                {
+                    "method": method,
+                    "params": {
+                        "threadId": "thread-1",
+                        "item": {
+                            "id": item_id,
+                            "type": "userMessage",
+                            "content": [{"type": "text", "text": text}],
+                        },
+                    },
+                }
+            )
+        typed = self._take(InteractionKind.MESSAGE)
+        self._wait_for(lambda: self.transport.incoming.empty())
+        time.sleep(0.05)
+
+        self.assertEqual((typed.correlation_id, typed.payload.text), ("typed", "typed in the terminal"))
         self.assertFalse(
             any(
                 event.kind is InteractionKind.MESSAGE

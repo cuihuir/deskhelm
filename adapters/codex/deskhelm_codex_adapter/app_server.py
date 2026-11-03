@@ -964,7 +964,8 @@ class CodexAppServerAdapter:
             with self._lock:
                 if self._active_turn_id and self._active_turn_id != turn_id:
                     raise RuntimeError("Codex returned a different active turn")
-                self._subscribed_thread_id = request.thread_id
+                # Starting a turn does not subscribe this connection to its
+                # events (Codex 0.166.0), so thread/resume retries continue.
                 self._active_turn_id = turn_id
                 self._active_correlation_id = request.command_id
                 if self._turn_submission_pending == request.command_id:
@@ -1248,7 +1249,13 @@ class CodexAppServerAdapter:
             _FILE_APPROVAL_METHOD,
             _PERMISSIONS_APPROVAL_METHOD,
         }:
-            self._handle_approval_request(rpc_id, rpc_key, method, params)
+            with self._lock:
+                proxied = self._tui_proxy is not None
+            # Codex sends a request to every subscribed connection. With a
+            # managed TUI, its proxied copy carries the decision, and this
+            # copy would make one approval appear twice.
+            if not proxied:
+                self._handle_approval_request(rpc_id, rpc_key, method, params)
             return
         if method == _USER_INPUT_METHOD:
             self._handle_user_input_request(rpc_id, rpc_key, params)
@@ -1469,9 +1476,10 @@ class CodexAppServerAdapter:
         waiting = _status_waiting_on_approval(status_value)
         publish = False
         with self._lock:
+            # Codex sends status changes to every connection, subscribed or
+            # not, so a status change proves no subscription.
             if not self._matches_attaching_thread_locked(thread_id):
                 return
-            self._subscribed_thread_id = thread_id
             if waiting == self._waiting_on_approval:
                 return
             self._waiting_on_approval = waiting
@@ -2135,6 +2143,10 @@ def _thread_item_drafts(
         return []
     started = method == "item/started"
     if item_type == "userMessage":
+        # Codex 0.166.0 sends a user message as both item/started and
+        # item/completed with the same text; publish it once.
+        if started:
+            return []
         text = _user_item_text(item)
         if not text:
             return []
