@@ -27,9 +27,24 @@ from deskhelm_grok_adapter.runtime import GrokRelayRuntime
 
 
 FIXTURE_DIR = ROOT / "tests" / "fixtures" / "protocol"
+_PERMISSION_REQUEST = {
+    "jsonrpc": "2.0",
+    "id": 21,
+    "method": "session/request_permission",
+    "params": {
+        "toolCall": {"kind": "execute"},
+        "options": [
+            {"optionId": "allow-once", "kind": "allow_once"},
+            {"optionId": "reject-once", "kind": "reject_once"},
+        ],
+    },
+}
 
 
 class _Facade:
+    def __init__(self) -> None:
+        self.resolved: list[str] = []
+
     def register_handler(self, kind, handler):
         del kind, handler
         return lambda: None
@@ -37,6 +52,11 @@ class _Facade:
     def register_catalog_provider(self, provider):
         del provider
         return lambda: None
+
+    def resolve_approval(self, request_id: str, *, now_ms: int | None = None) -> bool:
+        del now_ms
+        self.resolved.append(request_id)
+        return True
 
 
 class RelayRuntimeDeliveryTests(unittest.TestCase):
@@ -49,6 +69,7 @@ class RelayRuntimeDeliveryTests(unittest.TestCase):
         self.listener.bind(str(self.relay_path))
         self.listener.listen(1)
         self.published: list = []
+        self.facade = _Facade()
 
     def test_grok_prompt_before_the_session_is_ready_is_undelivered_at_once(self) -> None:
         runtime, _ = self._start(GrokRelayRuntime, RUNTIME_KIND_GROK)
@@ -62,11 +83,7 @@ class RelayRuntimeDeliveryTests(unittest.TestCase):
 
     def test_grok_prompt_after_the_session_is_ready_is_written(self) -> None:
         runtime, peer = self._start(GrokRelayRuntime, RUNTIME_KIND_GROK)
-        peer.sendall(_line({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": 1}}))
-        peer.sendall(
-            _line({"jsonrpc": "2.0", "id": 2, "result": {"sessionId": "vendor-session"}})
-        )
-        _wait_for(lambda: runtime._decoder.session_id_vendor == "vendor-session")
+        _make_grok_ready(runtime, peer)
         command = _command("submit-prompt.json")
 
         runtime.submit_prompt(command)
@@ -76,24 +93,29 @@ class RelayRuntimeDeliveryTests(unittest.TestCase):
         self.assertEqual(len(self.published), 1)
         self.assertEqual(self.published[0].payload.text, command.payload.text)
 
+    def test_grok_interrupt_cancels_and_answers_open_permissions(self) -> None:
+        runtime, peer = self._start(GrokRelayRuntime, RUNTIME_KIND_GROK)
+        _make_grok_ready(runtime, peer)
+        peer.sendall(_line(_PERMISSION_REQUEST))
+        _wait_for(lambda: bool(self.published))
+        request_id = self.published[-1].payload.request_id
+        reader = peer.makefile("rb")
+
+        runtime.interrupt(_command("interrupt.json"))
+        cancel = json.loads(reader.readline())
+        answer = json.loads(reader.readline())
+
+        self.assertEqual(cancel["method"], "session/cancel")
+        self.assertNotIn("id", cancel)
+        self.assertEqual(
+            answer,
+            {"jsonrpc": "2.0", "id": 21, "result": {"outcome": {"outcome": "cancelled"}}},
+        )
+        self.assertEqual(self.facade.resolved, [request_id])
+
     def test_grok_decision_on_a_closed_relay_keeps_the_request_pending(self) -> None:
         runtime, peer = self._start(GrokRelayRuntime, RUNTIME_KIND_GROK)
-        peer.sendall(
-            _line(
-                {
-                    "jsonrpc": "2.0",
-                    "id": 7,
-                    "method": "session/request_permission",
-                    "params": {
-                        "toolCall": {"kind": "execute"},
-                        "options": [
-                            {"optionId": "allow-once", "kind": "allow_once"},
-                            {"optionId": "reject-once", "kind": "reject_once"},
-                        ],
-                    },
-                }
-            )
-        )
+        peer.sendall(_line(_PERMISSION_REQUEST))
         _wait_for(lambda: bool(self.published))
         request_id = self.published[-1].payload.request_id
         runtime.close()
@@ -122,12 +144,20 @@ class RelayRuntimeDeliveryTests(unittest.TestCase):
             relay_socket=self.relay_path,
         )
         runtime = runtime_class(spec)
-        runtime.start(self.published.append, _Facade())
+        runtime.start(self.published.append, self.facade)
         self.addCleanup(runtime.close)
         peer, _ = self.listener.accept()
         peer.settimeout(2)
         self.addCleanup(peer.close)
         return runtime, peer
+
+
+def _make_grok_ready(runtime: GrokRelayRuntime, peer: socket.socket) -> None:
+    peer.sendall(_line({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": 1}}))
+    peer.sendall(
+        _line({"jsonrpc": "2.0", "id": 2, "result": {"sessionId": "vendor-session"}})
+    )
+    _wait_for(lambda: runtime._decoder.session_id_vendor == "vendor-session")
 
 
 def _command(name: str) -> ControlCommand:

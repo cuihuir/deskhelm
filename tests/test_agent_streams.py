@@ -170,6 +170,48 @@ class GrokStreamTests(unittest.TestCase):
 
         self.assertIn(request_id, decoder.pending_permissions)
 
+    def test_cancel_is_a_notification_and_answers_open_permissions(self) -> None:
+        decoder = GrokEventDecoder(SessionKey("grok", "local-1", "demo"), "grok 1")
+        turn = _lines("grok-stdio")
+        decoder.feed(turn[0])
+        decoder.feed(turn[1])
+        line = _lines("grok-stdio", "synthetic-permissions.jsonl")[0]
+        request_id = decoder.feed(line)[0].payload.request_id
+
+        notification = decoder.cancel_notification()
+        answers = decoder.cancel_pending_permissions()
+
+        self.assertEqual(notification["method"], "session/cancel")
+        self.assertNotIn("id", notification)
+        self.assertEqual(
+            answers,
+            [
+                (
+                    request_id,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 21,
+                        "result": {"outcome": {"outcome": "cancelled"}},
+                    },
+                )
+            ],
+        )
+        self.assertEqual(decoder.pending_permissions, {})
+
+    def test_cancelled_turn_is_reported_as_interrupted(self) -> None:
+        decoder = GrokEventDecoder(SessionKey("grok", "local-1", "demo"), "grok 1")
+        turn = _lines("grok-stdio")
+        decoder.feed(turn[0])
+        decoder.feed(turn[1])
+        prompt = decoder.next_prompt("stop soon")
+
+        events = decoder.feed(
+            {"jsonrpc": "2.0", "id": prompt["id"], "result": {"stopReason": "cancelled"}}
+        )
+
+        self.assertEqual(events[-1].kind, InteractionKind.TASK_FAILED)
+        self.assertEqual(events[-1].payload.error_code, "interrupted")
+
     def test_tool_titles_with_arguments_are_not_published(self) -> None:
         decoder = GrokEventDecoder(SessionKey("grok", "local-1", "demo"), "grok 1")
         lines = _lines("grok-stdio", "synthetic-permissions.jsonl")

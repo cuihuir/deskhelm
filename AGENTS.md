@@ -347,7 +347,8 @@ Keep third-party reference files outside version control under
   stays pending; never fall back to an `allow_always` or `reject_always`
   option. Tool names and approval summaries use the vendor title only when it
   is a bare name, otherwise the ACP kind, because titles can embed commands and
-  paths.
+  paths. Interrupt sends `session/cancel` as a notification and answers every
+  open permission request with the `cancelled` outcome.
 - The loopback web client in ADR 0036 is a replaceable Bridge client. One web
   process holds one state subscription and one interaction subscription and
   fans them out to browsers. Omitting `--socket` reads the user bridge and

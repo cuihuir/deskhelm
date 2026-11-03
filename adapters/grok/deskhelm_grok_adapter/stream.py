@@ -81,17 +81,31 @@ class GrokEventDecoder:
             },
         }
 
-    def cancel_request(self) -> dict[str, Any]:
+    def cancel_notification(self) -> dict[str, Any]:
+        """ACP cancels a turn with a notification, which carries no id."""
         if not self.session_id_vendor:
             raise RuntimeError("grok session is not ready")
-        request_id = self._next_prompt_id
-        self._next_prompt_id += 1
         return {
             "jsonrpc": "2.0",
-            "id": request_id,
             "method": "session/cancel",
             "params": {"sessionId": self.session_id_vendor},
         }
+
+    def cancel_pending_permissions(self) -> list[tuple[str, dict[str, Any]]]:
+        """Answer every open permission request as cancelled, as ACP requires."""
+        answers = [
+            (
+                request_id,
+                {
+                    "jsonrpc": "2.0",
+                    "id": pending["rpc_id"],
+                    "result": {"outcome": {"outcome": "cancelled"}},
+                },
+            )
+            for request_id, pending in self.pending_permissions.items()
+        ]
+        self.pending_permissions.clear()
+        return answers
 
     def permission_result(self, request_id: str, *, allow: bool) -> dict[str, Any]:
         pending = self.pending_permissions.get(request_id)
@@ -306,7 +320,10 @@ class GrokEventDecoder:
         if isinstance(result, dict):
             raw = result.get("stopReason")
             stop = raw if isinstance(raw, str) else ""
-        if stop in {"cancelled", "canceled", "error", "failed"}:
+        if stop in {"cancelled", "canceled"}:
+            events.append(self._task(InteractionKind.TASK_FAILED, "这一轮已停止", "interrupted"))
+            return events
+        if stop in {"error", "failed"}:
             events.append(self._task(InteractionKind.TASK_FAILED, "这一轮失败", "agent_failed"))
             return events
         events.append(self._task(InteractionKind.TASK_COMPLETED, "", ""))

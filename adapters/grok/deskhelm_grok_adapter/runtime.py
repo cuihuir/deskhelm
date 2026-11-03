@@ -20,12 +20,14 @@ class GrokRelayRuntime:
         self._decoder = GrokEventDecoder(spec.session, spec.source_version)
         self._socket: socket.socket | None = None
         self._publish = None
+        self._facade = None
         self._closed = False
         self._write_lock = Lock()
         self._unregisters: list = []
 
     def start(self, publish, facade) -> None:
         self._publish = publish
+        self._facade = facade
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             client.connect(str(self.relay_socket))
@@ -62,7 +64,12 @@ class GrokRelayRuntime:
     def interrupt(self, command: ControlCommand) -> None:
         del command
         self._require_ready()
-        self._write(self._decoder.cancel_request())
+        self._write(self._decoder.cancel_notification())
+        for request_id, answer in self._decoder.cancel_pending_permissions():
+            self._write(answer)
+            facade = self._facade
+            if facade is not None:
+                facade.resolve_approval(request_id)
 
     def approve(self, command: ControlCommand) -> None:
         self._require_open()
