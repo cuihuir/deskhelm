@@ -3,12 +3,27 @@
 from __future__ import annotations
 
 from pathlib import Path
+from queue import Queue
 import select
 import socket
 import time
 from typing import Any
 
-from deskhelm_protocol import FrameDecoder, SessionKey, encode_frame
+from deskhelm_host import SessionState
+from deskhelm_protocol import (
+    ApprovalOverflow,
+    ApprovalSupport,
+    CapabilityMatrix,
+    EffectKind,
+    EffectOutcome,
+    FrameDecoder,
+    InputSupport,
+    OpenRequest,
+    PromptWhileBusy,
+    RuntimeIdentity,
+    SessionKey,
+    encode_frame,
+)
 
 
 class V2Peer:
@@ -88,3 +103,43 @@ def session_view(snapshot_or_delta: dict[str, Any], key: SessionKey) -> dict[str
         (view for view in sessions if SessionKey.from_dict(view) == key),
         None,
     )
+
+
+class FakeDriver:
+    """A session host driver whose vendor is the test."""
+
+    runtime = RuntimeIdentity("deskhelm-fake", "1", "fake", "1")
+    capabilities = CapabilityMatrix(
+        version=1,
+        prompt_while_busy=PromptWhileBusy.QUEUE,
+        interrupt=True,
+        approvals=ApprovalSupport.ANSWERABLE,
+        approval_overflow=ApprovalOverflow.DECLINE,
+        user_input=InputSupport.NATIVE_UI,
+        resume=False,
+    )
+
+    def __init__(self) -> None:
+        self.performed: Queue[tuple[EffectKind, dict]] = Queue()
+        self.outcome = EffectOutcome.ACCEPTED
+        self.fail = False
+        self.open_requests: tuple[OpenRequest, ...] = ()
+        self.turn_ref: str | None = None
+
+    def start(self, emit) -> None:
+        self.emit = emit
+
+    def perform(self, kind: EffectKind, payload: dict) -> EffectOutcome:
+        self.performed.put((kind, payload))
+        if self.fail:
+            raise RuntimeError("vendor state unknown")
+        return self.outcome
+
+    def state(self) -> SessionState:
+        return SessionState(ready=True, turn_ref=self.turn_ref, open_requests=self.open_requests)
+
+    def wait(self) -> int:
+        return 0
+
+    def close(self) -> None:
+        return None
