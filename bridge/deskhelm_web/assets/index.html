@@ -1,116 +1,60 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="dark light">
   <title>DeskHelm</title>
+  <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/app.css">
+  <script type="module" src="/assets/js/main.js"></script>
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar" id="sidebar">
-      <div class="brand">
-        <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 14.2 12 4.2l8 10v2.1c0 2.1-3.5 3.7-8 3.7s-8-1.6-8-3.7Z"></path>
-          <path d="M8.2 15.2c1.1.7 2.4 1 3.8 1s2.7-.3 3.8-1"></path>
-        </svg>
-        <div>
-          <strong>DeskHelm</strong>
-          <span>本地会话</span>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar" aria-label="会话">
+      <div class="sidebar-head">
+        <div class="brand">
+          <img src="/assets/icon.svg" alt="" width="22" height="22">
+          <span>DeskHelm</span>
         </div>
+        <button type="button" class="icon-button only-narrow" id="close-sidebar" aria-label="关闭会话列表">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6 6 18"></path></svg>
+        </button>
       </div>
       <label class="search">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13Z"></path><path d="m15.5 15.5 4.5 4.5"></path></svg>
         <span class="visually-hidden">搜索会话</span>
         <input id="search" type="search" placeholder="搜索会话" autocomplete="off" spellcheck="false">
       </label>
-      <div id="threads" class="threads"></div>
-      <footer class="side-foot">
-        <p id="connection">正在连接 Bridge</p>
-        <button type="button" id="theme">浅色</button>
+      <nav class="session-list" id="session-list" aria-label="会话列表"></nav>
+      <footer class="sidebar-foot">
+        <span class="connection" id="connection"></span>
+        <button type="button" class="icon-button" id="theme-toggle">
+          <svg class="icon theme-dark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"></path></svg>
+          <svg class="icon theme-light" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"></path><path d="M12 2.5v2"></path><path d="M12 19.5v2"></path><path d="M2.5 12h2"></path><path d="M19.5 12h2"></path><path d="m5.3 5.3 1.4 1.4"></path><path d="m17.3 17.3 1.4 1.4"></path><path d="m5.3 18.7 1.4-1.4"></path><path d="m17.3 6.7 1.4-1.4"></path></svg>
+        </button>
       </footer>
     </aside>
-    <section class="main">
-      <header class="topbar">
-        <button type="button" class="ghost nav-toggle" id="open-sessions" aria-controls="sidebar">会话</button>
-        <div class="title-block">
-          <h1 id="title">DeskHelm</h1>
-          <p id="subtitle">选择一个已注册的会话</p>
+    <main class="main">
+      <header class="topbar" id="topbar"></header>
+      <div class="banner" id="banner" role="status" hidden></div>
+      <div class="stage">
+        <div class="scroller" id="scroller">
+          <div class="transcript" id="transcript" role="log" aria-label="会话记录"></div>
         </div>
-        <div class="actions">
-          <span id="agent-pill" class="pill" hidden></span>
-          <span id="status" class="status" hidden></span>
-          <button type="button" class="ghost" id="focus">聚焦语音</button>
-          <button type="button" class="ghost" id="interrupt">中断</button>
-          <button type="button" class="ghost" id="review-toggle" aria-controls="review" aria-expanded="false">审查</button>
-        </div>
-      </header>
-      <div id="transcript" class="transcript" tabindex="0"></div>
-      <div class="dock">
-        <div id="approval"></div>
-        <form id="composer" class="composer" autocomplete="off">
-          <label class="visually-hidden" for="prompt">给这个会话下一条指令</label>
-          <textarea id="prompt" rows="1" placeholder="给这个会话下一条指令" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
-          <div class="composer-bar">
-            <button type="button" class="tool" id="capability-toggle" aria-controls="capability" aria-expanded="false">能力</button>
-            <span class="bar-gap"></span>
-            <button type="button" class="tool model-tool" id="model-button" aria-controls="model-menu" aria-expanded="false">模型</button>
-            <button type="button" class="tool effort-tool" id="effort-button" aria-controls="model-menu" aria-expanded="false">推理</button>
-            <button type="submit" id="send" aria-label="发送">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 18V6"></path>
-                <path d="m6.5 11.5 5.5-5.5 5.5 5.5"></path>
-              </svg>
-            </button>
-          </div>
-          <div id="model-menu" class="popover" hidden>
-            <div class="menu-head">
-              <span></span>
-              <p id="effort-label" class="effort-word">推理</p>
-              <button type="button" class="tool" id="capability-refresh">刷新</button>
-            </div>
-            <button type="button" class="model-line" id="model-line" aria-controls="model-list" aria-expanded="false">
-              <span id="model-line-label">模型</span>
-              <span class="chevron" aria-hidden="true">›</span>
-            </button>
-            <div id="model-list" class="menu-list" hidden></div>
-            <div id="effort-track" class="effort-track" role="radiogroup" aria-label="推理强度"></div>
-            <button type="button" class="clear-choice" id="clear-choice" disabled>不覆盖</button>
-            <p id="capability-note" class="hint"></p>
-            <p class="hint">应用到下一轮，不会写入 Codex 的全局配置。当前这一轮仍用原来的模型。</p>
-          </div>
-          <section id="capability" class="popover capability" hidden>
-            <div class="popover-head">
-              <h2>能力</h2>
-              <button type="button" class="tool" id="tools-refresh">刷新</button>
-              <button type="button" class="tool" id="close-capability">关闭</button>
-            </div>
-            <p id="tools-note" class="hint"></p>
-            <div class="capability-scroll">
-              <h3>声明</h3>
-              <ul id="agent-capability-list"></ul>
-              <h3>Skills</h3>
-              <ul id="skill-list"></ul>
-              <h3>MCP</h3>
-              <ul id="mcp-list"></ul>
-            </div>
-          </section>
-        </form>
-        <p class="composer-hint">发送的是给这个会话的普通指令。Codex 终端里的提问仍要在终端回答。</p>
+        <button type="button" class="jump" id="jump" hidden>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="m5.5 12.5 6.5 6.5 6.5-6.5"></path></svg>
+          最新
+        </button>
       </div>
-    </section>
-    <aside class="review" id="review" hidden>
-      <header class="review-head">
-        <h2>审查</h2>
-        <button type="button" class="ghost" id="close-review">关闭</button>
-      </header>
-      <div id="review-body" class="review-body"></div>
-    </aside>
+      <form class="composer" id="composer" autocomplete="off"></form>
+    </main>
+    <aside class="details" id="details" aria-label="会话详情" hidden></aside>
   </div>
-  <button type="button" id="scrim" class="scrim" hidden>关闭侧栏</button>
-  <p id="live" class="visually-hidden" aria-live="polite"></p>
-  <noscript><p class="noscript">这个客户端需要启用 JavaScript。</p></noscript>
-  <script src="/assets/app.js"></script>
+  <div class="scrim" id="scrim" hidden></div>
+  <p class="visually-hidden" id="live" aria-live="polite"></p>
+  <noscript><p class="noscript">这个页面需要启用 JavaScript。</p></noscript>
 </body>
 </html>

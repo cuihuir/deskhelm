@@ -26,6 +26,9 @@ from deskhelm_protocol.paths import runtime_directory
 
 MAX_CONTROL_BODY_BYTES = 256 * 1024
 MAX_SSE_CLIENTS = 8
+# Streaming replies send one small patch per delta; a browser that falls this
+# far behind reconnects and starts again from a snapshot.
+MAX_SSE_QUEUE_EVENTS = 512
 WEB_COOKIE_NAME = "deskhelm_web"
 WEB_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{16,256}")
@@ -38,10 +41,10 @@ _CSP = (
     "img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'"
 )
 ASSET_DIRECTORY = Path(__file__).resolve().parent / "assets"
-_ASSET_SPECS = {
-    "/": ("index.html", "text/html; charset=utf-8"),
-    "/assets/app.css": ("app.css", "text/css; charset=utf-8"),
-    "/assets/app.js": ("app.js", "text/javascript; charset=utf-8"),
+_CONTENT_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".svg": "image/svg+xml",
 }
 
 
@@ -106,10 +109,13 @@ def _same_origin(origin: str, host: str | None) -> bool:
 
 
 def _load_assets() -> dict[str, tuple[bytes, str]]:
-    return {
-        path: ((ASSET_DIRECTORY / name).read_bytes(), content_type)
-        for path, (name, content_type) in _ASSET_SPECS.items()
-    }
+    """The page and every stylesheet, module, and icon under assets/."""
+    assets = {"/": ((ASSET_DIRECTORY / "index.html").read_bytes(), "text/html; charset=utf-8")}
+    for path in sorted(ASSET_DIRECTORY.rglob("*")):
+        content_type = _CONTENT_TYPES.get(path.suffix)
+        if content_type and path.is_file():
+            assets["/assets/" + path.relative_to(ASSET_DIRECTORY).as_posix()] = (path.read_bytes(), content_type)
+    return assets
 
 
 class WebHttp:
@@ -366,7 +372,11 @@ class WebHttp:
         for name, value in extra_headers:
             request.send_header(name, value)
         request.end_headers()
-        request.wfile.write(body)
+        try:
+            request.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # A browser that left or reloaded mid-response is not an error.
+            request.close_connection = True
 
     @staticmethod
     def _common_headers(request: BaseHTTPRequestHandler) -> None:
@@ -377,7 +387,7 @@ class WebHttp:
         request.send_header("Content-Security-Policy", _CSP)
 
     def _stream_events(self, request: BaseHTTPRequestHandler) -> None:
-        subscriber: queue.Queue[tuple[str, str] | None] = queue.Queue(maxsize=32)
+        subscriber: queue.Queue[tuple[str, str] | None] = queue.Queue(maxsize=MAX_SSE_QUEUE_EVENTS)
         with self._clients_lock:
             if len(self._clients) >= MAX_SSE_CLIENTS:
                 admitted = False

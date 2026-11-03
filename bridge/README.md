@@ -12,7 +12,7 @@ live in [`adapters/`](../adapters/) and the voice library in
 | `deskhelm_protocol` | Protocol v2 models, NDJSON framing, and runtime paths |
 | `deskhelm_core` | The Bridge: a single-threaded actor without I/O behind a Unix socket server |
 | `deskhelm_host` | The session-host runtime: Bridge link and start, vendor process helpers, and `simulate` |
-| `deskhelm_client` | The client runtime every surface shares, with one copy of result wording |
+| `deskhelm_client` | The client runtime every surface shares, with one copy of result wording and the transcript fold |
 | `deskhelm_web` | The loopback web page |
 | `deskhelm_dashboard` | The terminal dashboard |
 | `deskhelm_voice_host` | The voice host and its right-Alt listener |
@@ -84,6 +84,16 @@ same-origin Origin. `--allow-remote` is required to bind elsewhere. A page
 opened later receives the Bridge's bounded recent window and the pending
 approvals, which is not durable history. Browsing a session does not focus
 it.
+
+The page lists sessions by project with their state, a preview, and pending
+approvals. A reply renders Markdown; a tool row shows its command or path
+and opens to its output; an approval waits inline with a countdown; the stop
+button interrupts a working turn; and a details panel shows the runtime,
+capabilities, model, MCP servers, and skills. Enter sends and Shift+Enter
+adds a line. The server builds each transcript with
+`deskhelm_client.transcript` and sends a snapshot, then revisioned patches
+(ADR 0044); the page is plain ES modules in `deskhelm_web/assets/js/` with no
+build step. `tools/check-web-page.py` checks it in Chrome.
 
 The dashboard uses `j`/`k` to move, `f` to focus, `i` to interrupt, `a`/`r`
 to approve or reject, and `q` to quit. Focus decides which session voice

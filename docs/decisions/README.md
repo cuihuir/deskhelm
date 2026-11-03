@@ -131,3 +131,8 @@ a session host process and voice into its own host, and gives every surface
 one console projection. Phases 0 to 4 shipped in DeskHelm 0.1.0. It
 supersedes ADRs 0002, 0007, 0008, and 0031 and amends others; the status line
 of each affected ADR says what changed.
+
+[`0044-server-built-transcript-and-module-page.md`](0044-server-built-transcript-and-module-page.md)
+folds interaction events into a server-built transcript that any surface can
+reuse, sends the page revisioned patches, and rebuilds the page as plain ES
+modules with no build step.

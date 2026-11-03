@@ -18,10 +18,13 @@ The root environment runs every other test:
 | Protocol v2 core and socket server | `test_core`, `test_core_server` |
 | Hosts and drivers | `test_host_link`, `test_drivers`, `test_replay_transcripts`, `test_simulate` |
 | Codex host and adapter | `test_codex_host`, `test_codex_app_server_adapter`, `test_codex_app_server_fixtures`, `test_codex_app_server_transport`, `test_codex_tui_proxy`, `test_run_with_pty` |
-| Client runtime, surfaces, and command line | `test_client`, `test_web_surface`, `test_dashboard_v2`, `test_cli_switch`, `test_user_launcher` |
+| Client runtime, transcript, surfaces, and command line | `test_client`, `test_transcript`, `test_web_surface`, `test_dashboard_v2`, `test_cli_switch`, `test_user_launcher` |
 | Voice host | `test_voice_host`, `test_voice_keys` |
 | Voice library | `test_voice_gateway`, `test_pipewire_providers`, `test_audio_config`, `test_asr_providers`, `test_tts_providers`, `test_vad_providers`, `test_whisper_cpp_provider` |
 | Voice tools and benchmarks | `test_voice_benchmark`, `test_vad_benchmark`, `test_vad_tools`, `test_local_asr_diagnostic_tool`, `test_local_voice_live_tool`, `test_whisper_cpp_benchmark_tool` |
+
+The web page's own behaviour is checked in Chrome by
+`tools/check-web-page.py`, which is not part of this suite.
 
 `helpers/v2.py` provides small protocol v2 peers, `helpers/replay.py` the
 replay harness, `helpers/control_host.py` a stand-in host for the Codex

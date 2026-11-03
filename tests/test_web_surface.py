@@ -13,7 +13,7 @@ TESTS = Path(__file__).resolve().parent
 if str(TESTS) not in sys.path:
     sys.path.insert(0, str(TESTS))
 
-from deskhelm_client.texts import RESULT_TEXT  # noqa: E402
+from deskhelm_client.texts import ACTIVITY_TEXT, FAILURE_TEXT, OUTCOME_TEXT, RESULT_TEXT  # noqa: E402
 from deskhelm_core.server import BridgeServer  # noqa: E402
 from deskhelm_host import BridgeLink  # noqa: E402
 from deskhelm_protocol import EffectKind, EffectOutcome, FactKind, SessionKey  # noqa: E402
@@ -85,6 +85,29 @@ class WebSurfaceTests(unittest.TestCase):
         _, snapshot = self._get(web, "/api/snapshot")
         return next(item for item in snapshot["sessions"] if item["key"] == PAGE_KEY)
 
+    def _events_later(self, web: WebSurface, count: int):
+        """Open the event stream now, take its snapshot, and return a reader for ``count`` events."""
+        connection = http.client.HTTPConnection("127.0.0.1", web.port, timeout=3)
+        self.addCleanup(connection.close)
+        connection.request("GET", "/api/events", headers=AUTH)
+        response = connection.getresponse()
+        state: dict = {"buffer": b"", "events": []}
+
+        def pump(until: int) -> list[tuple[str, dict]]:
+            deadline = time.monotonic() + 5
+            while len(state["events"]) < until and time.monotonic() < deadline:
+                # read1 returns what arrived; read(n) would wait for n bytes.
+                state["buffer"] += response.read1(65536)
+                while b"\n\n" in state["buffer"]:
+                    block, state["buffer"] = state["buffer"].split(b"\n\n", 1)
+                    fields = dict(line.split(": ", 1) for line in block.decode().splitlines() if ": " in line)
+                    if "event" in fields:
+                        state["events"].append((fields["event"], json.loads(fields["data"])))
+            return state["events"]
+
+        pump(1)
+        return lambda: pump(count)
+
     def _approval(self) -> None:
         self.driver.emit(
             FactKind.REQUEST_OPENED,
@@ -109,72 +132,110 @@ class WebSurfaceTests(unittest.TestCase):
         self.assertIn("HttpOnly", cookie)
         self.assertIn("SameSite=Strict", cookie)
 
-    def test_the_page_sees_the_console_in_its_v1_shape(self) -> None:
+    def test_the_page_sees_each_session_in_protocol_v2_terms(self) -> None:
         web = self._web()
         session = self._session(web)
         _, snapshot = self._get(web, "/api/snapshot")
-        page, _, script = self._raw(web, "GET", "/assets/app.js", AUTH)
 
         self.assertTrue(snapshot["connected"])
-        self.assertEqual((session["lifecycle"], session["agent_state"], session["label"]), ("active", "idle", "fake"))
-        self.assertEqual(session["capabilities"], ["interaction_events", "submit_prompt", "interrupt",
-                                                   "approval_requests", "approval_decisions"])
-        self.assertIsNone(session["approval"])
-        self.assertEqual(page, 200)
-        self.assertIn(b"payload.message", script)
+        self.assertEqual((session["lifecycle"], session["activity"], session["label"]), ("active", "idle", "fake"))
+        self.assertEqual(session["runtime"], {"name": "fake", "version": "1"})
+        self.assertEqual((session["capabilities"]["approvals"], session["capabilities"]["interrupt"]), ("answerable", True))
+        self.assertEqual((session["approvals"], session["outcome"], session["preview"]), ([], None, ""))
+        self.assertEqual(snapshot["transcripts"], {})
+        self.assertIsNone(snapshot["focus"])
 
-    def test_the_page_falls_back_to_the_shared_wording(self) -> None:
-        script = (ASSET_DIRECTORY / "app.js").read_text(encoding="utf-8")
-        block = re.search(r"var CODE_TEXT = \{(.*?)\n  \};", script, re.S)
-        assert block is not None
-        fallback = dict(re.findall(r'^ +([a-z_]+): "([^"]*)",?$', block.group(1), re.M))
+    def test_the_page_modules_are_served_and_nothing_else(self) -> None:
+        web = self._web()
+        module, headers, script = self._raw(web, "GET", "/assets/js/views/transcript.js", AUTH)
+        missing = self._raw(web, "GET", "/assets/js/missing.js", AUTH)[0]
+        outside = self._raw(web, "GET", "/assets/../http.py", AUTH)[0]
 
-        self.assertEqual({code: fallback.get(code) for code in RESULT_TEXT}, RESULT_TEXT)
+        self.assertEqual((module, headers["Content-Type"]), (200, "text/javascript; charset=utf-8"))
+        self.assertIn(b"export function mountTranscript", script)
+        self.assertEqual((missing, outside), (404, 404))
+
+    def test_the_page_words_mirror_the_shared_wording(self) -> None:
+        script = (ASSET_DIRECTORY / "js" / "text.js").read_text(encoding="utf-8")
+        tables = {"RESULT_TEXT": RESULT_TEXT, "ACTIVITY_TEXT": ACTIVITY_TEXT, "OUTCOME_TEXT": OUTCOME_TEXT,
+                  "FAILURE_TEXT": FAILURE_TEXT}
+        for name, shared in tables.items():
+            block = re.search(rf"export const {name} = \{{(.*?)\n\}};", script, re.S)
+            with self.subTest(table=name):
+                assert block is not None
+                page = dict(re.findall(r'^ +([a-z_]+): "([^"]*)",?$', block.group(1), re.M))
+                self.assertEqual({code: page.get(code) for code in shared}, shared)
 
     def test_a_pending_approval_is_listed_and_decided_by_its_approval_id(self) -> None:
         self._approval()
         web = self._web()
-        _wait(lambda: self._session(web)["approval"] is not None)
-        approval = self._session(web)["approval"]
+        _wait(lambda: bool(self._session(web)["approvals"]))
+        ticket = self._session(web)["approvals"][0]
+        waiting = self._session(web)["activity"]
+        item = self._get(web, "/api/snapshot")[1]["transcripts"][PAGE_KEY][0]
 
-        waiting = self._session(web)["agent_state"]
-
-        status, result = self._post(web, {"kind": "approve", **KEY.to_dict(), "request_id": approval["request_id"]})
+        status, result = self._post(web, {"kind": "approve", **KEY.to_dict(), "approval_id": ticket["approval_id"]})
         kind, payload = self.driver.performed.get(timeout=2)
 
         self.assertEqual(waiting, "waiting_approval")
+        self.assertEqual((ticket["kind"], ticket["summary"], ticket["answerable"]), ("approval", "请求使用工具 Bash", True))
+        self.assertEqual((item["type"], item["approval_id"]), ("approval", ticket["approval_id"]))
         self.assertEqual((status, result["code"], result["message"]), (200, "dispatched", "已交给 Agent"))
         self.assertEqual((kind, payload["provider_ref"], payload["decision"]), (EffectKind.RESPOND, "rpc-1", "approve"))
 
     def test_recent_activity_reaches_a_page_opened_later(self) -> None:
         self.driver.emit(FactKind.MESSAGE, {"message_ref": "m1", "role": "assistant", "phase": "complete"}, {"text": "hello"})
         web = self._web()
-        _wait(lambda: bool(self._get(web, "/api/snapshot")[1]["events"]))
-        event = self._get(web, "/api/snapshot")[1]["events"][0]
+        _wait(lambda: bool(self._get(web, "/api/snapshot")[1]["transcripts"].get(PAGE_KEY)))
+        item = self._get(web, "/api/snapshot")[1]["transcripts"][PAGE_KEY][0]
 
-        self.assertEqual((event["key"], event["kind"], event["payload"]["text"]), (PAGE_KEY, "message", "hello"))
+        self.assertEqual((item["type"], item["role"], item["text"], item["streaming"]), ("message", "assistant", "hello", False))
+        self.assertEqual(self._session(web)["preview"], "hello")
+
+    def test_live_changes_arrive_as_patches_newer_than_the_snapshot(self) -> None:
+        web = self._web()
+        reader = self._events_later(web, 4)
+        for phase, text in (("delta", "Hel"), ("delta", "lo"), ("complete", "Hello.")):
+            self.driver.emit(FactKind.MESSAGE, {"message_ref": "m1", "role": "assistant", "phase": phase}, {"text": text})
+        events = reader()
+
+        (name, snapshot), *patches = events
+        self.assertEqual(name, "snapshot")
+        self.assertEqual([name for name, _ in patches], ["patch", "patch", "patch"])
+        self.assertEqual([patch["op"] for _, patch in patches], ["upsert", "append", "upsert"])
+        self.assertEqual(patches[1][1]["text"], "lo")
+        self.assertEqual(patches[2][1]["item"]["text"], "Hello.")
+        self.assertEqual(patches[2][1]["preview"], "Hello.")
+        revisions = [snapshot["rev"], *(patch["rev"] for _, patch in patches)]
+        self.assertEqual(revisions, sorted(set(revisions)))
 
     def test_controls_carry_the_shared_wording(self) -> None:
         web = self._web()
-        prompt = self._post(web, {"kind": "submit_prompt", **KEY.to_dict(), "text": "hello"})
+        prompt = self._post(web, {"kind": "submit_prompt", **KEY.to_dict(), "text": "hello", "command_id": "page-0123456789"})
+        _, performed = self.driver.performed.get(timeout=2)
         self.driver.outcome = EffectOutcome.UNDELIVERED
         interrupt = self._post(web, {"kind": "interrupt", **KEY.to_dict()})
-        invalid = self._post(web, {"kind": "approve", **KEY.to_dict(), "request_id": " "})
-        configure = self._post(web, {"kind": "configure_session", **KEY.to_dict(), "model": "example-model"})
+        invalid = self._post(web, {"kind": "approve", **KEY.to_dict(), "approval_id": " "})
+        bad_id = self._post(web, {"kind": "interrupt", **KEY.to_dict(), "command_id": "x"})
+        configure = self._post(web, {"kind": "configure_session", **KEY.to_dict(), "model": "example-model", "effort": "high"})
 
-        self.assertEqual((prompt[0], prompt[1]["code"]), (200, "dispatched"))
+        self.assertEqual((prompt[0], prompt[1]["code"], prompt[1]["command_id"]), (200, "dispatched", "page-0123456789"))
+        self.assertEqual(performed["command_id"], "page-0123456789")
+        self.assertEqual(bad_id, (400, {"error": "invalid_control_request"}))
         self.assertEqual((interrupt[1]["code"], interrupt[1]["message"]), ("undelivered", "Agent 当前无法接收这个操作"))
         self.assertEqual(invalid, (400, {"error": "invalid_control_request"}))
         self.assertEqual(configure[1]["code"], "unsupported")
 
     def test_the_catalog_comes_from_the_bridge_cache(self) -> None:
-        self.driver.emit(FactKind.CATALOG, content={"catalog": {"model": "example-model", "models": [], "skills": []}})
+        self.driver.emit(FactKind.CATALOG, content={"catalog": {"model": "example-model", "models": [], "skills": [],
+                                                                 "agent_capabilities": ["fs.read"]}})
         web = self._web()
         found = self._get(web, "/api/catalog?agent_id=fake&session_id=session-1&project_id=demo")
         unknown = self._get(web, "/api/catalog?agent_id=fake&session_id=other&project_id=demo")
         malformed = self._get(web, "/api/catalog?agent_id=fake")
 
         self.assertEqual((found[1]["available"], found[1]["model"]), (True, "example-model"))
+        self.assertEqual(found[1]["agent_capabilities"], ["fs.read"])
         self.assertEqual((unknown[1]["available"], unknown[1]["notice"]), (False, "catalog_unavailable"))
         self.assertEqual(malformed, (400, {"error": "invalid_catalog_request"}))
 
@@ -190,7 +251,7 @@ class WebSurfaceTests(unittest.TestCase):
 
         self.assertEqual(missing[0], 503)
         self.assertNotEqual(after["epoch"], first)
-        self.assertEqual(after["notice"], "interaction stream restarted")
+        self.assertEqual(after["notice"], "bridge_restarted")
 
     def test_the_event_stream_starts_with_a_snapshot(self) -> None:
         web = self._web()

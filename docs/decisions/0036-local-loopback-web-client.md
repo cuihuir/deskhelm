@@ -4,6 +4,8 @@ Date: 2026-10-20
 
 Status: Accepted. Amended by ADR 0043: the page is a separate process, the
 interaction window lives in the Bridge, and every request is authenticated.
+Amended by ADR 0044: the server builds each transcript, and the page is
+plain ES modules.
 
 ## Context
 

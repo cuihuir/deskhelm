@@ -132,7 +132,7 @@ conversation history.
 - `bridge/`: the standard-library packages `deskhelm_protocol` (protocol v2
   models, framing, and paths), `deskhelm_core` (the Bridge), `deskhelm_host`
   (the session-host runtime and `simulate`), `deskhelm_client` (the shared
-  client runtime), `deskhelm_web`, `deskhelm_dashboard`,
+  client runtime and transcript fold), `deskhelm_web`, `deskhelm_dashboard`,
   `deskhelm_voice_host`, and `deskhelm_cli` (the `deskhelm` command).
 - `adapters/`: drivers for `codex/` (app-server adapter, TUI proxy, and Codex
   host), `claude/` (Claude Code stream-json), and `acp/` (generic ACP with the
@@ -194,6 +194,8 @@ access ADRs) has not started.
   connections, sessions, receipts, approvals, outbound queues, and the
   interaction window. A full outbound queue closes that connection, and the
   client resubscribes.
+- A console delta carries a session only when its view changed, so
+  streaming content never resends the session list (ADR 0044).
 - The interaction window (D1) is bounded per session, held in memory only,
   not canonical, and dropped when the session ends. Never promise durable
   history or replay.
@@ -306,12 +308,19 @@ access ADRs) has not started.
   one copy of result wording in `deskhelm_client/texts.py`. Surfaces decide
   approvals by Bridge approval id from the console, so a reconnecting surface
   still sees pending approvals.
-- The web page (ADR 0036) is a replaceable client: one process holds one
-  operator connection and fans it out to browsers. A page opened later gets
-  the Bridge's bounded recent window and pending approvals, which is not
-  durable history. It does not create sessions, read transcript files, or
-  focus a browsed session. It serves on port 8766 and binds `127.0.0.1`
-  unless `--allow-remote` is explicit.
+- The web page (ADR 0036, ADR 0044) is a replaceable client: one process
+  holds one operator connection and fans it out to browsers. A page opened
+  later gets the Bridge's bounded recent window and pending approvals, which
+  is not durable history. It does not create sessions, read transcript
+  files, or focus a browsed session. It serves on port 8766 and binds
+  `127.0.0.1` unless `--allow-remote` is explicit.
+- The web server folds each session's interaction events with
+  `deskhelm_client.transcript` and sends a browser one snapshot, then
+  revisioned `sessions` and `patch` events. Keep transcript logic in that
+  module, not in the page. The page is plain ES modules with no build step,
+  framework, or dependency; agent text reaches the DOM only through
+  `textContent`, never as parsed HTML. The page names its command ids, never
+  retries a command, and labels an unknown outcome as unknown.
 - Every web request needs the token stored with mode 0600 in the runtime
   directory. The printed `?token=` link sets an HttpOnly, SameSite=Strict
   cookie and redirects to a token-free path. A loopback bind accepts only
@@ -496,10 +505,16 @@ Run tests from the repository root:
 - `uv run --locked python -m unittest tests.test_replay_transcripts -v`:
   replay every transcript in `tests/fixtures/replay/` through the real
   drivers.
-- `uv run --no-project --with esprima python -I -c "import esprima;
-  esprima.parseScript(open('bridge/deskhelm_web/assets/app.js').read())"`:
-  syntax-check the page script in a throwaway environment; there is no Node
-  here.
+- `uv run --no-project --with esprima python -I -c "import esprima, pathlib;
+  [esprima.parseModule(p.read_text()) for p in
+  pathlib.Path('bridge/deskhelm_web/assets/js').rglob('*.js')]"`:
+  syntax-check every page module in a throwaway environment; there is no
+  Node here. esprima knows ES2017, so write `catch (error)`, not `catch {`.
+- `uv run --locked --with playwright python tools/check-web-page.py
+  [--chrome /usr/bin/google-chrome] [--screenshots DIR]`: drive the page in
+  Chrome against a real Bridge and scripted sessions, and check replies,
+  tools, approvals, prompt outcomes, streaming, interrupt, focus, switching,
+  and the theme. Playwright downloads no browser; run this after page work.
 - `git diff --check`: detect whitespace errors.
 
 Voice benchmark, corpus, and live diagnostic runners are documented with

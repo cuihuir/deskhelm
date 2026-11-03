@@ -1,15 +1,19 @@
-"""The loopback web surface on protocol v2 (ADR 0036, ADR 0043).
+"""The loopback web surface on protocol v2 (ADR 0036, ADR 0043, ADR 0044).
 
 One operator connection through deskhelm_client feeds every browser. The
-Bridge's bounded interaction window arrives on connect, so a refreshed page
-shows recent activity and a reconnecting page still sees pending approvals.
-The page keeps the v1 HTTP API; approvals name the Bridge approval id.
+server folds each session's interaction events into a transcript
+(``deskhelm_client.transcript``) and sends a browser one snapshot of the
+sessions and their transcripts, then ordered events: ``sessions`` when the
+console changes and ``patch`` when a transcript does. Every event carries a
+revision, so a page drops what its snapshot already holds. The Bridge's
+bounded interaction window arrives on connect, so a refreshed page shows
+recent activity and a reconnecting page still sees pending approvals.
 """
 
 from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler
-import json
+import re
 from pathlib import Path
 from threading import Lock
 import time
@@ -18,17 +22,19 @@ from urllib.parse import parse_qs, urlsplit
 import uuid
 
 from deskhelm_client import BridgeClient, ConsoleChange, result_text
+from deskhelm_client.transcript import Transcript
 from deskhelm_protocol import SessionKey
 from deskhelm_protocol.model import MAX_IDENTITY_CHARS, MAX_LABEL_CHARS, MAX_TEXT_CHARS
 
 from .http import WebHttp
 
-MAX_EVENTS_PER_SESSION = 120
-MAX_EVENTS = 480
-MAX_EVENT_BYTES = 48_000
+# More than the Bridge's session limit, so a session that just left still fits.
+MAX_TRANSCRIPTS = 64
 _SEPARATOR = "\u001f"
 _AGENT_LABELS = {"codex": "Codex", "claude": "Claude", "grok": "Grok"}
+_COMMAND_ID = re.compile(r"[A-Za-z0-9_-]{8,64}")
 _CATALOG_FIELDS = (
+    "agent_capabilities",
     "model",
     "reasoning_effort",
     "models",
@@ -55,8 +61,10 @@ class WebSurface(WebHttp):
         self.socket_path = socket_path
         self._lock = Lock()
         self._epoch = uuid.uuid4().hex
+        self._rev = 0
         self._notice = ""
-        self._events: list[dict[str, Any]] = []
+        self._transcripts: dict[SessionKey, Transcript] = {}
+        self._previews: dict[SessionKey, str] = {}
         self._updated: dict[SessionKey, int] = {}
         self.client = BridgeClient(
             socket_path,
@@ -83,82 +91,92 @@ class WebSurface(WebHttp):
             if change.restarted:
                 # A new Bridge holds none of the old activity.
                 self._epoch = uuid.uuid4().hex
-                self._events = []
-                self._updated = {}
-                self._notice = "interaction stream restarted"
+                self._transcripts, self._previews, self._updated = {}, {}, {}
+                self._notice = "bridge_restarted"
             for key, view in change.state.sessions.items():
                 if change.reset or change.previous.sessions.get(key) is not view:
                     self._updated[key] = max(self._updated.get(key, 0), int(view.get("opened_at") or 0), now)
             for key in [key for key in self._updated if key not in change.state.sessions]:
                 del self._updated[key]
-        self.broadcast("sessions", self.sessions_payload())
+                self._transcripts.pop(key, None)
+                self._previews.pop(key, None)
+            if change.restarted:
+                self._emit_locked("snapshot", self._snapshot_locked())
+            else:
+                self._emit_locked("sessions", self._sessions_locked())
 
     def _on_interaction(self, event: dict[str, Any], replay: bool) -> None:
-        stored = self._remember(event, replay)
-        if stored is not None:
-            self.broadcast("interaction", stored)
+        try:
+            key = SessionKey.from_dict(event)
+        except ValueError:
+            return
+        with self._lock:
+            transcript = self._transcripts.get(key)
+            if transcript is None:
+                if len(self._transcripts) >= MAX_TRANSCRIPTS:
+                    self._notice = "too_many_sessions"
+                    return
+                transcript = self._transcripts[key] = Transcript()
+            patches = transcript.apply(event)
+            if not patches:
+                return
+            occurred = event.get("occurred_at")
+            if not replay and isinstance(occurred, int):
+                self._updated[key] = max(self._updated.get(key, 0), occurred)
+            preview = transcript.preview()
+            changed = preview != self._previews.get(key, "")
+            self._previews[key] = preview
+            for index, patch in enumerate(patches):
+                payload = {"key": _joined(key), **patch}
+                if index == len(patches) - 1:
+                    payload["updated_at"] = self._updated.get(key, 0)
+                    if changed:
+                        payload["preview"] = preview
+                self._emit_locked("patch", payload)
 
     def _on_connection(self, connected: bool) -> None:
         with self._lock:
             if not connected:
-                self._notice = "bridge unavailable"
-            elif self._notice == "bridge unavailable":
+                self._notice = "bridge_unavailable"
+            elif self._notice == "bridge_unavailable":
                 self._notice = ""
-        self.broadcast("sessions", self.sessions_payload())
+            self._emit_locked("sessions", self._sessions_locked())
 
-    def _remember(self, event: dict[str, Any], replay: bool) -> dict[str, Any] | None:
-        try:
-            key = SessionKey.from_dict(event)
-        except ValueError:
-            return None
-        public = {**event, "key": _joined(key)}
-        if len(json.dumps(public, ensure_ascii=False).encode("utf-8")) > MAX_EVENT_BYTES:
-            with self._lock:
-                self._notice = "interaction event exceeded the web client bound"
-            return None
-        with self._lock:
-            self._events.append(public)
-            occurred = event.get("occurred_at")
-            if not replay and isinstance(occurred, int):
-                self._updated[key] = max(self._updated.get(key, 0), occurred)
-            self._trim_locked()
-        return public
-
-    def _trim_locked(self) -> None:
-        counts: dict[str, int] = {}
-        kept: list[dict[str, Any]] = []
-        for event in reversed(self._events):
-            counts[event["key"]] = counts.get(event["key"], 0) + 1
-            if counts[event["key"]] <= MAX_EVENTS_PER_SESSION:
-                kept.append(event)
-        kept.reverse()
-        self._events = kept[-MAX_EVENTS:]
+    def _emit_locked(self, name: str, payload: dict[str, Any]) -> None:
+        # One lock orders revisions, broadcasts, and snapshots.
+        self._rev += 1
+        payload["rev"] = self._rev
+        self.broadcast(name, payload)
 
     # Payloads ----------------------------------------------------------
 
-    def sessions_payload(self) -> dict[str, Any]:
+    def _sessions_locked(self) -> dict[str, Any]:
         state = self.client.console()
         now = int(time.time() * 1000)
-        with self._lock:
-            updated = dict(self._updated)
-            notice, epoch = self._notice, self._epoch
-        sessions = [
-            _session_payload(key, view, updated.get(key, int(view.get("opened_at") or 0)), now)
-            for key, view in state.sessions.items()
-        ]
         return {
-            "epoch": epoch,
+            "rev": self._rev,
+            "epoch": self._epoch,
             "connected": self.client.connected,
-            "notice": notice,
-            "focused_session": None if state.focus is None else state.focus.to_dict(),
-            "sessions": sessions,
+            "notice": self._notice,
+            "focus": None if state.focus is None else _joined(state.focus),
+            "sessions": [
+                _session_view(key, view, self._updated.get(key, 0), self._previews.get(key, ""), now)
+                for key, view in state.sessions.items()
+            ],
         }
 
-    def snapshot(self) -> dict[str, Any]:
-        payload = self.sessions_payload()
-        with self._lock:
-            payload["events"] = [dict(event) for event in self._events]
+    def _snapshot_locked(self) -> dict[str, Any]:
+        payload = self._sessions_locked()
+        payload["transcripts"] = {_joined(key): transcript.items() for key, transcript in self._transcripts.items()}
         return payload
+
+    def sessions_payload(self) -> dict[str, Any]:
+        with self._lock:
+            return self._sessions_locked()
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return self._snapshot_locked()
 
     # Browser to Bridge -------------------------------------------------
 
@@ -166,13 +184,14 @@ class WebSurface(WebHttp):
         if path != "/api/control":
             return None
         try:
-            kind, key, payload = _control(value)
+            kind, key, payload, command_id = _control(value)
         except ValueError:
             return 400, {"error": "invalid_control_request"}
-        result = self.client.command(kind, key, payload)
+        result = self.client.command(kind, key, payload, command_id=command_id)
         if result.code == "bridge_unavailable":
             return 503, {"error": "bridge_unavailable", "message": result_text(result.code)}
         return 200, {
+            "command_id": result.command_id,
             "status": result.status,
             "code": result.code,
             "duplicate": result.duplicate,
@@ -180,6 +199,9 @@ class WebSurface(WebHttp):
         }
 
     def api_get(self, request: BaseHTTPRequestHandler, path: str) -> tuple[int, dict[str, Any]] | None:
+        if path == "/api/ping":
+            # A cheap answer that tells a page whether its sign-in still holds.
+            return 200, {"ok": True}
         if path != "/api/catalog":
             return None
         query = parse_qs(urlsplit(request.path).query)
@@ -243,82 +265,54 @@ def _setting(value: dict[str, Any], name: str) -> tuple[bool, str | None]:
     return True, item.strip()
 
 
-def _control(value: object) -> tuple[str, SessionKey, dict[str, Any]]:
+def _control(value: object) -> tuple[str, SessionKey, dict[str, Any], str | None]:
     if not isinstance(value, dict):
         raise ValueError("control must be an object")
     kind = value.get("kind")
     key = _session(value.get("agent_id"), value.get("session_id"), value.get("project_id"))
+    command_id = value.get("command_id")
+    if command_id is not None and (not isinstance(command_id, str) or not _COMMAND_ID.fullmatch(command_id)):
+        raise ValueError("command_id is invalid")
     if kind in ("focus", "interrupt"):
-        return kind, key, {}
+        return kind, key, {}, command_id
     if kind == "submit_prompt":
         text = value.get("text")
         if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT_CHARS:
             raise ValueError("prompt is invalid")
-        return kind, key, {"text": text}
+        return kind, key, {"text": text}, command_id
     if kind in ("approve", "reject"):
-        # The page names the Bridge approval id as request_id.
-        return kind, key, {"approval_id": _identity(value.get("request_id"))}
+        return kind, key, {"approval_id": _identity(value.get("approval_id"))}, command_id
     if kind == "configure_session":
         payload: dict[str, Any] = {}
-        for page_name, name in (("model", "model"), ("reasoning_effort", "effort")):
-            present, setting = _setting(value, page_name)
+        for name in ("model", "effort"):
+            present, setting = _setting(value, name)
             if present:
                 payload[name] = setting
         if not payload:
-            raise ValueError("configure_session needs model or reasoning_effort")
-        return kind, key, payload
+            raise ValueError("configure_session needs model or effort")
+        return kind, key, payload, command_id
     raise ValueError("unknown control")
 
 
-def _agent_state(view: dict[str, Any]) -> str:
-    if view.get("lifecycle") == "disconnected":
-        return ""
-    activity = view.get("activity")
-    if activity == "idle":
-        status = (view.get("last_outcome") or {}).get("status")
-        return {"completed": "completed", "failed": "failed"}.get(status, "idle")
-    return {"working": "working", "waiting_approval": "waiting_approval", "waiting_input": "waiting_user"}.get(
-        str(activity), ""
-    )
-
-
-def _capability_words(matrix: dict[str, Any]) -> list[str]:
-    words = ["interaction_events", "submit_prompt"]
-    if matrix.get("interrupt"):
-        words.append("interrupt")
-    if matrix.get("approvals") in ("answerable", "notify_only"):
-        words.append("approval_requests")
-    if matrix.get("approvals") == "answerable":
-        words.append("approval_decisions")
-    if matrix.get("resume"):
-        words.append("session_resume")
-    return words
-
-
-def _session_payload(key: SessionKey, view: dict[str, Any], updated_at: int, now: int) -> dict[str, Any]:
+def _session_view(key: SessionKey, view: dict[str, Any], updated_at: int, preview: str, now: int) -> dict[str, Any]:
     runtime = view.get("runtime") if isinstance(view.get("runtime"), dict) else {}
-    approvals = [
-        ticket
-        for ticket in view.get("approvals", [])
-        if ticket.get("kind") == "approval" and ticket.get("answerable") and ticket.get("expires_at", 0) > now
-    ]
-    approval = approvals[0] if approvals else None
+    outcome = view.get("last_outcome") if isinstance(view.get("last_outcome"), dict) else None
     return {
         "key": _joined(key),
         **key.to_dict(),
-        "slot": None,
-        "lifecycle": view.get("lifecycle") or "",
         "label": _AGENT_LABELS.get(key.agent_id, runtime.get("runtime_name") or key.agent_id),
-        "agent_state": _agent_state(view),
-        "progress": None,
-        "updated_at": updated_at,
-        "registered_at": int(view.get("opened_at") or 0),
+        "runtime": {"name": runtime.get("runtime_name", ""), "version": runtime.get("runtime_version", "")},
+        "lifecycle": view.get("lifecycle") or "",
+        "activity": view.get("activity") or "",
         "attention": bool(view.get("attention")),
-        "adapter_id": runtime.get("adapter_id", ""),
-        "runtime_name": runtime.get("runtime_name", ""),
-        "runtime_version": runtime.get("runtime_version", ""),
-        "capabilities": _capability_words(view.get("capabilities") or {}),
-        "approval": None
-        if approval is None
-        else {"request_id": approval["approval_id"], "summary": approval["summary"], "expires_at": approval["expires_at"]},
+        "outcome": None if outcome is None else {"status": outcome.get("status"), "failure": outcome.get("failure")},
+        "capabilities": view.get("capabilities") if isinstance(view.get("capabilities"), dict) else {},
+        "approvals": [
+            {name: ticket.get(name) for name in ("approval_id", "kind", "summary", "expires_at", "answerable")}
+            for ticket in view.get("approvals", [])
+            if ticket.get("expires_at", 0) > now
+        ],
+        "opened_at": int(view.get("opened_at") or 0),
+        "updated_at": max(updated_at, int(view.get("opened_at") or 0)),
+        "preview": preview,
     }

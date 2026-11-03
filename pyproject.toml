@@ -48,4 +48,4 @@ deskhelm_voice_host = "bridge/deskhelm_voice_host"
 deskhelm_web = "bridge/deskhelm_web"
 
 [tool.setuptools.package-data]
-deskhelm_web = ["assets/*"]
+deskhelm_web = ["assets/*", "assets/js/*.js", "assets/js/views/*.js"]
