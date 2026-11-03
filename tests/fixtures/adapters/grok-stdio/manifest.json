@@ -11,6 +11,12 @@
       "source_type": "synthetic",
       "produced_locally": false,
       "notes": "The capability tree shape was observed from a local ACP initialize result. This file is synthetic and does not contain that capture, a working directory, or a vendor session id."
+    },
+    {
+      "file": "synthetic-permissions.jsonl",
+      "source_type": "synthetic",
+      "produced_locally": false,
+      "notes": "The option order (allow_always first) and the argument-bearing tool titles follow live Grok 1.0.41 transcripts published in pingdotgg/t3code (MIT). This file is synthetic; it copies no recorded frame, path, or session id."
     }
   ]
 }

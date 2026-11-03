@@ -11,6 +11,7 @@ for kind in ("claude", "grok"):
     if str(adapter) not in sys.path:
         sys.path.insert(0, str(adapter))
 
+from deskhelm_bridge.control import ControlUndelivered
 from deskhelm_bridge.interaction import InteractionKind, MessagePhase
 from deskhelm_bridge.session_registry import SessionKey
 from deskhelm_claude_adapter.command import claude_argv
@@ -19,8 +20,8 @@ from deskhelm_grok_adapter.command import grok_argv
 from deskhelm_grok_adapter.stream import GrokEventDecoder
 
 
-def _lines(name: str) -> list[dict]:
-    path = ROOT / "tests" / "fixtures" / "adapters" / name / "synthetic-turn.jsonl"
+def _lines(name: str, file: str = "synthetic-turn.jsonl") -> list[dict]:
+    path = ROOT / "tests" / "fixtures" / "adapters" / name / file
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
@@ -143,6 +144,50 @@ class GrokStreamTests(unittest.TestCase):
         self.assertEqual(allowed["result"]["outcome"]["optionId"], "allow-once")
         with self.assertRaises(RuntimeError):
             decoder.permission_result(request_id, allow=False)
+
+    def test_permission_never_chooses_an_always_option(self) -> None:
+        line = _lines("grok-stdio", "synthetic-permissions.jsonl")[0]
+        allow_decoder = GrokEventDecoder(SessionKey("grok", "local-1", "demo"), "grok 1")
+        allow_id = allow_decoder.feed(line)[0].payload.request_id
+        reject_decoder = GrokEventDecoder(SessionKey("grok", "local-1", "demo"), "grok 1")
+        reject_id = reject_decoder.feed(line)[0].payload.request_id
+
+        allowed = allow_decoder.permission_result(allow_id, allow=True)
+        rejected = reject_decoder.permission_result(reject_id, allow=False)
+
+        self.assertEqual(allowed["result"]["outcome"]["optionId"], "allow-once")
+        self.assertEqual(rejected["result"]["outcome"]["optionId"], "reject-once")
+
+    def test_permission_without_a_one_time_option_stays_pending(self) -> None:
+        decoder = GrokEventDecoder(SessionKey("grok", "local-1", "demo"), "grok 1")
+        line = _lines("grok-stdio", "synthetic-permissions.jsonl")[1]
+        request_id = decoder.feed(line)[0].payload.request_id
+
+        with self.assertRaises(ControlUndelivered):
+            decoder.permission_result(request_id, allow=True)
+        with self.assertRaises(ControlUndelivered):
+            decoder.permission_result(request_id, allow=False)
+
+        self.assertIn(request_id, decoder.pending_permissions)
+
+    def test_tool_titles_with_arguments_are_not_published(self) -> None:
+        decoder = GrokEventDecoder(SessionKey("grok", "local-1", "demo"), "grok 1")
+        lines = _lines("grok-stdio", "synthetic-permissions.jsonl")
+
+        approval = decoder.feed(lines[0])[0]
+        edit_approval = decoder.feed(lines[1])[0]
+        read_tool = decoder.feed(lines[2])[0]
+        run_tool = decoder.feed(lines[3])[0]
+        blob = "".join(
+            event.to_json() for event in (approval, edit_approval, read_tool, run_tool)
+        )
+
+        self.assertEqual(approval.payload.summary, "请求使用工具 execute")
+        self.assertEqual(edit_approval.payload.summary, "请求使用工具 edit")
+        self.assertEqual(read_tool.payload.name, "read")
+        self.assertEqual(run_tool.payload.name, "run_terminal_command")
+        for private in ("rm -rf", "example-probe", "package.json", "<workspace>", "notes.txt"):
+            self.assertNotIn(private, blob)
 
     def test_each_prompt_keeps_its_own_id_and_the_echo_is_skipped(self) -> None:
         decoder = GrokEventDecoder(SessionKey("grok", "local-1", "demo"), "grok 1")

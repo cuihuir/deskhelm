@@ -342,6 +342,12 @@ Keep third-party reference files outside version control under
   `agent_capabilities` carries vendor-declared names and is not a new enum
   value. Web, the dashboard, and later clients read those same fields. Agents
   DeskHelm did not start stay off the page. ADR 0040.
+- Grok approvals select only the option whose ACP kind is `allow_once` or
+  `reject_once`. Without one, the decision is undelivered and the request
+  stays pending; never fall back to an `allow_always` or `reject_always`
+  option. Tool names and approval summaries use the vendor title only when it
+  is a bare name, otherwise the ACP kind, because titles can embed commands and
+  paths.
 - The loopback web client in ADR 0036 is a replaceable Bridge client. One web
   process holds one state subscription and one interaction subscription and
   fans them out to browsers. Omitting `--socket` reads the user bridge and

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 import uuid
 
+from deskhelm_bridge.control import ControlUndelivered
 from deskhelm_bridge.interaction import (
     ApprovalRequestPayload,
     InteractionEvent,
@@ -20,6 +22,7 @@ from deskhelm_bridge.session_registry import SessionKey
 
 _MAX_TEXT = 8192
 _APPROVAL_WINDOW_MS = 10 * 60 * 1000
+_TOOL_LABEL = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
 
 
 class GrokEventDecoder:
@@ -91,12 +94,14 @@ class GrokEventDecoder:
         }
 
     def permission_result(self, request_id: str, *, allow: bool) -> dict[str, Any]:
-        pending = self.pending_permissions.pop(request_id, None)
+        pending = self.pending_permissions.get(request_id)
         if pending is None:
             raise RuntimeError("approval request is not pending")
         option_id = _select_option(pending.get("options"), allow=allow)
         if not option_id:
-            raise RuntimeError("approval option is unavailable")
+            # Never fall back to an "always" option; leave the request open.
+            raise ControlUndelivered("approval option is unavailable")
+        del self.pending_permissions[request_id]
         return {
             "jsonrpc": "2.0",
             "id": pending["rpc_id"],
@@ -222,7 +227,7 @@ class GrokEventDecoder:
         if kind == "tool_call":
             tool = update.get("toolCall") if isinstance(update.get("toolCall"), dict) else update
             tool_id = _token(tool.get("toolCallId")) or uuid.uuid4().hex
-            name = _token(tool.get("title") or tool.get("kind")) or "tool"
+            name = _tool_label(tool) or "tool"
             self._tool_names[tool_id] = name
             return [
                 self._event(
@@ -235,7 +240,7 @@ class GrokEventDecoder:
             tool = update.get("toolCall") if isinstance(update.get("toolCall"), dict) else update
             tool_id = _token(tool.get("toolCallId") or update.get("toolCallId")) or "tool"
             text = _content_text(update.get("content") or tool.get("content"))
-            name = _token(tool.get("title") or tool.get("kind")) or self._tool_names.get(tool_id, "tool")
+            name = _tool_label(tool) or self._tool_names.get(tool_id, "tool")
             events = []
             if text:
                 events.append(
@@ -277,10 +282,7 @@ class GrokEventDecoder:
             return []
         request_id = uuid.uuid4().hex
         options = params.get("options") if isinstance(params.get("options"), list) else []
-        title = ""
-        tool = params.get("toolCall")
-        if isinstance(tool, dict):
-            title = _token(tool.get("title") or tool.get("kind"))
+        label = _tool_label(params.get("toolCall")) or "tool"
         self.pending_permissions[request_id] = {"rpc_id": rpc_id, "options": options}
         occurred_at = _now()
         return [
@@ -288,7 +290,7 @@ class GrokEventDecoder:
                 InteractionKind.APPROVAL_REQUEST,
                 ApprovalRequestPayload(
                     request_id=request_id,
-                    summary=f"请求使用工具 {title or 'tool'}",
+                    summary=f"请求使用工具 {label}",
                     expires_at=occurred_at + _APPROVAL_WINDOW_MS,
                 ),
                 request_id,
@@ -412,19 +414,30 @@ def _content_text(value: object) -> str:
 
 
 def _select_option(options: object, *, allow: bool) -> str:
+    """Return the one-time option of the wanted kind, never an "always" one."""
     if not isinstance(options, list):
         return ""
-    wanted = ("allow", "approve", "accept") if allow else ("reject", "deny", "cancel")
+    wanted = "allow_once" if allow else "reject_once"
     for option in options:
-        if not isinstance(option, dict):
+        if not isinstance(option, dict) or option.get("kind") != wanted:
             continue
-        option_id = option.get("optionId") or option.get("id")
-        kind = option.get("kind") or ""
-        if not isinstance(option_id, str):
-            continue
-        haystack = f"{option_id} {kind}".lower()
-        if any(word in haystack for word in wanted):
+        option_id = option.get("optionId")
+        if isinstance(option_id, str) and option_id.strip():
             return option_id
+    return ""
+
+
+def _tool_label(tool: object) -> str:
+    """Return the title only if it is a bare name, else the ACP kind.
+
+    Vendor titles can embed commands and paths, which must not be published.
+    """
+    if not isinstance(tool, dict):
+        return ""
+    for key in ("title", "kind"):
+        value = tool.get(key)
+        if isinstance(value, str) and _TOOL_LABEL.fullmatch(value):
+            return value
     return ""
 
 
