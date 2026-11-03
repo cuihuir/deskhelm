@@ -466,10 +466,11 @@
 
   function historyHint(session) {
     var runtime = session && session.runtime_name;
+    // The Bridge keeps a bounded recent window per session, nothing older.
     if (runtime === "claude-code" || runtime === "grok") {
-      return "这里只显示本次打开页面之后的活动。";
+      return "这里显示这个会话最近的活动，更早的内容不会保留。";
     }
-    return "这里只显示本次打开页面之后的活动。更早的对话仍在 Codex 里。";
+    return "这里显示这个会话最近的活动。更早的对话仍在 Codex 里。";
   }
 
   function appendStage(column, line, detail, session) {
@@ -759,7 +760,7 @@
 
   function describe(result) {
     var payload = result.payload || {};
-    // A v2 server sends the shared wording; the v1 server sends codes only.
+    // The server sends the shared wording; the code table is only a fallback.
     if (typeof payload.message === "string" && payload.message) return payload.message;
     return codeText(payload.code) || codeText(payload.error) || (result.ok ? "已发送" : "没有完成");
   }
