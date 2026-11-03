@@ -25,31 +25,36 @@ has not started. The redesign baseline is tag `pre-architecture-v2`
 | Voice host | `bridge/deskhelm_voice_host`, `deskhelm voice` | Paraformer ASR, Piper, Kokoro, or IndexTTS notices, right-Alt PTT; user-verified |
 | Demo | `deskhelm simulate` | Fake session host with a scripted turn and approval |
 
-Since the release, branch `next` (not pushed) holds:
+Since the release, branch `next` (not pushed) holds the overnight work of
+2026-11-04, done on the user's instruction to keep going without them:
 
-- The page tells an unknown prompt outcome (`dispatch_failed`, a Bridge
-  timeout or lost connection, or a lost HTTP response) apart from a failed
-  one, and its fallback wording mirrors `deskhelm_client/texts.py` under a
-  test. The page never retries, so it needs no idempotency key of its own.
-- The sidebar session card keeps its time label inside the card.
-- A stopped `deskhelm agent` host returns 128 plus the signal, not 1.
-- The page is rebuilt (ADR 0044), as the user asked on 2026-11-04: a
-  mature agent page that stays light. `deskhelm_client.transcript` folds
-  interaction events into items and patches; the web server sends a
-  snapshot, then revisioned patches; the page is plain ES modules with
-  Markdown replies, tool rows that show the command or path, inline
-  approvals, a stop button, a details panel, and light and dark themes. The
-  Bridge now sends a session in a console delta only when its view changed.
-  The tab title counts waiting approvals, and the session list marks
-  activity not yet seen. `tools/check-web-page.py` checks the page in
-  Chrome (27 checks pass), and an end-to-end run with the real `simulate`
-  and `web` commands carried a prompt through an approval to its reply.
-- A live Codex 0.166.0 turn through the new page (prompt, page approval,
-  command output, reply) found two gaps, now fixed: the session view carries
-  `catalog_rev` so the page rereads a catalog the host pushes later, and a
-  shell-wrapped Codex command is titled by the command inside.
-- The dashboard shows recent activity as transcript items instead of raw
-  event fragments, and `deskhelm agent --help` has its own usage.
+- **The page is rebuilt (ADR 0044)**, as the user asked: a mature agent
+  page that stays light. The server folds interaction events with
+  `deskhelm_client.transcript` and sends a snapshot, then revisioned
+  patches; the page is plain ES modules with Markdown replies, tool rows
+  that show the command or path, inline approvals, a stop button, a details
+  panel, a model menu, light and dark themes, an approval count in the tab
+  title, and marks for unseen activity.
+- **A code review of the rebuild** (five finder angles; the parent review
+  agent itself crashed on an API error) found real bugs, all fixed:
+  approvals rebuilt after a Bridge restart could not be answered on the
+  page; the sidebar swallowed clicks while a reply streamed; replays
+  doubled tool output; a refused Codex steer overwrote the prompt; tools
+  kept spinning after their turn; Markdown headings backtracked for
+  seconds and could overflow the stack; declined Codex commands read as
+  done; Grok replies were glued across tool calls and its tool output
+  repeated; long Claude replies were clipped to 8 KiB; and the page kept a
+  second copy of the shared wording.
+- **Protocol additions (ADR 0044 decisions 7 to 11, protocol v2 updated):**
+  the core publishes `approval_resolved`; a completed message carries its
+  whole text and the window drops its deltas; tool output facts may say
+  `replace`; the session view carries `catalog_rev`; a console delta
+  carries only changed sessions.
+- **Command line:** `deskhelm agent` and `deskhelm codex` have parsers of
+  their own, and a stopped host ends by its signal.
+- **Live checks:** a Bridge restart during a pending Codex approval, Grok
+  prompts and tools, a real Codex turn approved from the new page, and an
+  end-to-end run of `deskhelm simulate` with `deskhelm web`.
 
 `voice/runtime` installs the checkout as an editable path dependency, so no
 command, test, or tool needs `PYTHONPATH`. The two uv projects stay separate
@@ -64,14 +69,20 @@ so model dependencies never enter the root package.
   The v1 protocol documents stay in `protocol/` as the record ADRs link to.
 - AGENTS.md now states the architecture as v2 invariants; component READMEs
   hold the details.
+- The page has no build step, framework, or dependency; transcript logic and
+  wording live in `deskhelm_client`, so the page and the dashboard agree.
 - uv uses the official PyPI index; the Tsinghua mirror was removed from the
   user's shell configuration at their request.
 
 ## Validation
 
-- Full suite in the voice runtime without `PYTHONPATH`: 310 tests pass on
+- Full suite in the voice runtime without `PYTHONPATH`: 330 tests pass on
   `next` (289 at the release). The root environment passes every test except
   the ASR provider tests, which need NumPy.
+- `tools/check-web-page.py`: every browser check passes in Chrome with the
+  page's CSP enforced, including a Bridge restart with an open approval,
+  clicks while another session streams, and Markdown that once stalled the
+  page.
 - Every documented command starts from outside the checkout without
   `PYTHONPATH`, including the voice host through `uv` and the right-Alt
   listener with the root environment's Python.
@@ -96,8 +107,14 @@ so model dependencies never enter the root package.
 - Choose a repository license. The repository is public and has no license
   file.
 - Phase 5: hardware and remote-access ADRs.
-- Not yet verified live: Grok approvals (see Validation) and the Codex
-  `/resume` picker under v2.
+- Not yet verified live: Grok approvals (see Validation), the Codex
+  `/resume` picker under v2, and the new page with Claude.
+- Push `next` and decide on a release once the user has looked at the
+  rebuilt page.
+- Left from the review: a streamed reply still redraws its whole message,
+  throttled from 50 ms to 1 s by its length; the 5 s SSE send timeout may
+  cut a large snapshot to a slow remote browser; `tests.test_host_link`
+  leaves a ResourceWarning.
 - The v1 voice turn timing record (ADR 0029) has no v2 equivalent, and the
   voice host does not enable advisory VAD.
 - Every replay transcript is synthetic; recording a live one needs an
@@ -125,6 +142,12 @@ so model dependencies never enter the root package.
   --locked` at the root and `uv sync --locked --python 3.12` in
   `voice/runtime`. Voice fails to import `deskhelm_voice_host` until the
   voice runtime is resynchronized.
+- To use `next`, stop every DeskHelm process (the sessions, `deskhelm web`,
+  `deskhelm dashboard`, then the Bridge with SIGTERM) and start them again;
+  the first new session starts a new Bridge. A 0.1.0 Bridge still serves
+  `next` hosts and pages, but sends no approval endings or catalog updates
+  and appends output that Grok replaced. A 0.1.0 web process keeps serving
+  the old page, which it loaded at start.
 - For live checks, keep tests off the user's Bridge: Codex accepts a
   private `XDG_RUNTIME_DIR`, but the user's `grok` wrapper reads proxy
   settings through `gsettings` and hangs without the real session bus, so

@@ -146,8 +146,8 @@ conversation history.
 - `configurator/`, `hardware/`, and `firmware/`: future device work.
 - `tests/`: cross-component, compatibility, and replay tests.
 - `docs/`: research, architecture, product, software, hardware, and ADRs.
-- `tools/`: the user launcher, the PTY relay, and voice diagnostics and
-  benchmark runners.
+- `tools/`: the user launcher, the PTY relay, the web page's browser check,
+  and voice diagnostics and benchmark runners.
 
 The root `pyproject.toml` maps every package directory, and `uv sync` installs
 the checkout in editable mode, so code, tests, and tools import packages by
@@ -198,7 +198,10 @@ access ADRs) has not started.
   streaming content never resends the session list (ADR 0044).
 - The interaction window (D1) is bounded per session, held in memory only,
   not canonical, and dropped when the session ends. Never promise durable
-  history or replay.
+  history or replay. A message's complete fact carries its whole text, so
+  the window keeps a completed message, not its deltas.
+- When an approval ends, the core publishes `approval_resolved` with how it
+  ended, so every surface says the same; a surface never infers it.
 - The voice tier may only submit prompts and answer approvals. The device and
   voice tiers and logs never receive command lines, command output, or diffs.
 
@@ -307,9 +310,10 @@ access ADRs) has not started.
 - Surfaces share `bridge/deskhelm_client`: one connection per process, the
   console resumed from its cursor on the same Bridge instance and reset on a
   new one, replayed interaction handed over once, commands never retried, and
-  one copy of result wording in `deskhelm_client/texts.py`. Surfaces decide
-  approvals by Bridge approval id from the console, so a reconnecting surface
-  still sees pending approvals.
+  one copy of result wording in `deskhelm_client/texts.py`, which the web
+  page receives with each snapshot. Surfaces decide approvals by Bridge
+  approval id from the console, so a reconnecting surface still sees pending
+  approvals, including one its transcript does not hold.
 - The web page (ADR 0036, ADR 0044) is a replaceable client: one process
   holds one operator connection and fans it out to browsers. A page opened
   later gets the Bridge's bounded recent window and pending approvals, which
@@ -317,12 +321,15 @@ access ADRs) has not started.
   files, or focus a browsed session. It serves on port 8766 and binds
   `127.0.0.1` unless `--allow-remote` is explicit.
 - The web server folds each session's interaction events with
-  `deskhelm_client.transcript` and sends a browser one snapshot, then
-  revisioned `sessions` and `patch` events. Keep transcript logic in that
+  `deskhelm_client.transcript`, which applies each event once by its
+  sequence, and sends a browser a snapshot (again after a Bridge restart),
+  then revisioned `sessions` and `patch` events; a page that misses a
+  revision starts again from a snapshot. Keep transcript logic in that
   module, not in the page. The page is plain ES modules with no build step,
-  framework, or dependency; agent text reaches the DOM only through
-  `textContent`, never as parsed HTML. The page names its command ids, never
-  retries a command, and labels an unknown outcome as unknown.
+  framework, or dependency. Agent text is never parsed as HTML: it reaches
+  the DOM as text, and only `http`, `https`, and `mailto` URLs become links.
+  The page names its command ids, never retries a command, and labels an
+  unknown outcome as unknown.
 - Every web request needs the token stored with mode 0600 in the runtime
   directory. The printed `?token=` link sets an HttpOnly, SameSite=Strict
   cookie and redirects to a token-free path. A loopback bind accepts only
@@ -495,11 +502,11 @@ Run tests from the repository root:
   tests -v`) runs everything except the ASR provider tests, which need NumPy.
 - `uv run --locked python -m unittest tests.test_core tests.test_core_server
   tests.test_host_link tests.test_drivers tests.test_codex_host
-  tests.test_replay_transcripts tests.test_client tests.test_web_surface
-  tests.test_dashboard_v2 tests.test_voice_host tests.test_cli_switch
-  tests.test_simulate tests.test_user_launcher -v`: the v2 core, hosts,
-  drivers, surfaces, command line, and launcher without a vendor CLI, audio
-  device, or model.
+  tests.test_replay_transcripts tests.test_client tests.test_transcript
+  tests.test_web_surface tests.test_dashboard_v2 tests.test_voice_host
+  tests.test_cli_switch tests.test_simulate tests.test_user_launcher -v`: the
+  v2 core, hosts, drivers, transcript fold, surfaces, command line, and
+  launcher without a vendor CLI, audio device, or model.
 - `uv run --locked python -m unittest tests.test_codex_app_server_transport
   tests.test_codex_app_server_adapter tests.test_codex_app_server_fixtures
   tests.test_codex_tui_proxy -v`: the Codex WebSocket, thread attachment,

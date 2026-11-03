@@ -87,14 +87,15 @@ it.
 
 The page lists sessions by project with their state, a preview, pending
 approvals, and a mark for activity you have not looked at; the tab title
-counts the approvals waiting anywhere. A reply renders Markdown; a tool row shows its command or path
-and opens to its output; an approval waits inline with a countdown; the stop
-button interrupts a working turn; and a details panel shows the runtime,
-capabilities, model, MCP servers, and skills. Enter sends and Shift+Enter
-adds a line. The server builds each transcript with
-`deskhelm_client.transcript` and sends a snapshot, then revisioned patches
-(ADR 0044); the page is plain ES modules in `deskhelm_web/assets/js/` with no
-build step. `tools/check-web-page.py` checks it in Chrome.
+counts the approvals waiting anywhere. A reply renders Markdown; a tool row
+shows its command or path and opens to its output; an approval waits inline
+with a countdown and then says how it ended; the stop button interrupts a
+working turn; and a details panel shows the runtime, capabilities, model,
+MCP servers, and skills. Enter sends and Shift+Enter adds a line. The server
+builds each transcript with `deskhelm_client.transcript` and sends a
+snapshot, then revisioned patches (ADR 0044); the page is plain ES modules in
+`deskhelm_web/assets/js/` with no build step. `tools/check-web-page.py`
+checks it in Chrome.
 
 The dashboard uses `j`/`k` to move, `f` to focus, `i` to interrupt, `a`/`r`
 to approve or reject, and `q` to quit. Focus decides which session voice
@@ -145,7 +146,7 @@ back.
 ```bash
 uv run --locked python -m unittest tests.test_core tests.test_core_server \
   tests.test_host_link tests.test_drivers tests.test_codex_host \
-  tests.test_replay_transcripts tests.test_client tests.test_web_surface \
-  tests.test_dashboard_v2 tests.test_voice_host tests.test_cli_switch \
-  tests.test_simulate tests.test_user_launcher -v
+  tests.test_replay_transcripts tests.test_client tests.test_transcript \
+  tests.test_web_surface tests.test_dashboard_v2 tests.test_voice_host \
+  tests.test_cli_switch tests.test_simulate tests.test_user_launcher -v
 ```

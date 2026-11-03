@@ -135,4 +135,5 @@ of each affected ADR says what changed.
 [`0044-server-built-transcript-and-module-page.md`](0044-server-built-transcript-and-module-page.md)
 folds interaction events into a server-built transcript that any surface can
 reuse, sends the page revisioned patches, and rebuilds the page as plain ES
-modules with no build step.
+modules with no build step. It also makes the Bridge publish how each
+approval ended and keep whole replies, not their deltas, in its window.

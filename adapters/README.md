@@ -16,8 +16,11 @@ command lines, paths, tool arguments, thoughts, working directories, and
 vendor error text stay out of content-free facts. Prompts reach the vendor
 on stdin, never in process arguments.
 
-Claude needs `--permission-prompt-tool stdio`; without it, Claude Code 2.1.312
-denies a tool that needs permission without asking. Its driver declines
+A driver completes a streamed reply with its whole text and sends only new
+tool output, or the whole output marked `replace` when the vendor replaced it
+(Grok sends the whole content on each update). Claude needs
+`--permission-prompt-tool stdio`; without it, Claude Code 2.1.312 denies a
+tool that needs permission without asking. Its driver declines
 `AskUserQuestion` at once because the session takes no input. Grok approvals
 use only the `allow_once` or `reject_once` option; without one, the decision
 is undelivered and the request stays pending.

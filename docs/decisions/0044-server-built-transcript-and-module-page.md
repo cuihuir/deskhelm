@@ -38,6 +38,27 @@ built like a mature agent client that stays light and extensible.
    and scripted session hosts. It is an optional check that runs Playwright
    from a throwaway uv environment.
 
+A review of the rebuilt page on the same day added decisions 7 to 11.
+
+7. Surfaces decide approvals from the console, so the page also shows an
+   approval its transcript does not hold, such as one a host reopened after
+   a Bridge restart. When an approval ends, the core publishes
+   `approval_resolved` (decided through DeskHelm, by the vendor, with its
+   turn, or by expiry), and the fold records it, so every surface says the
+   same thing.
+8. The fold applies each event once by its sequence, so a replay after a
+   reconnect changes nothing. A message of another role under the same id,
+   such as a notice about a refused steer, is its own item. What is still
+   running stops when its turn ends or its host leaves.
+9. A message's complete fact carries its whole text, and the Bridge drops a
+   completed message's deltas from the window. A tool output fact extends
+   the output, or replaces it when marked `replace`.
+10. The session view carries `catalog_rev`, which counts the catalogs a host
+    has pushed; a surface reads the catalog again when it changes and never
+    polls.
+11. The page receives the shared wording from `deskhelm_client.texts` with
+    each snapshot and keeps only its own codes.
+
 ## Consequences
 
 - The page's HTTP API changed without a compatibility layer; the page ships
@@ -47,7 +68,10 @@ built like a mature agent client that stays light and extensible.
 - Replies render Markdown, tool rows show their command or path and fold
   their output, approvals sit inline with a countdown, and session details
   move to a side panel.
-- The browser keeps no transcript logic of its own that could drift from
-  other surfaces.
+- The browser keeps no transcript logic or wording of its own that could
+  drift from other surfaces, and the dashboard shows the same items and
+  approval endings as the page.
+- A surface that joins late, such as a restarted web process, gets whole
+  replies from the window rather than whatever deltas still fit.
 - Browser behaviour is checked only when someone runs the tool; the unit
   suite covers the transcript fold and the server API.
