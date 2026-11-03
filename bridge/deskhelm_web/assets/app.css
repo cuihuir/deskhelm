@@ -168,6 +168,7 @@ button:disabled { cursor: default; opacity: 0.5; }
 .session-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .session-name { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .focus-mark { display: inline-flex; color: var(--accent); }
+.unseen { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--accent); }
 .focus-mark .icon { width: 14px; height: 14px; }
 .session-time { flex: none; margin-left: auto; color: var(--text-3); font-size: 12px; white-space: nowrap; }
 .session-sub { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-3); font-size: 12.5px; }

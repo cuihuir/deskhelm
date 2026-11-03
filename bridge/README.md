@@ -85,8 +85,9 @@ opened later receives the Bridge's bounded recent window and the pending
 approvals, which is not durable history. Browsing a session does not focus
 it.
 
-The page lists sessions by project with their state, a preview, and pending
-approvals. A reply renders Markdown; a tool row shows its command or path
+The page lists sessions by project with their state, a preview, pending
+approvals, and a mark for activity you have not looked at; the tab title
+counts the approvals waiting anywhere. A reply renders Markdown; a tool row shows its command or path
 and opens to its output; an approval waits inline with a countdown; the stop
 button interrupts a working turn; and a details panel shows the runtime,
 capabilities, model, MCP servers, and skills. Enter sends and Shift+Enter

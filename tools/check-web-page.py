@@ -232,6 +232,7 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     approve.wait_for(timeout=5000)
     check("a pending approval shows a countdown", "有效" in page.locator(".approval-time").text_content())
     check("the session list counts the approval", page.locator(".session .badge").first.text_content() == "1")
+    check("the tab title counts the approval", page.title() == "(1) DeskHelm")
     if shots:
         page.screenshot(path=str(shots / "approval.png"))
     approve.click()
@@ -254,6 +255,9 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     check("switching sessions switches the transcript", page.locator("#topbar h1").text_content() == "Claude")
     claude.emit(FactKind.MESSAGE, {"message_ref": "c2", "role": "assistant", "phase": "complete"}, {"text": "Second note."})
     page.locator(".msg.assistant", has_text="Second note.").wait_for(timeout=5000)
+    drivers["grok"].emit(FactKind.MESSAGE, {"message_ref": "g1", "role": "assistant", "phase": "complete"}, {"text": "Grok news."})
+    page.locator("#session-list .session", has_text="Grok").locator(".unseen").wait_for(timeout=5000)
+    check("new activity elsewhere is marked unseen", page.locator("#session-list .session", has_text="Claude").locator(".unseen").count() == 0)
     page.reload()
     page.locator("#topbar h1", has_text="Claude").wait_for(timeout=5000)
     check("the selection survives a reload", page.locator(".msg.assistant", has_text="Second note.").count() == 1)

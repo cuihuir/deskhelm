@@ -48,6 +48,7 @@ export function mountSidebar(store, root, actions) {
           { class: "session-top" },
           h("span", { class: "session-name", text: session.label }),
           focused ? h("span", { class: "focus-mark", title: "语音对这个会话说话" }, icon("mic")) : null,
+          store.unseen(session) ? h("span", { class: "unseen", title: "有新的活动" }) : null,
           h("span", { class: "session-time", dataset: { time: String(session.updated_at || 0) }, text: relativeTime(session.updated_at) }),
         ),
         h(

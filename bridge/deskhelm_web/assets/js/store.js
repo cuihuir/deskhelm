@@ -24,6 +24,7 @@ export function createStore() {
     deciding: new Set(), // approval ids in flight from this page
     decided: new Map(), // approval id -> "approve" | "reject", from this page
     catalogs: new Map(), // session key -> {status: "loading" | "ready" | "failed", data}
+    seen: new Map(), // session key -> the updated_at the user last saw
     ui: { details: false, drawer: false, menu: false },
   };
 
@@ -85,6 +86,7 @@ export function createStore() {
     if (session) {
       if (typeof payload.preview === "string") session.preview = payload.preview;
       if (payload.updated_at) session.updated_at = payload.updated_at;
+      if (payload.key === state.selected) state.seen.set(payload.key, session.updated_at);
     }
     if (payload.op === "upsert" && id.startsWith("m:")) settlePending(payload.key);
     emit("patch", { key: payload.key, op: payload.op, id });
@@ -105,6 +107,14 @@ export function createStore() {
     for (const session of payload.sessions || []) next.set(session.key, session);
     for (const key of state.transcripts.keys()) if (!next.has(key)) state.transcripts.delete(key);
     state.sessions = next;
+    // Activity from before the page opened, or in the open session, is seen.
+    for (const [key, session] of next) {
+      if (!state.seen.has(key) || key === state.selected) state.seen.set(key, session.updated_at);
+    }
+  }
+
+  function unseen(session) {
+    return session.key !== state.selected && session.updated_at > (state.seen.get(session.key) || 0);
   }
 
   function setStream(value) {
@@ -129,6 +139,7 @@ export function createStore() {
 
   function select(key) {
     if (!state.sessions.has(key) || key === state.selected) return;
+    state.seen.set(key, state.sessions.get(key).updated_at);
     state.selected = key;
     storageSet(SELECTION_KEY, key);
     emit("selection");
@@ -208,7 +219,7 @@ export function createStore() {
   }
 
   return {
-    state, on, emit, applySnapshot, applySessions, applyPatch, setStream, select, selected, items,
+    state, on, emit, applySnapshot, applySessions, applyPatch, setStream, select, selected, items, unseen,
     addPending, removePending, updatePending, setDeciding, setDecided, setCatalog, setSearch, setUi,
   };
 }

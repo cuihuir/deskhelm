@@ -40,7 +40,10 @@ Since the release, branch `next` (not pushed) holds:
   Markdown replies, tool rows that show the command or path, inline
   approvals, a stop button, a details panel, and light and dark themes. The
   Bridge now sends a session in a console delta only when its view changed.
-  `tools/check-web-page.py` checks the page in Chrome (23 checks pass).
+  The tab title counts waiting approvals, and the session list marks
+  activity not yet seen. `tools/check-web-page.py` checks the page in
+  Chrome (25 checks pass), and an end-to-end run with the real `simulate`
+  and `web` commands carried a prompt through an approval to its reply.
 
 `voice/runtime` installs the checkout as an editable path dependency, so no
 command, test, or tool needs `PYTHONPATH`. The two uv projects stay separate

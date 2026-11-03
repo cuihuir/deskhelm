@@ -100,6 +100,16 @@ composer = mountComposer(store, document.getElementById("composer"), actions);
 mountDetails(store, document.getElementById("details"), actions);
 
 for (const topic of ["ui", "selection", "snapshot"]) store.on(topic, syncLayout);
+
+// The tab title counts the approvals waiting anywhere, for a page in the background.
+function syncTitle() {
+  let waiting = 0;
+  for (const session of store.state.sessions.values()) {
+    waiting += session.approvals.filter((ticket) => ticket.kind === "approval").length;
+  }
+  document.title = waiting ? `(${waiting}) DeskHelm` : "DeskHelm";
+}
+for (const topic of ["snapshot", "sessions"]) store.on(topic, syncTitle);
 document.getElementById("scrim").addEventListener("click", () => {
   store.setUi("drawer", false);
   store.setUi("details", false);
