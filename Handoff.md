@@ -74,8 +74,8 @@ running.
     approval appeared once, was approved from a v2 client through the TUI
     proxy, and the file was written. `/quit` exited 0 and SIGTERM exited
     143; both removed the session, both sockets, and every child process.
-    The host restores the terminal attributes it saved, but a human terminal
-    was not observed.
+    The user then ran it in a real terminal the same day; the display, the
+    Ctrl-C guard, and the exit were fine.
 
 Open issues:
 
