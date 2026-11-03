@@ -36,10 +36,14 @@ host, and their Bridge.
   - The launcher only wraps `codex --voice` and `voice` in project-secrets;
     the hosts own sockets, the PTY relay, and the Ctrl-C guard.
   - A socket held by an old v1 Bridge is named and refused.
-  - pyproject lists the v2 packages. The root environment was resynchronized
-    with `uv sync --extra ptt --frozen`; `--locked` fails here because this
-    machine's uv config uses the Tsinghua mirror while `uv.lock` records
-    pypi.org, which was already so before the switch.
+  - pyproject lists the v2 packages, and the root environment was
+    resynchronized so the installed `deskhelm` imports them.
+- On 2026-11-04 the user ran the switched commands in their own terminal:
+  OK. At their request the uv Tsinghua mirror (`UV_INDEX_URL` in `~/.zshrc`)
+  was removed; uv now uses the official PyPI index, which both locks
+  record, and `uv sync --extra ptt --locked` and both `uv lock --check` runs
+  pass. A Claude Code session started before that still inherits the old
+  variable from its shell snapshot, so unset `UV_INDEX_URL` there.
 - Validation: the full suite passes, 546 tests. A copy of the launcher with
   stand-in executables forwards commands unchanged and wraps only voice.
   Through the real launcher with a temporary runtime directory, `deskhelm
@@ -53,7 +57,6 @@ host, and their Bridge.
 
 Open issues:
 
-- The user's switched commands have not run in their own terminal yet.
 - ADR status lines still read as before; the superseded and amended ADRs
   listed in ADR 0043 get their new status in phase 4. `deskhelm --help`
   still prints the v1 option lists.
