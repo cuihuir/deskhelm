@@ -6,50 +6,100 @@ Project: DeskHelm
 
 Repository: <https://github.com/cuihuir/deskhelm>
 
-## Latest Phase: Architecture v2, Phase 0 Complete
+## Latest Phase: Architecture v2, Paused After the Claude and Grok Hosts
 
-Status: phase 0 of ADR 0043 finished on 2026-11-03 on branch
-`refactor/architecture-v2`. No bridge, web, or agent process was started or
-restarted; running processes still execute the old code.
+Status: paused on 2026-11-03 at the user's request, on branch
+`refactor/architecture-v2`; nothing is pushed. Phases 0 and 1 and the Claude
+and Grok part of phase 2 are committed. v1 stays the default: `bridge.sock`,
+`deskhelm codex`, `deskhelm agent`, web, dashboard, and voice all run v1
+code. Live checks used temporary sockets. No DeskHelm process is running.
 
 - Baseline: commit `ec128a3`, tag `pre-architecture-v2`, holds the work that
-  was uncommitted since `9809755`. `t.sh` stays untracked.
-- Design: `docs/architecture/target-architecture.md` and ADR 0043. D1–D4 were
-  accepted as recommended.
-- Phase 0 commits on the current code:
-  - `ed873e8`: the router calls handlers outside its lock. The deadlock
-    between an approval request and a prompt was reproduced against the old
-    router by `tests/test_bridge_control_concurrency.py`. Handlers raise
-    `ControlUndelivered` when a command never reached the runtime; the router
-    answers `handler_unavailable`, keeps the approval pending, and does not
-    cache that result. Grok no longer busy-waits in the handler.
-  - `ed3b0e5`: Grok approvals select only `allow_once` / `reject_once`; titles
-    with commands or paths are not published.
-  - `135a4b0`: Grok interrupt sends `session/cancel` as a notification and
-    answers open permissions as cancelled. Not tried on a live Grok.
-  - `854a8f2`: the dashboard sends the exact approval summary.
-  - `e855fb8`: every web request needs the token in
-    `$XDG_RUNTIME_DIR/deskhelm/web-token`. Checked end to end through
-    `run_web_client`; no browser pass.
-  - `1568ee2`: voice approval phrases never become prompts; `取消` discards.
-  - `d77bb8d`: voice notifications name Codex, Claude, Grok, or Agent.
-  - `dc11699`: Grok tool output inside ACP content blocks is published;
-    diff blocks with paths are not.
-  - `5f42fe7`: replay harness (`tests/helpers/replay.py`) with seven
-    synthetic transcripts for Claude, Grok, and Codex.
-- Validation: the full no-hardware suite passes (437 tests) with
-  `PYTHONPATH=bridge uv run --project voice/runtime --locked --no-sync python -m unittest discover -s tests`.
-  Adding `voice` to `PYTHONPATH` loads `deskhelm_voice` twice and fails voice
-  tests; phase 4 packaging removes that trap. `node` is unavailable here, so
-  `app.js` was not syntax-checked after a one-string change.
-- Operator actions: restart the user bridge to load these fixes. Until phase
-  2 that restart still ends every attached session. After restarting
-  `deskhelm web`, open the printed `?token=` link once per browser.
-- Pending operator decision: recording live Claude, Grok, and Codex
-  transcripts uses real accounts; transcripts must be anonymized and reviewed
-  before commit.
-- Next: phase 1, protocol v2 and the single-threaded core beside the current
-  protocol.
+  was uncommitted since `9809755`. Design:
+  `docs/architecture/target-architecture.md` and ADR 0043, with D1–D4
+  accepted as recommended. `t.sh` stays untracked.
+- Phase 0, fixes on v1, `ed873e8` to `5f42fe7`: handlers run outside the
+  router lock and raise `ControlUndelivered` when nothing reached the
+  runtime, which keeps the approval pending; Grok answers only `allow_once` /
+  `reject_once`, publishes bare tool names, cancels with a notification, and
+  publishes tool output from ACP content blocks; the dashboard sends exact
+  approval summaries; web requests need the token cookie; voice approval
+  phrases never become prompts and `取消` discards; voice notices name the
+  agent; a replay harness with seven synthetic transcripts. `e6e4c9c` raised
+  the subscriber queue default to 64 frames after streamed deltas
+  disconnected a live subscriber.
+- Phase 1, `6330467` and `cda4cb8`: `bridge/deskhelm_protocol` and the
+  single-threaded `bridge/deskhelm_core`, served on `bridge-v2.sock`.
+  Contract: `protocol/deskhelm-v2.md`.
+- Phase 2a, `ad0151d`: `bridge/deskhelm_host` with the driver contract, the
+  Bridge link that keeps a session across Bridge restarts, the vendor process
+  owner, and Bridge autostart.
+- Phase 2b/2c, `8cb9b5f`: the Claude driver, the generic ACP driver with its
+  Grok flavor, and `python -m deskhelm_host claude|grok`. Claude and Grok
+  replay transcripts drive these drivers; Codex replays still drive v1. A
+  host starts the Bridge only before its first open. Before that fix, hosts
+  in tests and live checks restarted stopped Bridges; the five that leaked
+  were stopped by pid.
+- Validation: the full suite passes, 488 tests, with
+  `PYTHONPATH=bridge uv run --project voice/runtime --locked --no-sync python -m unittest discover -s tests`,
+  and leaves no process behind. The focused v2 command in AGENTS.md passes
+  55 tests with the system Python 3.14. `git diff --check` is clean.
+- Live checks on 2026-11-03:
+  - Grok 1.0.60 on v1 and v2: prompt, reply, and turn end work, and
+    interrupt by `session/cancel` notification works. This Grok runs in
+    always-approve (yolo) mode, so it requested no approval; the v2 driver
+    reports approvals as `none` for it.
+  - Claude Code 2.1.312 on v2: a Bash `echo` turn streamed the tool, the
+    reply, and the turn end. A Write that needs permission did not; see
+    below.
+
+Open issues:
+
+- Claude permission routing. With the committed argv
+  (`--permission-mode default --permission-prompts host`), two Write turns
+  ended without a `can_use_tool` request and wrote no file. A raw probe with
+  `--permission-prompt-tool stdio` added did receive `can_use_tool` for
+  Write, but that argv under `ClaudeSession` produced no `request_opened` and
+  no turn end within 90 seconds. The cause is unknown, and the argv change
+  was reverted. Next step: replay that real `can_use_tool` frame through
+  `ClaudeSession` in a test. `default` is not among the `--permission-mode`
+  choices 2.1.312 lists (`acceptEdits`, `auto`, `bypassPermissions`,
+  `manual`, `dontAsk`, `plan`). v1 `deskhelm agent claude` uses the same
+  argv.
+- The ACP driver labels a tool update with the update's title or kind before
+  the label recorded at `tool_call`, so one tool can show different labels
+  at start and completion. Fix: prefer the recorded label.
+- Grok approvals are untested live; that needs a Grok session that is not in
+  always-approve mode.
+- `node` is unavailable here, so `app.js` was not syntax-checked after its
+  phase 0 string change. The web token flow has no browser pass.
+- Every replay transcript is synthetic. Recording live Claude, Grok, and
+  Codex transcripts uses real accounts and needs an operator decision;
+  recordings are anonymized and reviewed before commit.
+- v1 packaging: `deskhelm agent` started outside this checkout cannot import
+  `deskhelm_voice`. Phase 4 packaging fixes it.
+
+Next, after the user confirms:
+
+1. Rest of phase 2: the Codex host around `CodexAppServerAdapter`, the TUI
+   proxy, and the PTY relay, keeping ADR 0033 semantics.
+2. Phase 3: `deskhelm_client`, web and dashboard on v2, and the voice host.
+3. Switch-over: v2 takes `bridge.sock`.
+4. Phase 4: remove v1, uv workspace packaging, condensed AGENTS.md, and a
+   rewritten Handoff.
+
+Operator notes:
+
+- The phase 0 fixes reach v1 only after the user bridge restarts, which still
+  ends every attached v1 session. After restarting `deskhelm web`, open the
+  printed `?token=` link once per browser.
+- To try v2 beside v1, run
+  `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_host claude` or `grok`
+  from an Agent project directory. It starts a v2 Bridge on `bridge-v2.sock`
+  if none is listening. No web, dashboard, or voice surface reads v2 yet.
+- That v2 Bridge keeps running after its host exits. Stop it by the pid of
+  `python3 -m deskhelm_core --socket …`. Its output is in
+  `$XDG_RUNTIME_DIR/deskhelm/bridge-v2.log`.
 
 ## Previous Phase: Web Port 8766
 

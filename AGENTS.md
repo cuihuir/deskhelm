@@ -153,6 +153,16 @@ Keep third-party reference files outside version control under
 - ADR 0043 restructures the architecture in phases 0 to 5, as described in
   `docs/architecture/target-architecture.md`. Until a phase lands, the rules
   below describe the current code. Each phase updates the rules it changes.
+- Phases 1 and 2 run protocol v2 beside v1 on `bridge-v2.sock`;
+  `protocol/deskhelm-v2.md` is its contract. The core in
+  `bridge/deskhelm_core` is one single-threaded actor without I/O and imports
+  no adapter or voice code. Each `bridge/deskhelm_host` process owns one
+  vendor, and its Bridge connection is the session lease. Claude and the
+  generic ACP driver with its Grok flavor (`adapters/acp/`) are drivers. A
+  driver records a turn before the prompt reaches the vendor and rebuilds a
+  reopened session from `state()`. A host starts the v2 Bridge only before
+  its first open and never restarts one that later stops. The rules below
+  still govern v1, which stays the default until the switch-over.
 - Keep integrations Agent-agnostic and local-first.
 - Preserve the separation between small `StateEvent` projections, rich
   `InteractionEvent` content, and targeted `ControlCommand` actions.
@@ -567,6 +577,22 @@ Current commands:
   validate relay attach, Claude and Grok normalization, session identity, and
   the web supervision page without using the operator's bridge socket.
 
+- `PYTHONPATH=bridge python3 -m deskhelm_core [--socket <bridge-v2.sock>]`:
+  run the protocol v2 Bridge from ADR 0043 beside the v1 Bridge. It defaults
+  to `bridge-v2.sock` in the DeskHelm runtime directory, requires an absolute
+  `--socket`, and owns no Agent process. A later start replaces the socket
+  file that SIGTERM leaves behind.
+- `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_host <claude|grok>
+  [--socket <bridge-v2.sock>] [--project-id <id>] [--session-id <id>]`: run
+  from the Agent project directory to start that vendor there as one v2
+  session host. It starts the v2 Bridge if none is listening, with that
+  Bridge's output in `bridge-v2.log` in the runtime directory, and reopens
+  its session after a Bridge restart. Stopping the host stops its vendor.
+- `PYTHONPATH=bridge python3 -m unittest tests.test_core
+  tests.test_core_server tests.test_host_link tests.test_drivers
+  tests.test_replay_transcripts -v`: validate the v2 core, socket server,
+  host link, Claude and Grok drivers, and every replay transcript without a
+  vendor CLI.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --plain`: run the Bridge.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --max-connections 16`:
   run with an explicit bounded connection limit.
@@ -688,6 +714,8 @@ Current commands:
 - `PYTHONPATH=bridge uv run --project voice/runtime --locked --no-sync python -m
   unittest discover -s tests -v`: run the full no-hardware suite from the
   already synchronized pinned uv environment; model imports remain lazy.
+  Keep `voice` off `PYTHONPATH` here; adding it imports `deskhelm_voice`
+  twice and fails the voice tests.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_replay_transcripts -v`:
   replay every vendor transcript in `tests/fixtures/replay/` through the real
   adapters.
