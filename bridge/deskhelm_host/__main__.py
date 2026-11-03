@@ -109,7 +109,10 @@ def main(argv: list[str] | None = None) -> int:
     if not link.opened.wait(_OPEN_TIMEOUT_SECONDS):
         print("deskhelm host: the Bridge is not reachable yet; continuing", file=sys.stderr)
 
+    stopped: list[int] = []
+
     def stop(signum, frame) -> None:
+        stopped.append(signum)
         driver.close()
 
     signal.signal(signal.SIGTERM, stop)
@@ -125,6 +128,9 @@ def main(argv: list[str] | None = None) -> int:
         code = driver.wait()
     finally:
         link.close()
+    if stopped:
+        # A requested stop is not a vendor failure; report it as the shell does.
+        return 128 + stopped[0]
     return 0 if code == 0 else 1
 
 

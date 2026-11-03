@@ -4,7 +4,10 @@ import contextlib
 import io
 import os
 from pathlib import Path
+import select
+import signal
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -119,6 +122,32 @@ class SwitchOverTests(unittest.TestCase):
         self.assertEqual((missing, foreign), ("none", "other"))
         self.assertEqual(code, 1)
         self.assertIn("other than a v2 Bridge", stderr)
+
+    def test_a_stopped_agent_host_reports_the_signal_not_a_failure(self) -> None:
+        self._bridge_with_session()
+        bin_directory = self.directory / "bin"
+        bin_directory.mkdir()
+        claude = bin_directory / "claude"
+        claude.write_text('#!/usr/bin/env bash\n[ "$1" = --version ] && { echo "2.1.312 (Claude Code)"; exit 0; }\n'
+                          "exec cat >/dev/null\n")
+        claude.chmod(0o755)
+        environment = {**os.environ, "PATH": f"{bin_directory}{os.pathsep}{os.environ['PATH']}"}
+        host = subprocess.Popen([sys.executable, "-m", "deskhelm_host", "claude", "--socket", str(self.path)],
+                                cwd=self.directory, env=environment, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: host.poll() is None and host.kill())
+        assert host.stderr is not None
+        self.addCleanup(host.stderr.close)
+        started = ""
+        deadline = time.monotonic() + 10
+        while "claude session" not in started and time.monotonic() < deadline:
+            if select.select([host.stderr], [], [], 0.2)[0]:
+                started += host.stderr.readline()
+
+        host.send_signal(signal.SIGTERM)
+
+        self.assertIn("claude session", started)
+        self.assertEqual(host.wait(timeout=10), 128 + signal.SIGTERM)
 
     def test_a_running_v2_bridge_is_recognized(self) -> None:
         self._bridge_with_session()
