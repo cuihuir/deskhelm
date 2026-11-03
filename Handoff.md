@@ -52,9 +52,16 @@ Since the release, branch `next` (not pushed) holds the overnight work of
   carries only changed sessions.
 - **Command line:** `deskhelm agent` and `deskhelm codex` have parsers of
   their own, and a stopped host ends by its signal.
-- **Live checks:** a Bridge restart during a pending Codex approval, Grok
-  prompts and tools, a real Codex turn approved from the new page, and an
-  end-to-end run of `deskhelm simulate` with `deskhelm web`.
+- **Driver fixes from live page checks:** a new Claude session stayed
+  "starting" until its first prompt, because Claude Code 2.1.312 sends
+  `system/init` only then; the driver now sends the SDK `initialize` request
+  and is ready in about 0.2 s. Claude and Grok tool rows showed only the tool
+  name, so an approval on the page hid its command; their start facts now
+  carry the command or path as content (ADR 0043 D1, operator only). Neither
+  driver invents exit codes any more; a failed tool sends error output.
+- **Live checks:** a Bridge restart during a pending Codex approval, real
+  Codex, Claude, and Grok turns on the new page, and an end-to-end run of
+  `deskhelm simulate` with `deskhelm web`.
 
 `voice/runtime` installs the checkout as an editable path dependency, so no
 command, test, or tool needs `PYTHONPATH`. The two uv projects stay separate
@@ -76,7 +83,7 @@ so model dependencies never enter the root package.
 
 ## Validation
 
-- Full suite in the voice runtime without `PYTHONPATH`: 330 tests pass on
+- Full suite in the voice runtime without `PYTHONPATH`: 334 tests pass on
   `next` (289 at the release). The root environment passes every test except
   the ASR provider tests, which need NumPy.
 - `tools/check-web-page.py`: every browser check passes in Chrome with the
@@ -96,6 +103,11 @@ so model dependencies never enter the root package.
   `permission_mode = "always-approve"`, so Grok never asks and its approvals
   cannot be exercised without changing that config; a session `GROK_CONFIG`
   overlay of `[ui] permission_mode` did not change it.
+- 2026-11-04, the new page live against a private Bridge: Claude Code
+  2.1.312 was ready in 1.4 s, and approvals approved and rejected from the
+  page, tool rows with their path or command, a refused tool shown as
+  failed, and a stop mid-table all passed; Grok 1.0.60 showed its reply
+  split around a `seq 1 5` row whose output appeared once.
 - Live checks on v2: Codex CLI 0.166.0 (session, one proxied approval,
   `/quit`, and SIGTERM with nothing left behind), Claude Code 2.1.312
   (approve and reject), and Grok 1.0.60 (prompt, reply, interrupt). The user
@@ -107,8 +119,8 @@ so model dependencies never enter the root package.
 - Choose a repository license. The repository is public and has no license
   file.
 - Phase 5: hardware and remote-access ADRs.
-- Not yet verified live: Grok approvals (see Validation), the Codex
-  `/resume` picker under v2, and the new page with Claude.
+- Not yet verified live: Grok approvals (see Validation) and the Codex
+  `/resume` picker under v2.
 - Push `next` and decide on a release once the user has looked at the
   rebuilt page.
 - Left from the review: a streamed reply still redraws its whole message,
