@@ -1,6 +1,7 @@
-// The page's words. The first four tables mirror deskhelm_client/texts.py,
+// The page's words. The tables marked "mirror" follow deskhelm_client/texts.py,
 // which a test keeps in step; the server's own message wins when it sends one.
 
+// mirror
 export const RESULT_TEXT = {
   focused: "已聚焦这个会话",
   dispatched: "已交给 Agent",
@@ -27,6 +28,7 @@ export const RESULT_TEXT = {
   invalid_catalog_request: "这个请求无法发送",
 };
 
+// mirror
 export const ACTIVITY_TEXT = {
   starting: "启动中",
   idle: "空闲",
@@ -35,12 +37,14 @@ export const ACTIVITY_TEXT = {
   waiting_input: "等待输入",
 };
 
+// mirror
 export const OUTCOME_TEXT = {
   completed: "这一轮已完成",
   interrupted: "这一轮已中断",
   failed: "这一轮失败",
 };
 
+// mirror
 export const FAILURE_TEXT = {
   provider: "Agent 报告了错误",
   usage_limit: "用量已到上限",
@@ -60,7 +64,8 @@ export const NOTICE_TEXT = {
   too_many_sessions: "会话太多，有的会话没有显示活动。",
 };
 
-const TOOL_WORDS = {
+// mirror
+export const TOOL_TEXT = {
   command: "命令",
   file_change: "修改文件",
   web_search: "搜索",
@@ -76,13 +81,7 @@ const TOOL_ICONS = {
 };
 
 export function toolWord(kind) {
-  return TOOL_WORDS[kind] || kind || "工具";
-}
-
-// Codex runs commands as `/usr/bin/zsh -lc "..."`; show the command inside.
-export function commandText(title) {
-  const match = /^(?:\/\S*\/)?(?:ba|z)?sh -lc (['"])([\s\S]*)\1$/.exec(title || "");
-  return match ? match[2] : title || "";
+  return TOOL_TEXT[kind] || kind || TOOL_TEXT.tool;
 }
 
 export function toolIcon(kind) {

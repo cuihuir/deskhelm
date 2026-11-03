@@ -4,7 +4,7 @@
 
 import { copyText, h, icon, nearBottom } from "../dom.js";
 import { diffBlock, looksLikeDiff, renderMarkdown } from "../markdown.js";
-import { commandText, countdown, historyHint, outcomeText, toolIcon, toolWord } from "../text.js";
+import { countdown, historyHint, outcomeText, toolIcon, toolWord } from "../text.js";
 
 const STREAM_RENDER_MS = 50;
 const BUSY = new Set(["working", "starting"]);
@@ -94,7 +94,7 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
       { class: "tool-head", type: "button", "aria-expanded": open ? "true" : "false", on: { click: () => toggle(item.id) } },
       icon(toolIcon(item.kind), "tool-icon"),
       h("span", { class: "tool-kind", text: toolWord(item.kind) }),
-      item.title ? h("code", { class: "tool-title", title: item.title, text: commandText(item.title) }) : h("span", { class: "tool-title" }),
+      item.title ? h("code", { class: "tool-title", title: item.line || item.title, text: item.title }) : h("span", { class: "tool-title" }),
       status,
       icon("chevron", "chevron"),
     );

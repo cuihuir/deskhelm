@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 import copy
+import re
 from typing import Any
 
 MAX_ITEMS = 200
@@ -32,6 +33,8 @@ MAX_SUMMARY_CHARS = 512
 MAX_PREVIEW_CHARS = 160
 
 _ROLES = frozenset({"user", "assistant", "system"})
+# Codex runs each command as `/usr/bin/zsh -lc "..."`; the title is the command inside.
+_SHELL_WRAPPER = re.compile(r"(?:/\S*/)?(?:ba|z)?sh -lc (['\"])([\s\S]*)\1")
 
 
 class Transcript:
@@ -114,7 +117,7 @@ class Transcript:
         created = item is None
         if item is None:
             item = self._create(
-                item_id, "tool", event, kind="tool", title="", output="", truncated=False,
+                item_id, "tool", event, kind="tool", title="", line="", output="", truncated=False,
                 status="running", exit_code=None, stderr=False,
             )
         label = _text(payload.get("name"))
@@ -124,7 +127,9 @@ class Transcript:
         phase = payload.get("phase")
         if phase == "start":
             if text.strip():
-                item["title"] = text.strip()[:MAX_TITLE_CHARS]
+                item["line"] = text.strip()[:MAX_TITLE_CHARS]
+                wrapped = _SHELL_WRAPPER.fullmatch(item["line"])
+                item["title"] = wrapped.group(2).strip() if wrapped else item["line"]
             return [self._upsert(item)]
         if phase == "output":
             flagged = payload.get("stream") == "stderr" and not item["stderr"]

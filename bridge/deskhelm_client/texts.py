@@ -52,6 +52,17 @@ FAILURE_TEXT = {
 }
 
 
+TOOL_TEXT = {
+    "command": "命令",
+    "file_change": "修改文件",
+    "web_search": "搜索",
+    "mcp": "MCP",
+    "tool": "工具",
+}
+
+_AGENT_LABELS = {"codex": "Codex", "claude": "Claude", "grok": "Grok"}
+
+
 def result_text(code: str) -> str:
     return RESULT_TEXT.get(code, code)
 
@@ -68,3 +79,12 @@ def outcome_text(outcome: dict[str, Any] | None) -> str:
     text = OUTCOME_TEXT.get(str(outcome.get("status")), "")
     failure = FAILURE_TEXT.get(str(outcome.get("failure") or ""))
     return f"{text}：{failure}" if text and failure else text
+
+
+def tool_text(kind: str) -> str:
+    """A tool's fixed kind in words; a vendor's bare tool name stays as it is."""
+    return TOOL_TEXT.get(kind, kind or TOOL_TEXT["tool"])
+
+
+def agent_label(agent_id: str, runtime_name: str = "") -> str:
+    return _AGENT_LABELS.get(agent_id) or runtime_name or agent_id

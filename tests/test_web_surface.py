@@ -13,7 +13,7 @@ TESTS = Path(__file__).resolve().parent
 if str(TESTS) not in sys.path:
     sys.path.insert(0, str(TESTS))
 
-from deskhelm_client.texts import ACTIVITY_TEXT, FAILURE_TEXT, OUTCOME_TEXT, RESULT_TEXT  # noqa: E402
+from deskhelm_client.texts import ACTIVITY_TEXT, FAILURE_TEXT, OUTCOME_TEXT, RESULT_TEXT, TOOL_TEXT  # noqa: E402
 from deskhelm_core.server import BridgeServer  # noqa: E402
 from deskhelm_host import BridgeLink  # noqa: E402
 from deskhelm_protocol import EffectKind, EffectOutcome, FactKind, SessionKey  # noqa: E402
@@ -158,7 +158,7 @@ class WebSurfaceTests(unittest.TestCase):
     def test_the_page_words_mirror_the_shared_wording(self) -> None:
         script = (ASSET_DIRECTORY / "js" / "text.js").read_text(encoding="utf-8")
         tables = {"RESULT_TEXT": RESULT_TEXT, "ACTIVITY_TEXT": ACTIVITY_TEXT, "OUTCOME_TEXT": OUTCOME_TEXT,
-                  "FAILURE_TEXT": FAILURE_TEXT}
+                  "FAILURE_TEXT": FAILURE_TEXT, "TOOL_TEXT": TOOL_TEXT}
         for name, shared in tables.items():
             block = re.search(rf"export const {name} = \{{(.*?)\n\}};", script, re.S)
             with self.subTest(table=name):

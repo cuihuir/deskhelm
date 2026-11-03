@@ -21,7 +21,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 import uuid
 
-from deskhelm_client import BridgeClient, ConsoleChange, result_text
+from deskhelm_client import BridgeClient, ConsoleChange, agent_label, result_text
 from deskhelm_client.transcript import Transcript
 from deskhelm_protocol import SessionKey
 from deskhelm_protocol.model import MAX_IDENTITY_CHARS, MAX_LABEL_CHARS, MAX_TEXT_CHARS
@@ -31,7 +31,6 @@ from .http import WebHttp
 # More than the Bridge's session limit, so a session that just left still fits.
 MAX_TRANSCRIPTS = 64
 _SEPARATOR = "\u001f"
-_AGENT_LABELS = {"codex": "Codex", "claude": "Claude", "grok": "Grok"}
 _COMMAND_ID = re.compile(r"[A-Za-z0-9_-]{8,64}")
 _CATALOG_FIELDS = (
     "agent_capabilities",
@@ -300,7 +299,7 @@ def _session_view(key: SessionKey, view: dict[str, Any], updated_at: int, previe
     return {
         "key": _joined(key),
         **key.to_dict(),
-        "label": _AGENT_LABELS.get(key.agent_id, runtime.get("runtime_name") or key.agent_id),
+        "label": agent_label(key.agent_id, runtime.get("runtime_name", "")),
         "runtime": {"name": runtime.get("runtime_name", ""), "version": runtime.get("runtime_version", "")},
         "lifecycle": view.get("lifecycle") or "",
         "activity": view.get("activity") or "",

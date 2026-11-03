@@ -90,11 +90,23 @@ class DashboardTests(unittest.TestCase):
         self.dashboard.handle_key(b"f")
         _wait(lambda: self.client.console().focus == KEY)
         self.driver.emit(FactKind.MESSAGE, {"message_ref": "m1", "role": "assistant", "phase": "complete"}, {"text": "hello\nthere"})
-        _wait(lambda: "message: hello there" in "\n".join(self.dashboard.render()))
+        _wait(lambda: "fake：hello there" in "\n".join(self.dashboard.render()))
         screen = self.dashboard.render()
 
         self.assertTrue(any(line.startswith(">*") and "空闲" in line for line in screen))
         self.assertEqual(self.dashboard.state.notice, "已聚焦这个会话")
+
+    def test_recent_activity_shows_items_not_stream_fragments(self) -> None:
+        for phase, piece in (("delta", "Hel"), ("delta", "lo"), ("complete", "Hello.")):
+            self.driver.emit(FactKind.MESSAGE, {"message_ref": "m1", "role": "assistant", "phase": phase}, {"text": piece})
+        self.driver.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "start"},
+                         {"text": "/bin/bash -lc 'uv run pytest'"})
+        self.driver.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "complete", "exit_code": 2})
+        _wait(lambda: "退出码 2" in "\n".join(self.dashboard.render()))
+        recent = self.dashboard.render()
+        recent = recent[recent.index("  最近活动：") + 1:]
+
+        self.assertEqual([line.strip() for line in recent], ["fake：Hello.", "命令 uv run pytest · 退出码 2"])
 
     def test_a_lost_bridge_is_a_notice_and_q_quits(self) -> None:
         self.dashboard.on_connection(False)

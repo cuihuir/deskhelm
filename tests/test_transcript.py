@@ -66,6 +66,15 @@ class TranscriptTests(unittest.TestCase):
         self.assertEqual((done[0]["item"]["status"], done[0]["item"]["exit_code"]), ("failed", 1))
         self.assertEqual(done[0]["item"]["output"], "..F\n1 failed\n")
 
+    def test_a_shell_wrapped_command_is_titled_by_the_command_inside(self) -> None:
+        transcript = Transcript()
+        transcript.apply(_tool("t1", "start", text="/usr/bin/zsh -lc 'uv run pytest -k parse'"))
+        transcript.apply(_tool("t2", "start", text="make test"))
+        wrapped, plain = transcript.items()
+
+        self.assertEqual((wrapped["title"], wrapped["line"]), ("uv run pytest -k parse", "/usr/bin/zsh -lc 'uv run pytest -k parse'"))
+        self.assertEqual((plain["title"], plain["line"]), ("make test", "make test"))
+
     def test_a_tool_without_an_exit_code_or_with_zero_is_done(self) -> None:
         transcript = Transcript()
         transcript.apply(_tool("t1", "complete", name="file_change"))

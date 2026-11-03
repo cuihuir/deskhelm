@@ -2,12 +2,12 @@
 
 One operator connection through deskhelm_client. Pending approvals come from
 the console projection, so they survive a reconnect; a dropped Bridge shows a
-notice instead of ending the dashboard.
+notice instead of ending the dashboard. Recent activity is the session's
+transcript (ADR 0044), so a streamed reply is one line, not its fragments.
 """
 
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
@@ -19,11 +19,24 @@ import time
 import tty
 from typing import Any, Protocol
 
-from deskhelm_client import BridgeClient, CommandResult, ConsoleChange, ConsoleState, activity_text, outcome_text, result_text
+from deskhelm_client import (
+    BridgeClient,
+    CommandResult,
+    ConsoleChange,
+    ConsoleState,
+    activity_text,
+    agent_label,
+    outcome_text,
+    result_text,
+    tool_text,
+)
+from deskhelm_client.transcript import Transcript
 from deskhelm_protocol import SessionKey
 
 MAX_DETAIL_EVENTS = 8
 MAX_DETAIL_CHARS = 160
+# More than the Bridge's session limit.
+MAX_TRANSCRIPTS = 64
 HELP = "j/k 移动 · f 聚焦 · i 中断 · a 批准 · r 拒绝 · q 退出"
 
 
@@ -39,7 +52,28 @@ class _Client(Protocol):
 class DashboardState:
     cursor: int = 0
     notice: str = ""
-    details: dict[SessionKey, deque[str]] = field(default_factory=dict)
+    transcripts: dict[SessionKey, Transcript] = field(default_factory=dict)
+
+
+def item_line(item: dict[str, Any], speaker: str) -> str:
+    """One transcript item as one line of recent activity."""
+    kind = item["type"]
+    if kind == "message":
+        who = {"user": "你", "system": "系统"}.get(item["role"], speaker)
+        return f"{who}：{' '.join(item['text'].split())}{' …' if item['streaming'] else ''}"
+    if kind == "tool":
+        if item["status"] == "running":
+            state = "运行中"
+        elif item["status"] == "done":
+            state = "完成"
+        else:
+            state = f"退出码 {item['exit_code']}"
+        return " ".join(part for part in (tool_text(item["kind"]), " ".join(item["title"].split()), "·", state) if part)
+    if kind == "approval":
+        return f"批准请求：{item['summary']}"
+    if kind == "input":
+        return f"提问：{item['prompt']}"
+    return outcome_text({"status": item["status"], "failure": item["code"] or None})
 
 
 class Dashboard:
@@ -52,10 +86,12 @@ class Dashboard:
     # Bridge callbacks --------------------------------------------------
 
     def on_console(self, change: ConsoleChange) -> None:
-        if change.restarted:
-            with self._lock:
-                self.state.details.clear()
+        with self._lock:
+            if change.restarted:
+                self.state.transcripts.clear()
                 self.state.notice = "Bridge 已重启，更早的活动不会补上"
+            for key in [key for key in self.state.transcripts if key not in change.state.sessions]:
+                del self.state.transcripts[key]
         self.dirty.set()
 
     def on_interaction(self, event: dict[str, Any], replay: bool) -> None:
@@ -63,12 +99,12 @@ class Dashboard:
             key = SessionKey.from_dict(event)
         except ValueError:
             return
-        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
-        text = payload.get("text") or payload.get("summary") or payload.get("prompt") or ""
-        line = f"{event.get('kind', 'event')}: {' '.join(str(text).split())}"[:MAX_DETAIL_CHARS]
         with self._lock:
-            self.state.details.setdefault(key, deque(maxlen=MAX_DETAIL_EVENTS)).append(line)
-        self.dirty.set()
+            if key not in self.state.transcripts and len(self.state.transcripts) >= MAX_TRANSCRIPTS:
+                return
+            changed = self.state.transcripts.setdefault(key, Transcript(max_items=MAX_DETAIL_EVENTS)).apply(event)
+        if changed:
+            self.dirty.set()
 
     def on_connection(self, connected: bool) -> None:
         with self._lock:
@@ -136,7 +172,8 @@ class Dashboard:
         with self._lock:
             cursor = min(self.state.cursor, len(rows) - 1) if rows else 0
             notice = self.state.notice
-            details = {key: list(lines) for key, lines in self.state.details.items()}
+            transcript = self.state.transcripts.get(rows[cursor][0]) if rows else None
+            items = transcript.items() if transcript else []
         lines = [f"DeskHelm Dashboard · {HELP}", ""]
         lines.append("会话" + ("" if self.client.connected else "（未连上 Bridge）"))
         if not rows:
@@ -164,7 +201,9 @@ class Dashboard:
                 how = "可在这里处理" if ticket.get("answerable") else "请在 Agent 里处理"
                 lines.append(f"  {ticket.get('kind')}（{remaining} 秒，{how}）：{ticket.get('summary', '')[:MAX_DETAIL_CHARS]}")
             lines.append("  最近活动：")
-            lines.extend(f"    {entry}" for entry in details.get(key) or ["（打开后还没有活动）"])
+            speaker = agent_label(key.agent_id, runtime.get("runtime_name", ""))
+            recent = [item_line(item, speaker)[:MAX_DETAIL_CHARS] for item in items] or ["（打开后还没有活动）"]
+            lines.extend(f"    {entry}" for entry in recent)
         if notice:
             lines.extend(["", f"提示：{notice}"])
         return lines
