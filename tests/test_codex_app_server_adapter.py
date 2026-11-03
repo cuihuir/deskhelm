@@ -2,21 +2,28 @@ from __future__ import annotations
 
 from pathlib import Path
 from queue import Empty, Queue
+import sys
 from threading import Event, Lock
 import json
 import time
 import unittest
 
-from deskhelm_bridge.control import (
+TESTS = Path(__file__).resolve().parent
+if str(TESTS) not in sys.path:
+    sys.path.insert(0, str(TESTS))
+CODEX = TESTS.parent / "adapters" / "codex"
+if str(CODEX) not in sys.path:
+    sys.path.insert(0, str(CODEX))
+
+from deskhelm_codex_adapter.controls import (  # noqa: E402
     ApprovalDecisionPayload,
     ConfigureSessionPayload,
     ControlCommand,
     ControlKind,
+    SessionKey,
     SubmitPromptPayload,
 )
-from deskhelm_bridge.control_result import ControlResultCode
-from deskhelm_bridge.control_router import ControlRouter
-from deskhelm_bridge.interaction import (
+from deskhelm_codex_adapter.events import (  # noqa: E402
     ApprovalRequestPayload,
     AttentionPayload,
     AttentionReason,
@@ -29,7 +36,7 @@ from deskhelm_bridge.interaction import (
     ToolStream,
     UserInputPayload,
 )
-from deskhelm_bridge.session_registry import SessionKey, SessionRegistry
+from helpers.control_host import ControlResultCode, FakeControlHost  # noqa: E402
 try:
     from deskhelm_codex_adapter import (
         CodexAppServerAdapter,
@@ -354,9 +361,7 @@ class _FakeTuiProxy:
 class CodexAppServerAdapterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.session = SessionKey("codex", "manual-1", "deskhelm")
-        self.registry = SessionRegistry(slot_count=1)
-        self.registry.register(self.session, preferred_slot=0)
-        self.router = ControlRouter(self.registry)
+        self.router = FakeControlHost()
         self.transport = _FakeAppServerTransport()
         self.events: Queue[InteractionEvent] = Queue()
         self.adapter = CodexAppServerAdapter(

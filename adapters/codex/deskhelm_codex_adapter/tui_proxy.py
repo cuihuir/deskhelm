@@ -15,7 +15,7 @@ from threading import Event, RLock, Thread
 import time
 from typing import Any, Protocol
 
-from deskhelm_bridge.control import ControlUndelivered
+from .controls import ControlUndelivered
 
 from .app_server_transport import (
     AppServerTransport,

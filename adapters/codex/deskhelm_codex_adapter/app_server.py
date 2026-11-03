@@ -11,17 +11,18 @@ from threading import Event, RLock, Thread
 import time
 from typing import Any
 
-from deskhelm_bridge.control import (
+from .controls import (
     ApprovalDecisionPayload,
     ConfigureSessionPayload,
     ControlCommand,
+    ControlHost,
     ControlKind,
     ControlUndelivered,
     InterruptPayload,
+    SessionKey,
     SubmitPromptPayload,
 )
-from deskhelm_bridge.control_router import ControlRouter
-from deskhelm_bridge.interaction import (
+from .events import (
     ApprovalRequestPayload,
     AttentionPayload,
     AttentionReason,
@@ -36,7 +37,6 @@ from deskhelm_bridge.interaction import (
     ToolStream,
     UserInputPayload,
 )
-from deskhelm_bridge.session_registry import SessionKey
 
 from .app_server_transport import (
     AppServerTransport,
@@ -158,7 +158,7 @@ class CodexAppServerAdapter:
         init=False,
         repr=False,
     )
-    _router: ControlRouter | None = field(default=None, init=False, repr=False)
+    _router: ControlHost | None = field(default=None, init=False, repr=False)
     _unregister: list[Callable[[], None]] = field(
         default_factory=list,
         init=False,
@@ -291,7 +291,7 @@ class CodexAppServerAdapter:
     def start(
         self,
         publish_interaction: Callable[[InteractionEvent], None],
-        control_router: ControlRouter,
+        control_router: ControlHost,
     ) -> None:
         if not callable(publish_interaction):
             raise ValueError("publish_interaction must be callable")

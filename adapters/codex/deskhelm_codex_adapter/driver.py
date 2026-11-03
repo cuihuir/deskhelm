@@ -18,23 +18,6 @@ import time
 from typing import Any, Callable
 import uuid
 
-from deskhelm_bridge.control import (
-    ApprovalDecisionPayload,
-    ConfigureSessionPayload,
-    ControlCommand,
-    ControlKind,
-    ControlUndelivered,
-    InterruptPayload,
-    SubmitPromptPayload,
-)
-from deskhelm_bridge.interaction import (
-    InteractionEvent,
-    InteractionKind,
-    MessagePhase as AdapterMessagePhase,
-    MessageRole as AdapterMessageRole,
-    ToolPhase as AdapterToolPhase,
-)
-from deskhelm_bridge.session_registry import SessionKey as AdapterSessionKey
 from deskhelm_host.driver import FactSink, SessionState
 from deskhelm_protocol import (
     ApprovalOverflow,
@@ -55,6 +38,23 @@ from deskhelm_protocol import (
 from deskhelm_protocol.model import MAX_CATALOG_BYTES, MAX_IDENTITY_CHARS, MAX_OPEN_REQUESTS, MAX_TEXT_CHARS
 
 from .app_server import CodexAppServerAdapter
+from .controls import (
+    ApprovalDecisionPayload,
+    ConfigureSessionPayload,
+    ControlCommand,
+    ControlKind,
+    ControlUndelivered,
+    InterruptPayload,
+    SessionKey as AdapterSessionKey,
+    SubmitPromptPayload,
+)
+from .events import (
+    InteractionEvent,
+    InteractionKind,
+    MessagePhase as AdapterMessagePhase,
+    MessageRole as AdapterMessageRole,
+    ToolPhase as AdapterToolPhase,
+)
 
 ISSUER = "deskhelm-host"
 COMMAND_WINDOW_MS = 60_000
