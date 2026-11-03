@@ -1,0 +1,8 @@
+{"type":"header","format":"deskhelm-replay-v1","runtime":"claude","scenario":"question_declined","source_type":"synthetic","notes":"Synthetic. Claude Code 2.1.312 offers AskUserQuestion in print mode and asks through can_use_tool; the driver declines it on the tool name because the session takes no input. The question input is not modeled; no recorded frame is copied."}
+{"type":"inbound","frame":{"type":"system","subtype":"init","model":"example-model"}}
+{"type":"control","kind":"submit_prompt","text":"Set up the project"}
+{"type":"outbound","frame":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Set up the project"}]}}}
+{"type":"inbound","frame":{"type":"control_request","request_id":"req-question","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","display_name":"AskUserQuestion","input":{"questions":[]},"tool_use_id":"toolu_question"}}}
+{"type":"outbound","frame":{"type":"control_response","response":{"subtype":"success","request_id":"req-question","response":{"behavior":"deny","message":"<any>"}}}}
+{"type":"inbound","frame":{"type":"result","subtype":"success","result":"Done without asking."}}
+{"type":"events","kinds":["message","message","task_completed"]}

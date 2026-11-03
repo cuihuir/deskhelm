@@ -1,0 +1,13 @@
+{"type":"header","format":"deskhelm-replay-v1","runtime":"claude","scenario":"approval_reject","source_type":"synthetic","notes":"Synthetic. The can_use_tool request carries the field set Claude Code 2.1.312 sent in a local check on 2026-11-03 with --permission-prompt-tool stdio; every value is a placeholder and no recorded frame is copied."}
+{"type":"inbound","frame":{"type":"system","subtype":"init","model":"example-model","permissionMode":"default"}}
+{"type":"control","kind":"submit_prompt","text":"Create notes.txt containing ok"}
+{"type":"outbound","frame":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Create notes.txt containing ok"}]}}}
+{"type":"inbound","frame":{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_example","name":"Write","input":{"file_path":"<workspace>/notes.txt","content":"ok"}}]}}}
+{"type":"inbound","frame":{"type":"control_request","request_id":"req-write","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"<workspace>/notes.txt","content":"ok"},"description":"notes.txt","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"toolu_example"}}}
+{"type":"events","kinds":["message","tool","approval_request"]}
+{"type":"control","kind":"reject"}
+{"type":"outbound","frame":{"type":"control_response","response":{"subtype":"success","request_id":"req-write","response":{"behavior":"deny","message":"denied"}}}}
+{"type":"inbound","frame":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_example","is_error":true,"content":"denied"}]}}}
+{"type":"inbound","frame":{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The write was declined."}]}}}
+{"type":"inbound","frame":{"type":"result","subtype":"success","result":"The write was declined."}}
+{"type":"events","kinds":["tool","tool","message","task_completed"]}

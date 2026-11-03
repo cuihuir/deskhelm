@@ -105,6 +105,11 @@ class ClaudeStreamTests(unittest.TestCase):
         self.assertNotIn("pong", " ".join(claude_argv()))
         self.assertIn("--input-format", claude_argv())
 
+    def test_command_sends_permission_prompts_to_the_host(self) -> None:
+        argv = claude_argv()
+        self.assertEqual(argv[argv.index("--permission-prompt-tool") + 1], "stdio")
+        self.assertEqual(argv[argv.index("--permission-mode") + 1], "default")
+
 
 class GrokStreamTests(unittest.TestCase):
     def test_synthetic_turn_publishes_output_and_declared_capabilities(self) -> None:

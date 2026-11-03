@@ -38,6 +38,9 @@ MAX_TEXT_CHARS = 8192
 MAX_PENDING_APPROVALS = 8
 APPROVAL_WINDOW_MS = 10 * 60 * 1000
 _LABEL = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
+# Claude asks the user through this tool. It is input, not an approval, and
+# this session declares no input support.
+_QUESTION_TOOL = "AskUserQuestion"
 
 
 def _label(value: object) -> str:
@@ -336,6 +339,9 @@ class ClaudeSession:
             )
             return
         tool_input = request.get("input") if isinstance(request.get("input"), dict) else {}
+        if request.get("tool_name") == _QUESTION_TOOL:
+            self._vendor_write_decision(provider_ref, tool_input, "The user cannot answer questions here. Continue without asking.")
+            return
         if len(self._pending) >= MAX_PENDING_APPROVALS:
             self._vendor_write_decision(provider_ref, tool_input, "too many pending approvals")
             return

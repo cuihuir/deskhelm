@@ -18,6 +18,10 @@ def claude_argv() -> list[str]:
         "default",
         "--permission-prompts",
         "host",
+        # Without this, -p never sends can_use_tool and silently denies every
+        # tool that needs permission (Claude Code 2.1.312).
+        "--permission-prompt-tool",
+        "stdio",
         "--strict-mcp-config",
     ]
 

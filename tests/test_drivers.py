@@ -147,6 +147,48 @@ class ClaudeDriverTests(_DriverCase):
         outcome = self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "hello"})
         self.assertIs(outcome, EffectOutcome.UNDELIVERED)
 
+    def test_permission_request_publishes_only_the_tool_name(self) -> None:
+        # The field set Claude Code 2.1.312 sends; every value is synthetic.
+        tool_input = {"file_path": "/workspace/private/notes.txt", "content": "draft"}
+        self.feed(
+            {
+                "type": "control_request",
+                "request_id": "req-9",
+                "request": {
+                    "subtype": "can_use_tool",
+                    "tool_name": "Write",
+                    "display_name": "Write",
+                    "input": tool_input,
+                    "description": "/workspace/private/notes.txt",
+                    "permission_suggestions": [
+                        {"type": "setMode", "mode": "acceptEdits", "destination": "session"},
+                        {"type": "addDirectories", "directories": ["/workspace/private"], "destination": "session"},
+                    ],
+                    "decision_reason": "Path is outside allowed working directories",
+                    "decision_reason_type": "workingDir",
+                    "tool_use_id": "toolu_example",
+                },
+            }
+        )
+        self.facts.wait_for(FactKind.REQUEST_OPENED)
+        outcome = self.driver.perform(EffectKind.RESPOND, {"command_id": "a", "provider_ref": "req-9", "decision": "approve"})
+
+        self.assertIs(outcome, EffectOutcome.ACCEPTED)
+        self.assertEqual(self.facts.of(FactKind.REQUEST_OPENED)[0][0]["summary"], "请求使用工具 Write")
+        self.assertNotIn("/workspace", json.dumps(self.facts.facts))
+        self.assertEqual(
+            self.vendor.written.get(timeout=2)["response"],
+            {"subtype": "success", "request_id": "req-9", "response": {"behavior": "allow", "updatedInput": tool_input}},
+        )
+
+    def test_question_tool_is_declined_without_an_approval(self) -> None:
+        self.feed(self.control_request("req-q", tool="AskUserQuestion"))
+        frame = self.vendor.written.get(timeout=2)
+
+        self.assertEqual((frame["response"]["request_id"], frame["response"]["response"]["behavior"]), ("req-q", "deny"))
+        self.assertEqual(self.facts.of(FactKind.REQUEST_OPENED), [])
+        self.assertEqual(self.driver.state().open_requests, ())
+
 
 class AcpDriverTests(_DriverCase):
     def setUp(self) -> None:
