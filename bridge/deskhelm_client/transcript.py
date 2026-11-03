@@ -9,18 +9,19 @@ and then only what changes:
 
 - ``{"op": "upsert", "item": {...}}`` adds or replaces a whole item;
 - ``{"op": "append", "id": ..., "field": "text" | "output", "text": ...}``
-  extends a streaming message or a tool's output;
+  extends a streaming message or a tool's output; with ``"trim": n``, the
+  first ``n`` characters of the field go first, to keep it within its bound;
 - ``{"op": "remove", "id": ...}`` drops an item that fell out of the bounds.
 
-Items keep the order they were first seen in. Every bound is fixed, and the
-transcript is held in memory only (ADR 0043 D1, ADR 0044).
+Items keep the order they were first seen in. Each event folds once: the
+replay of the Bridge's window after a reconnect repeats sequences the
+transcript has already folded. Every bound is fixed, and the transcript is
+held in memory only (ADR 0043 D1, ADR 0044).
 """
 
 from __future__ import annotations
 
 from collections import OrderedDict
-import copy
-import re
 from typing import Any
 
 MAX_ITEMS = 200
@@ -33,8 +34,6 @@ MAX_SUMMARY_CHARS = 512
 MAX_PREVIEW_CHARS = 160
 
 _ROLES = frozenset({"user", "assistant", "system"})
-# Codex runs each command as `/usr/bin/zsh -lc "..."`; the title is the command inside.
-_SHELL_WRAPPER = re.compile(r"(?:/\S*/)?(?:ba|z)?sh -lc (['\"])([\s\S]*)\1")
 
 
 class Transcript:
@@ -47,13 +46,15 @@ class Transcript:
         self._sizes: dict[str, int] = {}
         self._chars = 0
         self._seq = 0
+        self._last_sequence = 0
 
     def items(self) -> list[dict[str, Any]]:
-        return [copy.deepcopy(item) for item in self._items.values()]
+        # Item values are immutable, so a shallow copy is a full one.
+        return [dict(item) for item in self._items.values()]
 
     def item(self, item_id: str) -> dict[str, Any] | None:
         item = self._items.get(item_id)
-        return None if item is None else copy.deepcopy(item)
+        return None if item is None else dict(item)
 
     def preview(self) -> str:
         """One line for a session list: the latest message, or else a tool."""
@@ -70,6 +71,11 @@ class Transcript:
         payload = event.get("payload")
         if not isinstance(payload, dict):
             return []
+        sequence = event.get("sequence")
+        if isinstance(sequence, int) and not isinstance(sequence, bool):
+            if sequence <= self._last_sequence:
+                return []
+            self._last_sequence = sequence
         if kind == "message":
             patches = self._message(event, payload)
         elif kind == "tool":
@@ -84,26 +90,46 @@ class Transcript:
             return []
         return patches + self._trim()
 
+    def settle(self) -> list[dict[str, Any]]:
+        """End what is still in flight, because its turn or its host ended.
+
+        A tool that never reported its end is stopped, and a reply that never
+        completed keeps the text it has.
+        """
+        patches = []
+        for item in self._items.values():
+            if item["type"] == "tool" and item["status"] == "running":
+                item["status"] = "stopped"
+                patches.append(self._upsert(item))
+            elif item["type"] == "message" and item["streaming"]:
+                item["streaming"] = False
+                patches.append(self._upsert(item))
+        return patches
+
     # Kinds -------------------------------------------------------------
 
     def _message(self, event: dict[str, Any], payload: dict[str, Any]) -> list[dict[str, Any]]:
-        item_id = "m:" + _reference(event)
-        text = _text(payload.get("text"))
         role = payload.get("role") if payload.get("role") in _ROLES else "assistant"
+        reference = _reference(event)
+        item_id = "m:" + reference
+        existing = self._items.get(item_id)
+        if existing is not None and existing["role"] != role:
+            # A notice may name the prompt it is about; it does not replace it.
+            item_id = f"m:{role}:{reference}"
+        text = _text(payload.get("text"))
         item = self._items.get(item_id)
         created = item is None
         if item is None:
             item = self._create(item_id, "message", event, role=role, text="", streaming=True)
-        item["role"] = role
         phase = payload.get("phase")
         if phase == "delta":
             if not item["streaming"]:
                 return [self._upsert(item)] if created else []
             chunk = text[: max(0, MAX_MESSAGE_CHARS - len(item["text"]))]
             item["text"] += chunk
-            if created or not chunk:
-                return [self._upsert(item)] if created else []
-            return [self._append(item, "text", chunk)]
+            if created:
+                return [self._upsert(item)]
+            return [self._append(item, "text", chunk)] if chunk else []
         if phase == "complete":
             if text:
                 item["text"] = text[:MAX_MESSAGE_CHARS]
@@ -117,7 +143,7 @@ class Transcript:
         created = item is None
         if item is None:
             item = self._create(
-                item_id, "tool", event, kind="tool", title="", line="", output="", truncated=False,
+                item_id, "tool", event, kind="tool", title="", output="", truncated=False,
                 status="running", exit_code=None, stderr=False,
             )
         label = _text(payload.get("name"))
@@ -127,9 +153,7 @@ class Transcript:
         phase = payload.get("phase")
         if phase == "start":
             if text.strip():
-                item["line"] = text.strip()[:MAX_TITLE_CHARS]
-                wrapped = _SHELL_WRAPPER.fullmatch(item["line"])
-                item["title"] = wrapped.group(2).strip() if wrapped else item["line"]
+                item["title"] = text.strip()[:MAX_TITLE_CHARS]
             return [self._upsert(item)]
         if phase == "output":
             flagged = payload.get("stream") == "stderr" and not item["stderr"]
@@ -138,15 +162,18 @@ class Transcript:
             if not text:
                 return [self._upsert(item)] if created or flagged else []
             output = item["output"] + text
-            if len(output) > MAX_OUTPUT_CHARS:
-                # Keep the end of the output, where results and errors are.
-                item["output"] = output[-MAX_OUTPUT_CHARS:]
+            if len(output) <= MAX_OUTPUT_CHARS:
+                item["output"] = output
+                if created or flagged:
+                    return [self._upsert(item)]
+                return [self._append(item, "output", text)]
+            # Keep the end of the output, where results and errors are.
+            trim = len(output) - MAX_OUTPUT_CHARS
+            item["output"] = output[trim:]
+            if created or flagged or not item["truncated"] or len(text) >= MAX_OUTPUT_CHARS:
                 item["truncated"] = True
                 return [self._upsert(item)]
-            item["output"] = output
-            if created or flagged:
-                return [self._upsert(item)]
-            return [self._append(item, "output", text)]
+            return [self._append(item, "output", text, trim=trim)]
         if phase == "complete":
             exit_code = payload.get("exit_code")
             if isinstance(exit_code, bool) or not isinstance(exit_code, int):
@@ -181,6 +208,8 @@ class Transcript:
         item_id = "r:" + (_identity(event.get("event_id")) or str(self._seq + 1))
         if item_id in self._items:
             return []
+        # Nothing of a turn is still running once the turn has ended.
+        patches = self.settle()
         code = _text(payload.get("error_code"))[:64]
         if not failed:
             status = "completed"
@@ -192,7 +221,8 @@ class Transcript:
             item_id, "turn", event, status=status, code="" if status != "failed" else code,
             message=_text(payload.get("message"))[:MAX_SUMMARY_CHARS],
         )
-        return [self._upsert(item)]
+        patches.append(self._upsert(item))
+        return patches
 
     # Storage -----------------------------------------------------------
 
@@ -217,11 +247,14 @@ class Transcript:
 
     def _upsert(self, item: dict[str, Any]) -> dict[str, Any]:
         self._account(item)
-        return {"op": "upsert", "item": copy.deepcopy(item)}
+        return {"op": "upsert", "item": dict(item)}
 
-    def _append(self, item: dict[str, Any], field: str, text: str) -> dict[str, Any]:
+    def _append(self, item: dict[str, Any], field: str, text: str, *, trim: int = 0) -> dict[str, Any]:
         self._account(item)
-        return {"op": "append", "id": item["id"], "field": field, "text": text}
+        patch = {"op": "append", "id": item["id"], "field": field, "text": text}
+        if trim:
+            patch["trim"] = trim
+        return patch
 
     def _trim(self) -> list[dict[str, Any]]:
         removed = []
@@ -245,4 +278,5 @@ def _text(value: object) -> str:
 
 
 def _one_line(text: str) -> str:
-    return " ".join(text.split())[:MAX_PREVIEW_CHARS]
+    # The preview is short, so only the start of a long message is read.
+    return " ".join(text[: 8 * MAX_PREVIEW_CHARS].split())[:MAX_PREVIEW_CHARS]

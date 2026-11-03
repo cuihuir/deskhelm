@@ -180,8 +180,7 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
           page.locator(".msg.assistant .md .code pre").count() == 1
           and page.locator(".msg.assistant .md ol li").count() == 2
           and page.locator(".msg.assistant .md table td").count() == 2)
-    check("a tool row shows its command line without the shell wrapper",
-          page.locator(".tool .tool-title").first.text_content() == "uv run pytest")
+    check("a tool row shows its command line", page.locator(".tool .tool-title").first.text_content() == "uv run pytest")
     page.locator(".tool.is-failed .tool-head").click()
     check("a failed tool opens to its output", "1 failed" in page.locator(".tool.is-failed pre").text_content())
     codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "complete", "exit_code": 1}, {"text": ""})
@@ -190,6 +189,7 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
 
     # Streaming.
     codex.emit(FactKind.TURN_STARTED, {"turn_ref": "x2"})
+    codex.emit(FactKind.TOOL, {"tool_ref": "t9", "label": "command", "phase": "start"}, {"text": "sleep 60"})
     page.locator(".composer .stop").wait_for(timeout=5000)
     for piece in ("Look", "ing at ", "it"):
         codex.emit(FactKind.MESSAGE, {"message_ref": "a2", "role": "assistant", "phase": "delta"}, {"text": piece})
@@ -206,6 +206,8 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     codex.emit(FactKind.TURN_TERMINAL, {"status": "interrupted", "reusable": True, "turn_ref": "x2"}, {})
     page.locator(".turn", has_text="这一轮已中断").wait_for(timeout=5000)
     check("the interrupted turn is marked", page.locator(".composer .stop").is_hidden())
+    check("a tool still running when its turn ends shows as stopped",
+          page.locator(".tool", has_text="sleep 60").locator(".tool-status").text_content() == "已停止")
 
     # Prompt outcomes.
     send(page, "first prompt")
@@ -215,6 +217,14 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     pending(page, "first prompt").wait_for(state="detached", timeout=5000)
     check("a sent prompt settles into one user message by command id",
           page.locator(".items .msg.user", has_text="first prompt").count() == 1)
+    send(page, "echoed under another id")
+    codex.take(EffectKind.SUBMIT)
+    pending(page, "echoed under another id").wait_for(timeout=5000)
+    codex.emit(FactKind.MESSAGE, {"message_ref": "vendor-1", "role": "user", "phase": "complete"},
+               {"text": "echoed under another id"})
+    pending(page, "echoed under another id").wait_for(state="detached", timeout=5000)
+    check("a prompt the vendor echoes under its own id settles by its text",
+          page.locator(".items .msg.user", has_text="echoed under another id").count() == 1)
     codex.silent = True
     send(page, "maybe arrived")
     pending(page, "maybe arrived").locator(".msg-state", has_text="结果未知").wait_for(timeout=12_000)
@@ -330,8 +340,7 @@ def main() -> int:
         codex, claude = drivers["codex"], drivers["claude"]
         codex.emit(FactKind.CATALOG, content={"catalog": CATALOG})
         codex.emit(FactKind.TURN_STARTED, {"turn_ref": "x1"})
-        codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "start"},
-                   {"text": "/usr/bin/zsh -lc 'uv run pytest'"})
+        codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "start"}, {"text": "uv run pytest"})
         codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "output", "stream": "stdout"},
                    {"text": "..F\n1 failed\n"})
         codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "complete", "exit_code": 1}, {"text": ""})

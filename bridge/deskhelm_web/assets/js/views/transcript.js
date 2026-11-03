@@ -86,6 +86,7 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
     const open = expanded.has(`${key}\u001f${item.id}`);
     let status;
     if (item.status === "running") status = h("span", { class: "tool-status" }, h("span", { class: "spinner" }), "运行中");
+    else if (item.status === "stopped") status = h("span", { class: "tool-status tone-muted" }, icon("stop"), "已停止");
     else if (item.status === "failed") {
       status = h("span", { class: "tool-status tone-danger" }, icon("cross"), item.exit_code === null ? "失败" : `退出码 ${item.exit_code}`);
     } else status = h("span", { class: "tool-status tone-ok" }, icon("check"), "完成");
@@ -94,7 +95,7 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
       { class: "tool-head", type: "button", "aria-expanded": open ? "true" : "false", on: { click: () => toggle(item.id) } },
       icon(toolIcon(item.kind), "tool-icon"),
       h("span", { class: "tool-kind", text: toolWord(item.kind) }),
-      item.title ? h("code", { class: "tool-title", title: item.line || item.title, text: item.title }) : h("span", { class: "tool-title" }),
+      item.title ? h("code", { class: "tool-title", title: item.title, text: item.title }) : h("span", { class: "tool-title" }),
       status,
       icon("chevron", "chevron"),
     );

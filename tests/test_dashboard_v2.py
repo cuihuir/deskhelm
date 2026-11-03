@@ -15,6 +15,7 @@ if str(TESTS) not in sys.path:
 from deskhelm_client import BridgeClient  # noqa: E402
 from deskhelm_core.server import BridgeServer  # noqa: E402
 from deskhelm_dashboard import Dashboard, run_dashboard  # noqa: E402
+from deskhelm_dashboard.app import item_line  # noqa: E402
 from deskhelm_host import BridgeLink  # noqa: E402
 from deskhelm_protocol import EffectKind, FactKind, SessionKey  # noqa: E402
 from helpers.v2 import FakeDriver  # noqa: E402
@@ -100,13 +101,18 @@ class DashboardTests(unittest.TestCase):
         for phase, piece in (("delta", "Hel"), ("delta", "lo"), ("complete", "Hello.")):
             self.driver.emit(FactKind.MESSAGE, {"message_ref": "m1", "role": "assistant", "phase": phase}, {"text": piece})
         self.driver.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "start"},
-                         {"text": "/bin/bash -lc 'uv run pytest'"})
+                         {"text": "uv run pytest"})
         self.driver.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "complete", "exit_code": 2})
         _wait(lambda: "退出码 2" in "\n".join(self.dashboard.render()))
         recent = self.dashboard.render()
         recent = recent[recent.index("  最近活动：") + 1:]
 
         self.assertEqual([line.strip() for line in recent], ["fake：Hello.", "命令 uv run pytest · 退出码 2"])
+
+    def test_a_stopped_tool_reads_as_stopped(self) -> None:
+        line = item_line({"type": "tool", "kind": "command", "title": "make", "status": "stopped", "exit_code": None}, "Codex")
+
+        self.assertEqual(line, "命令 make · 已停止")
 
     def test_a_lost_bridge_is_a_notice_and_q_quits(self) -> None:
         self.dashboard.on_connection(False)

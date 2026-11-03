@@ -4,8 +4,10 @@ from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
 import hashlib
+import os
 from pathlib import Path
 from queue import Empty, Full, Queue
+import shlex
 import subprocess
 from threading import Event, RLock, Thread
 import time
@@ -2244,12 +2246,29 @@ def _user_item_text(item: dict[str, Any]) -> str:
     return _clip_text(text, MAX_ITEM_TEXT_CHARS).strip()
 
 
+_SHELLS = frozenset({"bash", "sh", "zsh"})
+
+
+def _shell_script(command: str | list[Any]) -> str:
+    """The script of Codex's `<shell> -lc <script>` wrapper, or the command itself."""
+    if isinstance(command, list):
+        parts = [part for part in command if isinstance(part, str)]
+    else:
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            return command
+    if len(parts) == 3 and parts[1] in ("-lc", "-c") and os.path.basename(parts[0]) in _SHELLS and parts[2].strip():
+        return parts[2]
+    return command if isinstance(command, str) else " ".join(parts)
+
+
 def _command_drafts(
     item: dict[str, Any], item_id: str, *, started: bool
 ) -> list[tuple[InteractionKind, str, ToolPayload]]:
     command = item.get("command")
-    if isinstance(command, list):
-        command = " ".join(part for part in command if isinstance(part, str))
+    if isinstance(command, (str, list)):
+        command = _shell_script(command)
     if not isinstance(command, str) or not command.strip():
         name = "command"
     else:

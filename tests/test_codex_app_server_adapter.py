@@ -1841,6 +1841,23 @@ class ThreadItemProjectionTests(unittest.TestCase):
             "exitCode": 0,
         })
         self.assertEqual(command[0][2].name, "pytest -q")
+        lines = {
+            '/usr/bin/zsh -lc "printf \'print(\\"hi\\")\\\\n\' > hello.py\npython3 hello.py"':
+                'printf \'print("hi")\\n\' > hello.py\npython3 hello.py',
+            "/bin/bash -lc pwd": "pwd",
+            "/bin/bash -lc 'awk '\"'\"'{print $1}'\"'\"' file'": "awk '{print $1}' file",
+            '/bin/bash -lc "node -e \\"console.log(1)\\""': 'node -e "console.log(1)"',
+            "bash -c 'git status --short'": "git status --short",
+            "make test": "make test",
+            "/bin/bash -lc 'unbalanced": "/bin/bash -lc 'unbalanced",
+        }
+        for line, title in lines.items():
+            with self.subTest(line=line):
+                started = _thread_item_drafts("item/started", {"type": "commandExecution", "id": "c", "command": line})
+                self.assertEqual(started[0][2].name, title)
+        listed = _thread_item_drafts("item/started", {"type": "commandExecution", "id": "c",
+                                                      "command": ["/bin/zsh", "-lc", "ls -la"]})
+        self.assertEqual(listed[0][2].name, "ls -la")
         self.assertEqual(command[0][2].phase, ToolPhase.OUTPUT)
         self.assertEqual(command[0][2].stream, ToolStream.STDOUT)
         self.assertEqual(command[1][2].phase, ToolPhase.COMPLETE)

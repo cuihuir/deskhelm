@@ -66,6 +66,8 @@ def item_line(item: dict[str, Any], speaker: str) -> str:
             state = "运行中"
         elif item["status"] == "done":
             state = "完成"
+        elif item["status"] == "stopped":
+            state = "已停止"
         else:
             state = f"退出码 {item['exit_code']}"
         return " ".join(part for part in (tool_text(item["kind"]), " ".join(item["title"].split()), "·", state) if part)
@@ -92,6 +94,9 @@ class Dashboard:
                 self.state.notice = "Bridge 已重启，更早的活动不会补上"
             for key in [key for key in self.state.transcripts if key not in change.state.sessions]:
                 del self.state.transcripts[key]
+            for key, view in change.state.sessions.items():
+                if view.get("lifecycle") == "disconnected" and key in self.state.transcripts:
+                    self.state.transcripts[key].settle()
         self.dirty.set()
 
     def on_interaction(self, event: dict[str, Any], replay: bool) -> None:
@@ -99,10 +104,16 @@ class Dashboard:
             key = SessionKey.from_dict(event)
         except ValueError:
             return
+        view = self.client.console().sessions.get(key)
         with self._lock:
-            if key not in self.state.transcripts and len(self.state.transcripts) >= MAX_TRANSCRIPTS:
-                return
-            changed = self.state.transcripts.setdefault(key, Transcript(max_items=MAX_DETAIL_EVENTS)).apply(event)
+            transcript = self.state.transcripts.get(key)
+            if transcript is None:
+                if len(self.state.transcripts) >= MAX_TRANSCRIPTS:
+                    return
+                transcript = self.state.transcripts[key] = Transcript(max_items=MAX_DETAIL_EVENTS)
+            changed = transcript.apply(event)
+            if view is not None and view.get("lifecycle") == "disconnected":
+                changed += transcript.settle()
         if changed:
             self.dirty.set()
 

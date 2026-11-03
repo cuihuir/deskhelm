@@ -85,7 +85,6 @@ class WebSurface(WebHttp):
     # Bridge to browsers ------------------------------------------------
 
     def _on_console(self, change: ConsoleChange) -> None:
-        now = int(time.time() * 1000)
         with self._lock:
             if change.restarted:
                 # A new Bridge holds none of the old activity.
@@ -93,26 +92,32 @@ class WebSurface(WebHttp):
                 self._transcripts, self._previews, self._updated = {}, {}, {}
                 self._notice = "bridge_restarted"
             for key, view in change.state.sessions.items():
-                opened = int(view.get("opened_at") or 0)
-                if change.reset:
-                    # A snapshot is not activity; replayed events carry their own times.
-                    self._updated[key] = max(self._updated.get(key, 0), opened)
-                elif change.previous.sessions.get(key) is not view:
-                    self._updated[key] = max(self._updated.get(key, 0), opened, now)
+                # A session's time is when it opened or last did something in its
+                # transcript; a change of state, such as a reconnect, is not activity.
+                self._updated[key] = max(self._updated.get(key, 0), int(view.get("opened_at") or 0))
             for key in [key for key in self._updated if key not in change.state.sessions]:
                 del self._updated[key]
                 self._transcripts.pop(key, None)
                 self._previews.pop(key, None)
+            settled = []
+            for key, view in change.state.sessions.items():
+                before = change.previous.sessions.get(key)
+                left = view.get("lifecycle") == "disconnected" and (before is None or before.get("lifecycle") != "disconnected")
+                if left and key in self._transcripts:
+                    settled.extend((key, patch) for patch in self._transcripts[key].settle())
             if change.restarted:
                 self._emit_locked("snapshot", self._snapshot_locked())
             else:
                 self._emit_locked("sessions", self._sessions_locked())
+            for key, patch in settled:
+                self._emit_locked("patch", {"key": _joined(key), **patch})
 
     def _on_interaction(self, event: dict[str, Any], replay: bool) -> None:
         try:
             key = SessionKey.from_dict(event)
         except ValueError:
             return
+        view = self.client.console().sessions.get(key)
         with self._lock:
             transcript = self._transcripts.get(key)
             if transcript is None:
@@ -121,6 +126,9 @@ class WebSurface(WebHttp):
                     return
                 transcript = self._transcripts[key] = Transcript()
             patches = transcript.apply(event)
+            if view is not None and view.get("lifecycle") == "disconnected":
+                # Replayed after its host left: nothing of it is still running.
+                patches += transcript.settle()
             if not patches:
                 return
             occurred = event.get("occurred_at")

@@ -193,15 +193,26 @@ class WebSurfaceTests(unittest.TestCase):
         self.assertEqual(self._session(web)["preview"], "hello")
 
     def test_a_session_shows_when_it_last_did_something_not_when_the_page_connected(self) -> None:
+        before = int(time.time() * 1000)
         self.driver.emit(FactKind.MESSAGE, {"message_ref": "m1", "role": "assistant", "phase": "complete"}, {"text": "hi"})
-        emitted = int(time.time() * 1000)
         time.sleep(0.3)
         web = self._web()
         _wait(lambda: self._session(web)["preview"] == "hi")
         connected = int(time.time() * 1000)
 
-        self.assertLessEqual(self._session(web)["updated_at"], emitted)
+        self.assertGreaterEqual(self._session(web)["updated_at"], before)
         self.assertLess(self._session(web)["updated_at"], connected - 200)
+
+    def test_a_host_that_leaves_stops_its_running_tool(self) -> None:
+        web = self._web()
+        self.driver.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "start"}, {"text": "sleep 60"})
+        _wait(lambda: bool(self._get(web, "/api/snapshot")[1]["transcripts"].get(PAGE_KEY)))
+        # Drop the connection the way a crashed host does, without session_close.
+        self.link._stop.set()
+        self.link._drop()
+        _wait(lambda: self._get(web, "/api/snapshot")[1]["transcripts"][PAGE_KEY][0]["status"] == "stopped")
+
+        self.assertEqual(self._session(web)["lifecycle"], "disconnected")
 
     def test_live_changes_arrive_as_patches_newer_than_the_snapshot(self) -> None:
         web = self._web()

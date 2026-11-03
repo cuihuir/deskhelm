@@ -82,7 +82,10 @@ export function createStore() {
       items.set(id, payload.item);
     } else if (payload.op === "append") {
       const item = items.get(id);
-      if (item && typeof item[payload.field] === "string") item[payload.field] += payload.text;
+      if (item && typeof item[payload.field] === "string") {
+        const kept = payload.trim ? item[payload.field].slice(payload.trim) : item[payload.field];
+        item[payload.field] = kept + payload.text;
+      }
     } else if (payload.op === "remove") {
       items.delete(id);
     }
@@ -92,7 +95,7 @@ export function createStore() {
       if (payload.updated_at) session.updated_at = payload.updated_at;
       if (payload.key === state.selected) state.seen.set(payload.key, session.updated_at);
     }
-    if (payload.op === "upsert" && id.startsWith("m:")) settlePending(payload.key);
+    if (payload.op === "upsert" && id.startsWith("m:")) settlePending(payload.key, payload.item);
     emit("patch", { key: payload.key, op: payload.op, id });
     if (session && (typeof payload.preview === "string" || payload.updated_at)) emit("preview", payload.key);
   }
@@ -190,12 +193,22 @@ export function createStore() {
     emit("pending", key);
   }
 
-  // A prompt is settled once its user message arrives under its command id.
-  function settlePending(only) {
+  function delivered(transcript, prompt) {
+    return [`m:${prompt.commandId}`, `m:user:${prompt.commandId}`]
+      .some((id) => (transcript.get(id) || {}).role === "user");
+  }
+
+  // A prompt settles when its user message arrives under its command id, or,
+  // if a vendor sends the message under its own id, under the same text.
+  function settlePending(only, arrived) {
     for (const [key, prompts] of state.pending) {
       if (only && key !== only) continue;
       const transcript = items(key);
-      const left = prompts.filter((prompt) => !transcript.has(`m:${prompt.commandId}`));
+      let left = prompts.filter((prompt) => !delivered(transcript, prompt));
+      if (arrived && arrived.role === "user" && left.length === prompts.length) {
+        const index = left.findIndex((prompt) => prompt.status !== "failed" && prompt.text === arrived.text);
+        if (index >= 0) left = left.filter((_, position) => position !== index);
+      }
       if (left.length !== prompts.length) {
         state.pending.set(key, left);
         emit("pending", key);

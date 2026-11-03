@@ -24,7 +24,8 @@ def _replay(patches: list[dict], items: dict[str, dict]) -> None:
         if patch["op"] == "upsert":
             items[patch["item"]["id"]] = dict(patch["item"])
         elif patch["op"] == "append":
-            items[patch["id"]][patch["field"]] += patch["text"]
+            item = items[patch["id"]]
+            item[patch["field"]] = item[patch["field"]][patch.get("trim", 0):] + patch["text"]
         elif patch["op"] == "remove":
             items.pop(patch["id"], None)
 
@@ -66,15 +67,6 @@ class TranscriptTests(unittest.TestCase):
         self.assertEqual((done[0]["item"]["status"], done[0]["item"]["exit_code"]), ("failed", 1))
         self.assertEqual(done[0]["item"]["output"], "..F\n1 failed\n")
 
-    def test_a_shell_wrapped_command_is_titled_by_the_command_inside(self) -> None:
-        transcript = Transcript()
-        transcript.apply(_tool("t1", "start", text="/usr/bin/zsh -lc 'uv run pytest -k parse'"))
-        transcript.apply(_tool("t2", "start", text="make test"))
-        wrapped, plain = transcript.items()
-
-        self.assertEqual((wrapped["title"], wrapped["line"]), ("uv run pytest -k parse", "/usr/bin/zsh -lc 'uv run pytest -k parse'"))
-        self.assertEqual((plain["title"], plain["line"]), ("make test", "make test"))
-
     def test_a_tool_without_an_exit_code_or_with_zero_is_done(self) -> None:
         transcript = Transcript()
         transcript.apply(_tool("t1", "complete", name="file_change"))
@@ -101,6 +93,48 @@ class TranscriptTests(unittest.TestCase):
         self.assertTrue(item["truncated"])
         self.assertEqual(len(item["output"]), MAX_OUTPUT_CHARS)
         self.assertTrue(item["output"].endswith("bbbb"))
+
+    def test_output_past_the_bound_is_sent_as_a_trimmed_append(self) -> None:
+        transcript = Transcript()
+        transcript.apply(_tool("t1", "start", text="make"))
+        transcript.apply(_tool("t1", "output", text="a" * MAX_OUTPUT_CHARS))
+        first = transcript.apply(_tool("t1", "output", text="bb"))
+        later = transcript.apply(_tool("t1", "output", text="cc"))
+
+        self.assertEqual((first[0]["op"], first[0]["item"]["truncated"]), ("upsert", True))
+        self.assertEqual(later, [{"op": "append", "id": "t:t1", "field": "output", "text": "cc", "trim": 2}])
+        self.assertTrue(transcript.items()[0]["output"].endswith("bbcc"))
+
+    def test_a_replayed_event_folds_once(self) -> None:
+        transcript = Transcript()
+        transcript.apply({**_tool("t1", "start", text="ls"), "sequence": 4})
+        output = {**_tool("t1", "output", text="a.txt\n"), "sequence": 5}
+        transcript.apply(output)
+        again = transcript.apply(output)
+        older = transcript.apply({**_tool("t1", "output", text="b.txt\n"), "sequence": 3})
+
+        self.assertEqual((again, older), ([], []))
+        self.assertEqual(transcript.items()[0]["output"], "a.txt\n")
+
+    def test_a_notice_about_a_prompt_does_not_replace_it(self) -> None:
+        transcript = Transcript()
+        transcript.apply(_message("cmd-7", "user", "complete", "Steer this"))
+        patches = transcript.apply(_message("cmd-7", "system", "complete", "Codex control request failed"))
+
+        self.assertEqual(patches[0]["item"]["id"], "m:system:cmd-7")
+        self.assertEqual([(item["role"], item["text"]) for item in transcript.items()],
+                         [("user", "Steer this"), ("system", "Codex control request failed")])
+
+    def test_what_never_finished_stops_when_the_turn_ends(self) -> None:
+        transcript = Transcript()
+        transcript.apply(_tool("t1", "start", text="sleep 60"))
+        transcript.apply(_message("a1", "assistant", "delta", "Work"))
+        patches = transcript.apply(_event("task_failed", {"message": "", "error_code": "interrupted"}, event_id="e9"))
+        tool, message, turn = transcript.items()
+
+        self.assertEqual([patch["item"]["id"] for patch in patches], ["t:t1", "m:a1", "r:e9"])
+        self.assertEqual((tool["status"], message["streaming"], turn["status"]), ("stopped", False, "interrupted"))
+        self.assertEqual(transcript.settle(), [])
 
     def test_error_output_marks_the_tool(self) -> None:
         transcript = Transcript()
@@ -175,6 +209,7 @@ class TranscriptTests(unittest.TestCase):
             _message("a1", "assistant", "delta", "ing"),
             _tool("t1", "output", text="x" * (MAX_OUTPUT_CHARS + 5)),
             _tool("t1", "output", text="tail", stream="stderr"),
+            _tool("t1", "output", text="more"),
             _tool("t1", "complete", exit_code=1),
             _message("a1", "assistant", "complete", "Looking now."),
             _event("approval_request", {"request_id": "a-9", "summary": "Edit", "expires_at": 5}, correlation="a-9"),
