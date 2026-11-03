@@ -2,7 +2,8 @@
 
 Date: 2026-10-21
 
-Status: Accepted
+Status: Accepted in part. ADR 0043 supersedes relay sockets and relay runtime
+kinds; sessions still declare their capabilities.
 
 ## Context
 

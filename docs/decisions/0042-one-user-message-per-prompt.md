@@ -2,7 +2,8 @@
 
 Date: 2026-10-22
 
-Status: Accepted
+Status: Accepted. Amended by ADR 0043: a vendor echo is matched to its prompt
+by command id.
 
 ## Context
 

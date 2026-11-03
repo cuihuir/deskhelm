@@ -1,6 +1,7 @@
 # ADR 0002: Separate Bridge State and Session Projection
 
-- Status: Accepted
+- Status: Superseded by ADR 0043. Protocol v2 keys state by complete session
+  identity, and DeskHelm 0.1.0 removed the slot state plane.
 - Date: 2026-08-17
 
 ## Context

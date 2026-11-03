@@ -1,6 +1,8 @@
 # ADR 0006: Require Targeted, Expiring, Idempotent Controls
 
-- Status: Accepted
+- Status: Accepted. Amended by ADR 0043: approval commands name Bridge
+  approval ids, and an approval is consumed only when its dispatch may have
+  been delivered.
 - Date: 2026-08-17
 
 ## Context

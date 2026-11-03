@@ -1,6 +1,7 @@
 # ADR 0004: Define Session Lifecycle and Focus
 
-- Status: Accepted
+- Status: Accepted. Slot assignment at registration is superseded by ADR 0043;
+  explicit focus carries over to protocol v2.
 - Date: 2026-08-17
 
 ## Context

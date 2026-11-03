@@ -2,7 +2,8 @@
 
 Date: 2026-08-19
 
-Status: Accepted
+Status: Accepted. Since ADR 0043 the voice host composes these providers; the
+Bridge has no voice options.
 
 ## Context
 

@@ -2,7 +2,9 @@
 
 Date: 2026-10-21
 
-Status: Accepted
+Status: Accepted in part. ADR 0043 supersedes the in-process runtime
+factories, attach frames, and runtime directory; the shared user Bridge at
+`bridge.sock` remains.
 
 ## Context
 

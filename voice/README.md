@@ -23,11 +23,11 @@ has no import dependency on Bridge and no runtime audio or model dependency.
 - Lifecycle events contain identifiers and fixed error codes, not audio or
   private text.
 
-The Bridge composition is in
-[`bridge/deskhelm_bridge/voice_integration.py`](../bridge/deskhelm_bridge/voice_integration.py).
-It converts final normalized transcripts into targeted controls and complete
-assistant messages into speech items. It also registers targeted `press_ptt`
-and correlated `release_ptt` handlers when a Voice Gateway is composed.
+The voice host in [`bridge/deskhelm_voice_host/`](../bridge/deskhelm_voice_host/)
+composes the gateway and attaches it to the Bridge at the voice tier. It turns
+final normalized transcripts into prompts for the focused session and speaks
+fixed notices derived from console transitions; assistant content is never
+spoken.
 
 ## Current Providers
 
@@ -339,10 +339,9 @@ PYTHONPATH=voice python tools/run-tts-benchmark.py \
 ## Tests
 
 ```bash
-PYTHONPATH=bridge python3 -m unittest \
+uv run --project voice/runtime --locked --no-sync python -m unittest \
   tests.test_pipewire_providers tests.test_voice_benchmark \
   tests.test_vad_benchmark tests.test_vad_providers tests.test_asr_providers \
-  tests.test_tts_providers tests.test_voice_gateway \
-  tests.test_voice_integration tests.test_local_voice_config \
-  tests.test_local_voice_live_tool tests.test_vad_tools -v
+  tests.test_tts_providers tests.test_voice_gateway tests.test_voice_host \
+  tests.test_voice_keys tests.test_local_voice_live_tool tests.test_vad_tools -v
 ```

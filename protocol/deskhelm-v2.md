@@ -1,9 +1,10 @@
 # DeskHelm Protocol v2
 
-Status: implemented by `bridge/deskhelm_protocol` and `bridge/deskhelm_core`
-(ADR 0043, phase 1). Until the v1 Bridge is removed, a v2 Bridge listens on
-`$XDG_RUNTIME_DIR/deskhelm/bridge-v2.sock` and runs with
-`PYTHONPATH=bridge python3 -m deskhelm_core [--socket PATH]`.
+Status: the only DeskHelm protocol since 0.1.0 (ADR 0043), implemented by
+`bridge/deskhelm_protocol` and `bridge/deskhelm_core`. The user Bridge listens
+on `$XDG_RUNTIME_DIR/deskhelm/bridge.sock`, or `/tmp/deskhelm-<uid>/bridge.sock`
+without `XDG_RUNTIME_DIR`. Hosts start it on demand, and
+`deskhelm bridge [--socket PATH]` runs it in the foreground.
 
 ## Framing
 

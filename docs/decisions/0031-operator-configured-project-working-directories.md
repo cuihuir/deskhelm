@@ -2,7 +2,8 @@
 
 Date: 2026-08-26
 
-Status: Accepted
+Status: Superseded by ADR 0043. DeskHelm 0.1.0 removed the project registry
+with the codex exec gateway.
 
 ## Context
 

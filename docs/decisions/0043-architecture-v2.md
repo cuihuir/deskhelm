@@ -2,7 +2,8 @@
 
 Date: 2026-11-03
 
-Status: Accepted. Implemented in phases; see Migration.
+Status: Accepted. Phases 0 to 4 are implemented and released in DeskHelm
+0.1.0; phase 5 remains.
 
 ## Context
 

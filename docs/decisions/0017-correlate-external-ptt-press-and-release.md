@@ -2,7 +2,8 @@
 
 Date: 2026-08-19
 
-Status: Accepted
+Status: Accepted. Amended by ADR 0043: the voice host reads the PTT key
+itself, so the Bridge no longer routes PTT controls.
 
 ## Context
 

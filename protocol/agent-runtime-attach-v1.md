@@ -1,6 +1,8 @@
 # Agent Runtime Attach v1
 
-Status: Implemented for the shared user bridge
+Status: Removed in DeskHelm 0.1.0 (ADR 0043). Nothing implements this
+document; it remains as the record that older ADRs link to. The current
+protocol is [`deskhelm-v2.md`](deskhelm-v2.md).
 
 ## Purpose
 

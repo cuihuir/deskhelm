@@ -2,7 +2,8 @@
 
 Date: 2026-08-21
 
-Status: Accepted. The exclusive evdev grab is superseded by ADR 0039.
+Status: Accepted. The exclusive evdev grab is superseded by ADR 0039. Since
+ADR 0043 the voice host runs the right-Alt listener.
 
 ## Context
 

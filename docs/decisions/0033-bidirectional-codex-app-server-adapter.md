@@ -2,7 +2,8 @@
 
 Date: 2026-08-27
 
-Status: Accepted for Alpha
+Status: Accepted for Alpha. Amended by ADR 0043: the TUI proxy runs inside the
+Codex session host.
 
 ## Context
 

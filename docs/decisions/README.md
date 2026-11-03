@@ -128,4 +128,6 @@ of that same text is not published again.
 [`0043-architecture-v2.md`](0043-architecture-v2.md)
 turns the Bridge into a single-threaded control plane, moves each agent into
 a session host process and voice into its own host, and gives every surface
-one console projection. It is implemented in phases 0 to 5.
+one console projection. Phases 0 to 4 shipped in DeskHelm 0.1.0. It
+supersedes ADRs 0002, 0007, 0008, and 0031 and amends others; the status line
+of each affected ADR says what changed.

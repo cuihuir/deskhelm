@@ -1,6 +1,7 @@
 # ADR 0009: Isolate and Bound the Voice Gateway
 
-- Status: Accepted
+- Status: Accepted. Amended by ADR 0043: voice runs in its own host process
+  and publishes content-free status.
 - Date: 2026-08-18
 
 ## Context

@@ -1,6 +1,8 @@
 # ADR 0007: Declare Adapter Sessions, Capabilities, and Connection Ownership
 
-- Status: Accepted
+- Status: Superseded by ADR 0043. A session host's Bridge connection is the
+  session lease, and drivers declare their capabilities when the session
+  opens.
 - Date: 2026-08-18
 
 ## Context

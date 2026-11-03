@@ -1,6 +1,8 @@
 # ADR 0005: Use One Negotiated Local Socket
 
-- Status: Accepted
+- Status: Accepted. Amended by ADR 0043: protocol v2 keeps one socket with
+  host and client roles, a console snapshot with a cursor, and a bounded
+  interaction window.
 - Date: 2026-08-17
 
 ## Context

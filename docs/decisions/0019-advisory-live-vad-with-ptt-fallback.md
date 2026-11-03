@@ -2,7 +2,8 @@
 
 Date: 2026-08-19
 
-Status: Accepted
+Status: Accepted. The voice host does not select a VAD provider yet; the
+Bridge option was removed with the v1 Bridge (ADR 0043).
 
 ## Context
 

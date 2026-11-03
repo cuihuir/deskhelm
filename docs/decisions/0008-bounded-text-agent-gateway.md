@@ -1,6 +1,7 @@
 # ADR 0008: Use a Bounded In-Process Text Agent Gateway
 
-- Status: Accepted
+- Status: Superseded by ADR 0043. DeskHelm 0.1.0 removed the codex exec
+  gateway.
 - Date: 2026-08-18
 
 ## Context

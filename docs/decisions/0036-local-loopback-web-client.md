@@ -2,7 +2,8 @@
 
 Date: 2026-10-20
 
-Status: Accepted
+Status: Accepted. Amended by ADR 0043: the page is a separate process, the
+interaction window lives in the Bridge, and every request is authenticated.
 
 ## Context
 

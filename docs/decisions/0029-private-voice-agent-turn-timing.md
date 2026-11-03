@@ -2,7 +2,8 @@
 
 Date: 2026-08-24
 
-Status: Accepted
+Status: Accepted. DeskHelm 0.1.0 removed this timing record with the v1 Bridge
+(ADR 0043); protocol v2 has no equivalent yet.
 
 ## Context
 

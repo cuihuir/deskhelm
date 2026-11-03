@@ -1,80 +1,99 @@
 # Codex Adapter
 
-The hook adapter maps Codex hook notifications to legacy-compatible DeskHelm
-state events. The text provider wraps `codex exec --json` and normalizes its
-JSONL stream into session-scoped interaction events.
+`deskhelm codex` runs one Codex session host in the current directory. The
+host owns this directory's `codex app-server`, a TUI approval proxy, and a PTY
+relay that runs `codex --remote` in this terminal. `CodexSession` in
+`driver.py` wraps `CodexAppServerAdapter` and turns its events into protocol
+v2 facts.
 
-That text provider is now implemented in `deskhelm_codex_adapter`. It accepts
-prompts over stdin, maps supported assistant-message and command-execution
-events, retains bounded process-local thread IDs for resume, and stops its owned
-process group on interruption or timeout. Unknown well-formed events are
-ignored; malformed JSONL and missing terminal events fail the run.
+## Running
 
-Versioned JSONL evidence lives under
-`tests/fixtures/adapters/codex-exec-json/`. The official example is copied from
-Codex non-interactive mode documentation and is not claimed as locally
-produced. Synthetic files cover failure, unknown-event, and malformed-input
-boundaries without requiring network access or a logged-in runtime.
+```bash
+deskhelm codex --check [--voice [--default-source]]
+deskhelm codex
+deskhelm codex --voice [--default-source]
+deskhelm codex --yolo
+```
 
-The implementation follows the official Codex non-interactive mode contract:
-<https://learn.chatgpt.com/docs/non-interactive-mode>.
+- The TUI runs in the read-only sandbox and asks for approval on request.
+  `--codex-sandbox workspace-write` lets it write. `--yolo` passes Codex's
+  full-access, no-approval flag, which bypasses the sandbox and every
+  approval; use it only when that access is intended.
+- The relay turns a first raw or Kitty-protocol Ctrl-C into clear-input and
+  forwards Ctrl-C only on a second press within a short window.
+- A second host in the same directory is refused, and stale directory sockets
+  are removed. The sockets are `codex-<digest>-app.sock` and
+  `codex-<digest>-tui.sock` in the runtime directory, never derived from the
+  Bridge socket. The host logs to `codex-<digest>-host.log`.
+- On exit the host closes the session and stops this directory's app-server;
+  the Bridge keeps running.
+- `--voice` preflights voice before the TUI takes the terminal, focuses this
+  session, runs the voice host as a child that logs to
+  `codex-<digest>-voice.log`, and stops it on exit.
+- `--check` finds Codex and, with `--voice`, checks the voice models, the
+  PipeWire selection, and the right-Alt key without opening audio.
 
-## Manual TUI Sessions
+The relay is `tools/run-with-pty.py`, so the host runs from a source checkout.
 
-`CodexAppServerAdapter` connects to a DeskHelm-managed `codex app-server` over
-its local Unix WebSocket transport. The managed TUI connects through a separate
-bounded local WebSocket proxy, which forwards normal traffic to the app-server
-and exposes the real server-initiated command/file/permission approval request to the
-adapter without copying its private content. The adapter performs the JSON-RPC initialization
-handshake and attaches directly to one loaded thread. Direct attachment is
-required because a newly opened remote TUI has no rollout for `thread/resume`
-until its first turn. Attachment makes the thread immediately targetable.
-Codex's `/resume` picker uses one additional short-lived proxy connection; it
-forwards normal app-server traffic but never owns voice approvals.
-Once that picker confirms its selected thread, the separate adapter observer
-resumes the same thread so later voice prompts target the visible TUI session.
-The adapter separately retries bounded `thread/resume` calls until its
-connection is subscribed to manually started turns. A successful DeskHelm
-`turn/start` also establishes the subscription. Explicit thread resume errors
-remain fail-closed, and bounded metadata reads exclude one positively
-identified ephemeral internal thread without selecting among multiple user
-threads. The adapter maps turn completion, command/file/permission approvals,
-and structured user-input requests into DeskHelm interactions. Prompt,
-interrupt, approve, and reject controls return to the same thread through the
-app-server protocol. A steer that fails because no turn is active is sent
-once as `turn/start` with the same prompt. Other steer errors stay failures.
-A prompt DeskHelm accepts is published once as a user message. A later vendor
-user item with the same text is not published again.
-Permission approval grants only the requested subset for
-the current turn; rejection grants none.
+## App-Server Behavior
 
-Codex `thread/status/changed` and resumed thread status also drive a bounded
-notification-only approval-attention state. Entering `waitingOnApproval`
-speaks one fixed confirmation notice. That status has no request ID and does
-not register a pending approval by itself. The managed TUI proxy separately
-captures the correlated request, making exact one-shot voice approval possible;
-the voice layer suppresses the duplicate notice.
+Observed with Codex CLI 0.166.0:
 
-This mode does not inject terminal keystrokes and cannot attach to an unrelated
-plain `codex` process. Start the DeskHelm Alpha first, then manually run the
-`codex --remote unix://...` command printed by Alpha. Multiple non-ephemeral
-loaded threads, secret input, and multi-question input remain terminal-only in
-the initial implementation.
+- The adapter attaches directly to the one loaded thread, so a new empty TUI
+  is targetable before its first rollout exists. It then retries bounded
+  `thread/resume` calls until its own connection is subscribed. Only a resume
+  result, a server request, or turn events on that connection prove the
+  subscription; `turn/start` and `thread/status/changed` reach every
+  connection and do not.
+- Before the first user message, `thread/resume` reports that no rollout
+  exists. That is retried only for a discovered thread; an explicit thread
+  failure stays fail-closed.
+- One positively identified ephemeral internal thread is ignored. Several user
+  threads need an explicit selector.
+- The `/resume` picker may use one extra short-lived TUI connection. After it
+  confirms a thread, the adapter attaches to that thread.
+- A subscribed adapter also receives each approval request the TUI receives;
+  with the proxy it ignores that copy.
+- A user message arrives as `item/started` and `item/completed` and counts
+  once, at `item/completed`. A prompt DeskHelm accepted is published once, and
+  the matching vendor echo is not published again (ADR 0042).
+- A steer that fails because no turn is active starts one turn with the same
+  prompt (ADR 0041). Any other rejected steer becomes a system notice and does
+  not end the turn.
 
-For a single-terminal workflow, `deskhelm codex --tui` starts the same remote
-command as a foreground child after the managed app-server and Bridge are
-ready. Exiting that TUI stops the complete Alpha stack. This is a convenience
-launcher only; the adapter still uses the same local app-server protocol.
+## Approvals
 
-The adapter uses fixed privacy-safe approval and input summaries. Command text,
-file changes, working directories, reasons, and question text are not copied to
-notifications. Voice approval accepts only the bounded exact approval phrases
-`批准`, `确认`, `同意`, `允许`, and `可以`, or rejection phrases `拒绝`, `不同意`,
-`不允许`, and `取消`, when one non-expired target approval is pending; it never
-uses session-wide approval. Voice and keyboard decisions race safely: the first
-response wins, keyboard-first clears DeskHelm state, and voice-first suppresses
-the later TUI response for that same request.
+Command, file, and permission approvals travel on the TUI's original JSON-RPC
+response channel through the proxy. A keyboard answer clears DeskHelm's
+record; a DeskHelm answer suppresses the later TUI response for that request.
+Proxy disconnect, expiry, or capacity fails closed without inferring a
+decision, and excess approvals stay answerable from the keyboard. A permission
+approval grants only the requested subset for the current turn and is never
+persisted. Approval facts carry fixed summaries, not command text, file
+changes, or reasons.
 
-The protocol follows the official Codex app-server contract:
-<https://learn.chatgpt.com/docs/app-server>. The app-server WebSocket transport
-is experimental and this integration remains Alpha-only.
+The `waitingOnApproval` thread status alone is notification-only attention
+with no request id; the proxy supplies the real request. Secret input and
+multi-question input stay in the TUI.
+
+## Catalog and Configuration
+
+The host pushes its catalog (models, MCP status, and skill names) when its
+thread attaches, after a turn at most once a minute, and after a model choice.
+The Bridge caches it, so a catalog query never waits for the host. A
+`configure` command stores a model and reasoning effort for the next
+`turn/start`, but only after a catalog read from the last 110 seconds;
+otherwise it is undelivered and a fresh read starts. It never writes Codex
+configuration.
+
+## Limits and Evidence
+
+The app-server WebSocket transport is experimental, so this integration is
+Alpha-only. DeskHelm does not inject terminal keystrokes and cannot attach to
+an unrelated plain `codex` process.
+
+Schema-derived synthetic JSON-RPC fixtures for locally inspected Codex CLI
+0.149.0 live under `tests/fixtures/adapters/codex-app-server-v2/`, and
+synthetic replay transcripts under `tests/fixtures/replay/codex/`. The
+protocol follows the official Codex app-server contract:
+<https://learn.chatgpt.com/docs/app-server>.

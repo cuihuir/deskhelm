@@ -1,6 +1,7 @@
 # ADR 0003: Adopt the DeskHelm Name
 
-- Status: Accepted
+- Status: Accepted. DeskHelm 0.1.0 removed the `agent-io` and
+  `agent_io_bridge` compatibility aliases (ADR 0043).
 - Date: 2026-08-17
 
 ## Context

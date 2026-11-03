@@ -1,6 +1,8 @@
 # InteractionEvent v1
 
-Status: Implemented model and negotiated transport publishing
+Status: Removed in DeskHelm 0.1.0 (ADR 0043). Nothing implements this
+document; it remains as the record that older ADRs link to. The current
+protocol is [`deskhelm-v2.md`](deskhelm-v2.md).
 
 ## Purpose
 
