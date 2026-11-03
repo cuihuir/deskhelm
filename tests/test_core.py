@@ -455,6 +455,18 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(harness.take("web", "query_result")[0]["catalog"], {"models": [{"id": "m"}]})
         self.assertEqual(harness.take("voice", "query_result")[0]["status"], "not_permitted")
 
+    def test_capabilities_fact_replaces_the_matrix(self) -> None:
+        harness = _Harness()
+        harness.host("host")
+        harness.client("web", streams=())
+        harness.fact("host", "capabilities", {"capabilities": {**CAPS, "approvals": "none"}})
+        harness.approval("host")
+        approval_id = harness.core.session(KEY)["approvals"][0]["approval_id"]
+        harness.command("web", "approve", {"approval_id": approval_id})
+
+        self.assertEqual(harness.core.session(KEY)["capabilities"]["approvals"], "none")
+        self.assertEqual(harness.take("web", "command_result")[0]["code"], "unsupported")
+
     def test_session_end_removes_the_session(self) -> None:
         harness = _Harness()
         harness.client("web")

@@ -270,6 +270,7 @@ class FactKind(StrEnum):
     TURN_TERMINAL = "turn_terminal"
     STATUS = "status"
     CATALOG = "catalog"
+    CAPABILITIES = "capabilities"
     SESSION_ENDED = "session_ended"
 
 
@@ -401,6 +402,11 @@ def _validate_catalog(meta: dict[str, Any], content: dict[str, Any]) -> None:
         raise ProtocolViolation("catalog is too large")
 
 
+def _validate_capabilities(meta: dict[str, Any], content: dict[str, Any]) -> None:
+    CapabilityMatrix.from_dict(meta.get("capabilities"))
+    _no_content(content)
+
+
 def _validate_session_ended(meta: dict[str, Any], content: dict[str, Any]) -> None:
     text_field(meta.get("reason", "ended"), "reason", MAX_LABEL_CHARS)
     _no_content(content)
@@ -416,6 +422,7 @@ _FACT_VALIDATORS = {
     FactKind.TURN_TERMINAL: _validate_turn_terminal,
     FactKind.STATUS: _validate_status,
     FactKind.CATALOG: _validate_catalog,
+    FactKind.CAPABILITIES: _validate_capabilities,
     FactKind.SESSION_ENDED: _validate_session_ended,
 }
 

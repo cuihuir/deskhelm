@@ -80,7 +80,11 @@ interaction stream.
 | `turn_terminal` | `status` (`completed`, `interrupted`, `failed`), optional `failure`, `reusable`, `turn_ref` | optional `message` |
 | `status` | `attention` (boolean) | — |
 | `catalog` | — | `catalog` object, at most 256 KiB |
+| `capabilities` | `capabilities` (a full matrix) | — |
 | `session_ended` | `reason` | — |
+
+A `capabilities` fact replaces the matrix once the driver knows what its
+vendor allows, for example after the vendor handshake.
 
 `summary` and `label` must be content-free: a tool kind or a bare tool name,
 never a command line or a path. `failure` is one of `provider`,

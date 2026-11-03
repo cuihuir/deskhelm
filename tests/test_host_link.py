@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from queue import Queue
+import signal
+import sys
+import tempfile
+import time
+import unittest
+
+TESTS = Path(__file__).resolve().parent
+if str(TESTS) not in sys.path:
+    sys.path.insert(0, str(TESTS))
+
+from deskhelm_core import CoreLimits  # noqa: E402
+from deskhelm_core.server import BridgeServer  # noqa: E402
+from deskhelm_host import BridgeLink, SessionState  # noqa: E402
+from deskhelm_host.bridge_process import bridge_running, ensure_bridge  # noqa: E402
+from deskhelm_protocol import (  # noqa: E402
+    ApprovalOverflow,
+    ApprovalSupport,
+    CapabilityMatrix,
+    EffectKind,
+    EffectOutcome,
+    InputSupport,
+    OpenRequest,
+    PromptWhileBusy,
+    RequestKind,
+    RuntimeIdentity,
+    SessionKey,
+)
+from helpers.v2 import command, operator, session_view  # noqa: E402
+
+
+KEY = SessionKey("fake", "session-1", "demo")
+
+
+class _FakeDriver:
+    runtime = RuntimeIdentity("deskhelm-fake", "1", "fake", "1")
+    capabilities = CapabilityMatrix(
+        version=1,
+        prompt_while_busy=PromptWhileBusy.QUEUE,
+        interrupt=True,
+        approvals=ApprovalSupport.ANSWERABLE,
+        approval_overflow=ApprovalOverflow.DECLINE,
+        user_input=InputSupport.NATIVE_UI,
+        resume=False,
+    )
+
+    def __init__(self) -> None:
+        self.performed: Queue[tuple[EffectKind, dict]] = Queue()
+        self.outcome = EffectOutcome.ACCEPTED
+        self.fail = False
+        self.open_requests: tuple[OpenRequest, ...] = ()
+        self.turn_ref: str | None = None
+
+    def start(self, emit) -> None:
+        self.emit = emit
+
+    def perform(self, kind: EffectKind, payload: dict) -> EffectOutcome:
+        self.performed.put((kind, payload))
+        if self.fail:
+            raise RuntimeError("vendor state unknown")
+        return self.outcome
+
+    def state(self) -> SessionState:
+        return SessionState(ready=True, turn_ref=self.turn_ref, open_requests=self.open_requests)
+
+    def wait(self) -> int:
+        return 0
+
+    def close(self) -> None:
+        return None
+
+
+class BridgeLinkTests(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.path = Path(directory.name) / "bridge.sock"
+        self.server = self._server()
+        self.driver = _FakeDriver()
+        self.link = BridgeLink(
+            self.path, KEY, self.driver, client_id="host-test", reconnect_initial=0.05, reconnect_max=0.1
+        )
+        self.link.start()
+        self.addCleanup(self.link.close)
+        self.assertTrue(self.link.opened.wait(3))
+
+    def _server(self, **limits) -> BridgeServer:
+        server = BridgeServer(self.path, limits=CoreLimits(**limits) if limits else None, tick_seconds=0.05)
+        server.start()
+        self.addCleanup(server.close)
+        return server
+
+    def test_reopened_session_reports_the_driver_state(self) -> None:
+        client = operator(self.path)
+        self.addCleanup(client.close)
+
+        view = session_view(client.next("snapshot"), KEY)
+        self.assertEqual((view["lifecycle"], view["activity"]), ("active", "idle"))
+        self.assertEqual(view["runtime"]["adapter_id"], "deskhelm-fake")
+
+    def test_effects_reach_the_driver_and_answer_commands(self) -> None:
+        client = operator(self.path)
+        self.addCleanup(client.close)
+        accepted = command(client, "submit_prompt", KEY, {"text": "hello"}, command_id="first")
+        kind, payload = self.driver.performed.get(timeout=2)
+        self.driver.outcome = EffectOutcome.UNDELIVERED
+        undelivered = command(client, "interrupt", KEY, command_id="second")
+
+        self.assertEqual((kind, payload["text"], payload["command_id"]), (EffectKind.SUBMIT, "hello", "first"))
+        self.assertEqual(accepted["code"], "dispatched")
+        self.assertEqual(undelivered["code"], "undelivered")
+
+    def test_session_survives_a_bridge_restart(self) -> None:
+        self.driver.turn_ref = "turn-7"
+        self.driver.open_requests = (
+            OpenRequest("rpc-1", RequestKind.APPROVAL, "请求使用工具 execute", int(time.time() * 1000) + 60_000, True),
+        )
+        self.server.close()
+        self.link.opened.clear()
+        self.server = self._server()
+        self.assertTrue(self.link.opened.wait(3))
+        client = operator(self.path)
+        self.addCleanup(client.close)
+
+        view = session_view(client.next("snapshot"), KEY)
+        if view["activity"] != "waiting_approval":
+            view = session_view(client.next("delta", where=lambda frame: session_view(frame, KEY)), KEY)
+        self.assertEqual(view["activity"], "waiting_approval")
+        self.assertEqual(view["approvals"][0]["summary"], "请求使用工具 execute")
+
+    def test_unknown_driver_outcome_is_left_to_the_bridge_deadline(self) -> None:
+        self.server.close()
+        self.link.opened.clear()
+        self.server = self._server(effect_deadline_ms=200)
+        self.assertTrue(self.link.opened.wait(3))
+        self.driver.fail = True
+        client = operator(self.path)
+        self.addCleanup(client.close)
+
+        result = command(client, "submit_prompt", KEY, {"text": "hello"})
+        self.assertEqual(result["code"], "dispatch_failed")
+
+
+class EnsureBridgeTests(unittest.TestCase):
+    def test_a_missing_bridge_is_started_once(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bridge.sock"
+            pid = ensure_bridge(path)
+            try:
+                again = ensure_bridge(path)
+                running = bridge_running(path)
+            finally:
+                if pid is not None:
+                    os.killpg(pid, signal.SIGTERM)
+                    deadline = time.monotonic() + 5
+                    while path.exists() and time.monotonic() < deadline:
+                        time.sleep(0.05)
+
+        self.assertIsNotNone(pid)
+        self.assertIsNone(again)
+        self.assertTrue(running)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -430,6 +430,9 @@ class Core:
                 self._interaction(record, "attention", payload, "", now)
         elif fact.kind is FactKind.CATALOG:
             record.catalog = content["catalog"]
+        elif fact.kind is FactKind.CAPABILITIES:
+            # A driver may learn what its vendor allows only after the handshake.
+            record.capabilities = CapabilityMatrix.from_dict(meta["capabilities"])
         elif fact.kind is FactKind.SESSION_ENDED:
             self._remove_session(record)
             return
