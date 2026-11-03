@@ -111,11 +111,27 @@ class SwitchOverTests(unittest.TestCase):
         self.assertIn("unknown command 'ptt'", unknown[2])
         self.assertEqual(_options_first("focus", ["--agent-id", "a", "--socket", "/s"]),
                          ["--socket", "/s", "focus", "--agent-id", "a"])
-        agent_help = _run(deskhelm_main, ["agent", "--help"])
-        self.assertEqual(agent_help[0], 0)
-        self.assertIn("deskhelm agent {claude,grok}", agent_help[1])
-        self.assertNotIn("--yolo", agent_help[1])
-        self.assertEqual(_run(deskhelm_main, ["agent"])[0], 2)
+
+    def test_agent_and_codex_have_usage_of_their_own(self) -> None:
+        def ask(argv: list[str]) -> tuple[int, str]:
+            out = io.StringIO()
+            with self.assertRaises(SystemExit) as raised, contextlib.redirect_stdout(out), \
+                    contextlib.redirect_stderr(out):
+                deskhelm_main(argv)
+            return raised.exception.code, out.getvalue()
+
+        agent = ask(["agent", "claude", "--help"])
+        codex = ask(["codex", "--help"])
+        missing, wrong, codex_option = ask(["agent"]), ask(["agent", "codex"]), ask(["agent", "grok", "--yolo"])
+
+        self.assertEqual(agent[0], 0)
+        self.assertIn("usage: deskhelm agent", agent[1])
+        self.assertNotIn("--yolo", agent[1])
+        self.assertEqual(codex[0], 0)
+        self.assertIn("usage: deskhelm codex", codex[1])
+        self.assertIn("--yolo", codex[1])
+        self.assertEqual([missing[0], wrong[0], codex_option[0]], [2, 2, 2])
+        self.assertIn("usage: deskhelm agent", codex_option[1])
 
     def test_a_socket_that_is_not_a_v2_bridge_is_named_instead_of_retried(self) -> None:
         old = _V1LikeServer(self.path)
@@ -128,7 +144,7 @@ class SwitchOverTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("other than a v2 Bridge", stderr)
 
-    def test_a_stopped_agent_host_reports_the_signal_not_a_failure(self) -> None:
+    def test_a_stopped_agent_host_ends_by_its_signal_not_as_a_failure(self) -> None:
         self._bridge_with_session()
         bin_directory = self.directory / "bin"
         bin_directory.mkdir()
@@ -152,7 +168,7 @@ class SwitchOverTests(unittest.TestCase):
         host.send_signal(signal.SIGTERM)
 
         self.assertIn("claude session", started)
-        self.assertEqual(host.wait(timeout=10), 128 + signal.SIGTERM)
+        self.assertEqual(host.wait(timeout=10), -signal.SIGTERM)
 
     def test_a_running_v2_bridge_is_recognized(self) -> None:
         self._bridge_with_session()

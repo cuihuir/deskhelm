@@ -20,6 +20,7 @@ from typing import Any
 
 from deskhelm_client import BridgeClient
 from deskhelm_host.bridge_process import ensure_bridge
+from deskhelm_host.exit import stop_by_signal
 from deskhelm_host.link import BridgeLink
 from deskhelm_protocol import ApprovalSupport, SessionKey
 from deskhelm_protocol.paths import runtime_directory
@@ -115,6 +116,7 @@ def run_codex_host(
     for number in signals:
         signal.signal(number, stop)
     code = 0
+    stopped_by = 0
     try:
         app_server = subprocess.Popen(
             [codex, "app-server", "--listen", f"unix://{app_socket}"],
@@ -170,7 +172,8 @@ def run_codex_host(
                 speech_noted = True
             time.sleep(0.1)
     except _Stopped as stopped:
-        code = 128 + stopped.signal_number
+        stopped_by = stopped.signal_number
+        code = 128 + stopped_by
     except (OSError, RuntimeError, ValueError) as error:
         print(f"deskhelm host: {error}", file=stderr)
         code = 1
@@ -195,6 +198,9 @@ def run_codex_host(
             path.unlink(missing_ok=True)
         for number, handler in previous.items():
             signal.signal(number, handler)
+    if stopped_by:
+        # Everything is cleaned up; end the way the stop signal would have.
+        return stop_by_signal(stopped_by)
     return code
 
 

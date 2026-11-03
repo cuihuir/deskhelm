@@ -20,6 +20,7 @@ from deskhelm_protocol import SessionKey
 from deskhelm_protocol.paths import default_socket_path, runtime_directory
 
 from .bridge_process import bridge_protocol, ensure_bridge
+from .exit import stop_by_signal
 from .link import BridgeLink
 
 _OPEN_TIMEOUT_SECONDS = 10.0
@@ -45,13 +46,14 @@ def session_for(agent: str, cwd: Path, project_id: str | None = None, session_id
     return SessionKey(agent, session_id or f"local-{digest}", project_id or cwd.name), digest
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="deskhelm-host", description="Run one agent session host here.")
-    parser.add_argument("agent", choices=("claude", "codex", "grok"))
+def _session_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--socket", type=Path, default=None)
     parser.add_argument("--project-id", default=None)
     parser.add_argument("--session-id", default=None)
     parser.add_argument("--agent-workdir", type=Path, default=None, help="the project directory; defaults to here")
+
+
+def _codex_arguments(parser: argparse.ArgumentParser) -> None:
     codex = parser.add_argument_group("codex")
     codex.add_argument("--codex-sandbox", choices=("read-only", "workspace-write"), default="read-only")
     codex.add_argument("--yolo", action="store_true", help="full access and no approvals; extremely dangerous")
@@ -61,11 +63,45 @@ def main(argv: list[str] | None = None) -> int:
     codex.add_argument("--check", action="store_true", help="check Codex, the Bridge, and voice, then exit")
     # The managed TUI always runs in this terminal; the flag stays accepted.
     codex.add_argument("--tui", action="store_true", help=argparse.SUPPRESS)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m deskhelm_host claude|codex|grok``."""
+    parser = argparse.ArgumentParser(prog="deskhelm-host", description="Run one agent session host here.")
+    parser.add_argument("agent", choices=("claude", "codex", "grok"))
+    _session_arguments(parser)
+    _codex_arguments(parser)
     args = parser.parse_args(argv)
     codex_only = (args.yolo, args.voice, args.default_source, args.check, args.tui, args.codex_sandbox != "read-only")
     if args.agent != "codex" and any(codex_only):
         parser.error("the codex options apply to codex only")
-    if args.default_source and not args.voice:
+    return run(parser, args)
+
+
+def codex_main(argv: list[str] | None = None) -> int:
+    """``deskhelm codex``: the managed Codex TUI here, with usage of its own."""
+    parser = argparse.ArgumentParser(prog="deskhelm codex", description="Run the managed Codex TUI here as one session.")
+    _session_arguments(parser)
+    _codex_arguments(parser)
+    args = parser.parse_args(argv)
+    args.agent = "codex"
+    return run(parser, args)
+
+
+def agent_main(argv: list[str] | None = None) -> int:
+    """``deskhelm agent claude|grok``: one Claude Code or Grok session here."""
+    parser = argparse.ArgumentParser(
+        prog="deskhelm agent",
+        description="Run Claude Code or Grok here as one session; prompts stay on the vendor's stdin. "
+        "Codex runs as `deskhelm codex`.",
+    )
+    parser.add_argument("agent", choices=("claude", "grok"))
+    _session_arguments(parser)
+    return run(parser, parser.parse_args(argv))
+
+
+def run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    if getattr(args, "default_source", False) and not args.voice:
         parser.error("--default-source needs --voice")
 
     cwd = (args.agent_workdir or Path.cwd()).expanduser().resolve()
@@ -129,8 +165,8 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         link.close()
     if stopped:
-        # A requested stop is not a vendor failure; report it as the shell does.
-        return 128 + stopped[0]
+        # A requested stop is not a vendor failure.
+        return stop_by_signal(stopped[0])
     return 0 if code == 0 else 1
 
 
