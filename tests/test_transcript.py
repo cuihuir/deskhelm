@@ -178,6 +178,19 @@ class TranscriptTests(unittest.TestCase):
         self.assertEqual([(item["status"], item["code"]) for item in items[2:]],
                          [("completed", ""), ("interrupted", ""), ("failed", "usage_limit")])
 
+    def test_an_approval_records_how_it_ended(self) -> None:
+        transcript = Transcript()
+        transcript.apply(_event("approval_request", {"request_id": "a-1", "summary": "Run", "expires_at": 9}, correlation="a-1"))
+        ended = transcript.apply(_event("approval_resolved", {"request_id": "a-1", "by": "deskhelm", "decision": "reject",
+                                                              "unknown": True}, correlation="a-1"))
+        missing = transcript.apply(_event("approval_resolved", {"request_id": "a-9", "by": "native"}, correlation="a-9"))
+        odd = transcript.apply(_event("approval_resolved", {"request_id": "a-1", "by": "magic"}, correlation="a-1"))
+        item = transcript.items()[0]
+
+        self.assertEqual(ended[0]["op"], "upsert")
+        self.assertEqual((item["resolution"], item["decision"], item["uncertain"]), ("deskhelm", "reject", True))
+        self.assertEqual((missing, odd), ([], []))
+
     def test_other_and_malformed_events_change_nothing(self) -> None:
         transcript = Transcript()
 

@@ -4,7 +4,7 @@
 
 import { copyText, h, icon, nearBottom } from "../dom.js";
 import { diffBlock, looksLikeDiff, renderMarkdown } from "../markdown.js";
-import { countdown, historyHint, outcomeText, toolIcon, toolWord } from "../text.js";
+import { countdown, historyHint, outcomeText, resolutionText, toolIcon, toolWord } from "../text.js";
 
 const STREAM_RENDER_MS = 50;
 const MAX_STREAM_RENDER_MS = 1000;
@@ -146,7 +146,6 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
     const found = session && session.approvals.find((entry) => entry.approval_id === item.approval_id);
     // A ticket can outlive its expiry until the Bridge's next tick removes it.
     const ticket = found && found.expires_at > Date.now() ? found : null;
-    const decided = store.state.decided.get(item.approval_id);
     const node = h(
       "div",
       { class: ticket ? "approval is-live" : "approval" },
@@ -170,8 +169,7 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
     } else if (ticket) {
       node.append(h("p", { class: "approval-state", text: "请在 Agent 自己的界面里处理" }));
     } else {
-      const text = { approve: "已在这里批准", reject: "已在这里拒绝" }[decided] || (found ? "已过期" : "已结束");
-      node.append(h("p", { class: "approval-state", text }));
+      node.append(h("p", { class: "approval-state", text: resolutionText(item, Boolean(found)) }));
     }
     return node;
   }

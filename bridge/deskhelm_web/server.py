@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlsplit
 import uuid
 
 from deskhelm_client import BridgeClient, ConsoleChange, agent_label, result_text
-from deskhelm_client.texts import ACTIVITY_TEXT, FAILURE_TEXT, OUTCOME_TEXT, RESULT_TEXT, TOOL_TEXT
+from deskhelm_client.texts import ACTIVITY_TEXT, FAILURE_TEXT, OUTCOME_TEXT, RESOLUTION_TEXT, RESULT_TEXT, TOOL_TEXT
 from deskhelm_client.transcript import Transcript
 from deskhelm_protocol import SessionKey
 from deskhelm_protocol.model import MAX_IDENTITY_CHARS, MAX_LABEL_CHARS, MAX_TEXT_CHARS
@@ -37,6 +37,7 @@ WORDS = {
     "activity": ACTIVITY_TEXT,
     "outcome": OUTCOME_TEXT,
     "failure": FAILURE_TEXT,
+    "resolution": RESOLUTION_TEXT,
     "tool": TOOL_TEXT,
 }
 _SEPARATOR = "\u001f"

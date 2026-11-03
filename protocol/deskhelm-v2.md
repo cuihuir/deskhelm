@@ -156,7 +156,11 @@ fact carries its whole text, even after deltas, so the window drops that
 message's deltas once it completes and a long streamed reply cannot push
 earlier activity out. Interaction events keep
 the v1 `InteractionEvent` shape; approval events name the Bridge approval id
-as `request_id`.
+as `request_id`. When an approval ends, an `approval_resolved` event names its
+`request_id` and `by` (`deskhelm`, `native`, `cancelled` when its turn ended,
+or `expired`); a DeskHelm decision adds `decision` and, if its delivery is
+unknown, `"unknown": true`. An approval dropped because its host left gets
+no event; a reopened host reports it again under a new id.
 
 ### Commands
 

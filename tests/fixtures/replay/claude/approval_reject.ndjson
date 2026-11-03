@@ -10,4 +10,4 @@
 {"type":"inbound","frame":{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_example","is_error":true,"content":"denied"}]}}}
 {"type":"inbound","frame":{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The write was declined."}]}}}
 {"type":"inbound","frame":{"type":"result","subtype":"success","result":"The write was declined."}}
-{"type":"events","kinds":["tool","tool","message","task_completed"]}
+{"type":"events","kinds":["approval_resolved","tool","tool","message","task_completed"]}

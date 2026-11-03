@@ -290,8 +290,15 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     decision = codex.take(EffectKind.RESPOND)
     check("approve sends the vendor reference", (decision["provider_ref"], decision["decision"]) == ("r1", "approve"))
     codex.emit(FactKind.REQUEST_RESOLVED, {"provider_ref": "r1", "by": "deskhelm"})
-    page.locator(".approval-state", has_text="已在这里批准").wait_for(timeout=5000)
-    check("a decided approval says who decided it", page.locator(".approval.is-live").count() == 0)
+    page.locator(".approval-state", has_text="已批准").wait_for(timeout=5000)
+    check("a decided approval says how it ended", page.locator(".approval.is-live").count() == 0)
+    codex.emit(FactKind.REQUEST_OPENED, {"provider_ref": "r5", "kind": "approval", "summary": "Answered in the TUI",
+                                         "expires_at": int(time.time() * 1000) + 120_000, "answerable": True})
+    page.locator(".approval.is-live", has_text="Answered in the TUI").wait_for(timeout=5000)
+    codex.emit(FactKind.REQUEST_RESOLVED, {"provider_ref": "r5", "by": "native"})
+    answered = page.locator(".approval", has_text="Answered in the TUI")
+    answered.locator(".approval-state", has_text="已在 Agent 里处理").wait_for(timeout=5000)
+    check("an approval answered in the agent's own interface says so", True)
 
     # Focus, details, and switching.
     page.click("#topbar .button.ghost")

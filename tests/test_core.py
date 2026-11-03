@@ -375,6 +375,47 @@ class ApprovalTests(unittest.TestCase):
         codes = [item["code"] for item in harness.take("web", "command_result")]
         self.assertEqual(codes, ["undelivered", "approval_already_decided"])
 
+    def resolutions(self) -> list[dict]:
+        return [frame["event"]["payload"] for frame in self.harness.take("web", "interaction")
+                if frame["event"]["kind"] == "approval_resolved"]
+
+    def test_each_way_an_approval_ends_is_published(self) -> None:
+        harness = self.harness
+        decided = harness.approval("host", provider_ref="rpc-1")
+        harness.command("web", "reject", {"approval_id": decided})
+        effect = harness.take("host", "effect")[0]
+        harness.send("host", {"type": "effect_result", "effect_id": effect["effect_id"], "outcome": "accepted"})
+        native = harness.approval("host", provider_ref="rpc-2")
+        harness.fact("host", "request_resolved", {"provider_ref": "rpc-2", "by": "native"})
+        expired = harness.approval("host", provider_ref="rpc-3")
+        harness.tick(30_000)
+
+        self.assertEqual(self.resolutions(), [
+            {"request_id": decided, "by": "deskhelm", "decision": "reject"},
+            {"request_id": native, "by": "native"},
+            {"request_id": expired, "by": "expired"},
+        ])
+
+    def test_an_approval_its_turn_left_or_an_unknown_decision_is_published(self) -> None:
+        harness = self.harness
+        harness.fact("host", "turn_started", {"turn_ref": "t1"})
+        cancelled = harness.approval("host", provider_ref="rpc-1")
+        harness.fact("host", "turn_terminal", {"status": "completed", "turn_ref": "t1"})
+        unknown = harness.approval("host", provider_ref="rpc-2")
+        harness.command("web", "approve", {"approval_id": unknown})
+        harness.tick(6_000)
+        vendor = harness.approval("host", provider_ref="rpc-3")
+        harness.command("web", "approve", {"approval_id": vendor}, command_id="third")
+        effect = harness.take("host", "effect")[-1]
+        harness.fact("host", "request_resolved", {"provider_ref": "rpc-3", "by": "native"})
+        harness.send("host", {"type": "effect_result", "effect_id": effect["effect_id"], "outcome": "undelivered"})
+
+        self.assertEqual(self.resolutions(), [
+            {"request_id": cancelled, "by": "cancelled"},
+            {"request_id": unknown, "by": "deskhelm", "decision": "approve", "unknown": True},
+            {"request_id": vendor, "by": "native"},
+        ])
+
     def test_notify_only_and_unanswerable_tickets_reject_decisions(self) -> None:
         harness = self.harness
         approval_id = harness.approval("host", answerable=False)

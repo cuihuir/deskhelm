@@ -15,4 +15,4 @@
 {"type":"outbound","frame":{"id":"rpc-approval-1","result":{"decision":"accept"}}}
 {"type":"inbound","frame":{"method":"item/completed","params":{"threadId":"thread-1","item":{"type":"commandExecution","id":"item-1","command":"make test","aggregatedOutput":"12 passed","exitCode":0,"status":"completed"}}}}
 {"type":"inbound","frame":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","items":[],"status":"completed"}}}}
-{"type":"events","kinds":["tool","tool","task_completed"]}
+{"type":"events","kinds":["approval_resolved","tool","tool","task_completed"]}

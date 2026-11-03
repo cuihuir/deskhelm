@@ -43,9 +43,8 @@ const actions = {
     const session = store.selected();
     if (!session || store.state.deciding.has(approvalId)) return;
     store.setDeciding(approvalId, true);
-    const result = await run(kind, session, { approval_id: approvalId });
+    await run(kind, session, { approval_id: approvalId });
     store.setDeciding(approvalId, false);
-    if (result.ok && result.payload.code === "dispatched") store.setDecided(approvalId, kind);
   },
   async loadCatalog(session) {
     const rev = session.catalog_rev;

@@ -7,4 +7,4 @@
 {"type":"control","kind":"approve"}
 {"type":"outbound","frame":{"type":"control_response","response":{"subtype":"success","request_id":"req-1","response":{"behavior":"allow","updatedInput":{"command":"make test"}}}}}
 {"type":"inbound","frame":{"type":"result","subtype":"success","result":"done"}}
-{"type":"events","kinds":["message","task_completed"]}
+{"type":"events","kinds":["approval_resolved","message","task_completed"]}

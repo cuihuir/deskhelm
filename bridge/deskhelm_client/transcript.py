@@ -34,6 +34,7 @@ MAX_SUMMARY_CHARS = 512
 MAX_PREVIEW_CHARS = 160
 
 _ROLES = frozenset({"user", "assistant", "system"})
+_RESOLUTIONS = frozenset({"deskhelm", "native", "cancelled", "expired"})
 
 
 class Transcript:
@@ -82,6 +83,8 @@ class Transcript:
             patches = self._tool(event, payload)
         elif kind == "approval_request":
             patches = self._approval(event, payload)
+        elif kind == "approval_resolved":
+            patches = self._resolution(payload)
         elif kind == "user_input_required":
             patches = self._input(event, payload)
         elif kind in ("task_completed", "task_failed"):
@@ -201,7 +204,18 @@ class Transcript:
             item_id, "approval", event, approval_id=approval_id,
             summary=_text(payload.get("summary"))[:MAX_SUMMARY_CHARS],
             expires_at=expires_at if isinstance(expires_at, int) and not isinstance(expires_at, bool) else 0,
+            resolution="", decision="", uncertain=False,
         )
+        return [self._upsert(item)]
+
+    def _resolution(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        item = self._items.get("a:" + _identity(payload.get("request_id")))
+        by = payload.get("by")
+        if item is None or by not in _RESOLUTIONS:
+            return []
+        item["resolution"] = by
+        item["decision"] = payload.get("decision") if payload.get("decision") in ("approve", "reject") else ""
+        item["uncertain"] = payload.get("unknown") is True
         return [self._upsert(item)]
 
     def _input(self, event: dict[str, Any], payload: dict[str, Any]) -> list[dict[str, Any]]:

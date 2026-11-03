@@ -11,4 +11,4 @@
 {"type":"outbound","frame":{"jsonrpc":"2.0","id":31,"result":{"outcome":{"outcome":"selected","optionId":"allow-once"}}}}
 {"type":"inbound","frame":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-replay","update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"12 passed"}}]}}}}
 {"type":"inbound","frame":{"jsonrpc":"2.0","id":"$prompt","result":{"stopReason":"end_turn"}}}
-{"type":"events","kinds":["tool","tool","task_completed"]}
+{"type":"events","kinds":["approval_resolved","tool","tool","task_completed"]}

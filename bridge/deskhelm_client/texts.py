@@ -52,6 +52,16 @@ FAILURE_TEXT = {
 }
 
 
+# How an approval ended; "uncertain" follows a decision whose delivery is unknown.
+RESOLUTION_TEXT = {
+    "approve": "已批准",
+    "reject": "已拒绝",
+    "native": "已在 Agent 里处理",
+    "cancelled": "已取消",
+    "expired": "已过期",
+    "uncertain": "结果未知",
+}
+
 TOOL_TEXT = {
     "command": "命令",
     "file_change": "修改文件",
@@ -84,6 +94,14 @@ def outcome_text(outcome: dict[str, Any] | None) -> str:
 def tool_text(kind: str) -> str:
     """A tool's fixed kind in words; a vendor's bare tool name stays as it is."""
     return TOOL_TEXT.get(kind, kind or TOOL_TEXT["tool"])
+
+
+def resolution_text(item: dict[str, Any]) -> str:
+    """How a transcript approval item ended, or "" while that is unknown."""
+    if item.get("resolution") == "deskhelm":
+        text = RESOLUTION_TEXT["reject" if item.get("decision") == "reject" else "approve"]
+        return f"{text}，{RESOLUTION_TEXT['uncertain']}" if item.get("uncertain") else text
+    return RESOLUTION_TEXT.get(str(item.get("resolution") or ""), "")
 
 
 def agent_label(agent_id: str, runtime_name: str = "") -> str:

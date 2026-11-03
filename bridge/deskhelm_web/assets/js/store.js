@@ -24,7 +24,6 @@ export function createStore() {
     search: "",
     pending: new Map(), // session key -> prompts sent from this page
     deciding: new Set(), // approval ids in flight from this page
-    decided: new Map(), // approval id -> "approve" | "reject", from this page
     catalogs: new Map(), // session key -> {status: "loading" | "ready" | "failed", data}
     seen: new Map(), // session key -> the updated_at the user last saw
     ui: { details: false, drawer: false, menu: false },
@@ -54,7 +53,6 @@ export function createStore() {
     if (payload.epoch !== state.epoch) {
       state.pending.clear();
       state.deciding.clear();
-      state.decided.clear();
       state.catalogs.clear();
       // Another Bridge or web process: what is listed now counts as seen.
       state.seen.clear();
@@ -237,11 +235,6 @@ export function createStore() {
     emit("approvals");
   }
 
-  function setDecided(approvalId, decision) {
-    state.decided.set(approvalId, decision);
-    emit("approvals");
-  }
-
   function setCatalog(key, value) {
     state.catalogs.set(key, value);
     emit("catalog", key);
@@ -262,7 +255,7 @@ export function createStore() {
 
   return {
     state, on, emit, applySnapshot, applySessions, applyPatch, setStream, select, selected, items, unseen,
-    addPending, removePending, updatePending, setDeciding, setDecided, setCatalog, setSearch, setUi,
+    addPending, removePending, updatePending, setDeciding, setCatalog, setSearch, setUi,
   };
 }
 

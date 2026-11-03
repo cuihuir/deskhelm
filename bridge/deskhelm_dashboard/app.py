@@ -27,6 +27,7 @@ from deskhelm_client import (
     activity_text,
     agent_label,
     outcome_text,
+    resolution_text,
     result_text,
     tool_text,
 )
@@ -74,7 +75,8 @@ def item_line(item: dict[str, Any], speaker: str) -> str:
             state = f"退出码 {item['exit_code']}"
         return " ".join(part for part in (tool_text(item["kind"]), " ".join(item["title"].split()), "·", state) if part)
     if kind == "approval":
-        return f"批准请求：{item['summary']}"
+        ended = resolution_text(item)
+        return f"批准请求：{item['summary']}" + (f" · {ended}" if ended else "")
     if kind == "input":
         return f"提问：{item['prompt']}"
     return outcome_text({"status": item["status"], "failure": item["code"] or None})

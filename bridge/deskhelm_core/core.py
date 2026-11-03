@@ -111,7 +111,8 @@ class Ticket:
     expires_at: int
     answerable: bool
     reserved: bool = False
-    resolved: bool = False
+    # How the vendor resolved it while a DeskHelm decision was in flight.
+    resolved_by: str = ""
 
     def view(self) -> dict[str, Any]:
         return {
@@ -253,7 +254,7 @@ class Core:
 
     def tick(self, now: int) -> list[Output]:
         for flight in [flight for flight in self._in_flight.values() if flight.deadline <= now]:
-            self._settle(flight, ResultCode.DISPATCH_FAILED, delivered=True)
+            self._settle(flight, ResultCode.DISPATCH_FAILED, delivered=True, now=now)
         for record in list(self._sessions.values()):
             expired = [
                 approval_id
@@ -261,7 +262,7 @@ class Core:
                 if ticket.expires_at <= now and not ticket.reserved
             ]
             for approval_id in expired:
-                del record.tickets[approval_id]
+                self._resolved(record, record.tickets.pop(approval_id), "expired", now)
             record.decided = {
                 approval_id: expires_at
                 for approval_id, expires_at in record.decided.items()
@@ -274,7 +275,7 @@ class Core:
                 and record.disconnected_at is not None
                 and now - record.disconnected_at >= self.limits.disconnected_ttl_ms
             ):
-                self._remove_session(record)
+                self._remove_session(record, now)
         for scope in [
             scope
             for scope, receipt in self._receipts.items()
@@ -338,9 +339,9 @@ class Core:
         if kind == MessageType.FACT:
             self._fact(record, Fact.from_dict(frame), now)
         elif kind == MessageType.EFFECT_RESULT:
-            self._effect_result(record, frame)
+            self._effect_result(record, frame, now)
         elif kind == MessageType.SESSION_CLOSE:
-            self._remove_session(record)
+            self._remove_session(record, now)
             state.session = None
         else:
             raise ProtocolViolation(f"a host cannot send {kind}")
@@ -424,10 +425,11 @@ class Core:
             ticket = record.ticket_for(meta["provider_ref"])
             if ticket is not None:
                 if ticket.reserved:
-                    ticket.resolved = True
+                    ticket.resolved_by = meta["by"]
                 else:
                     del record.tickets[ticket.approval_id]
                     record.decided[ticket.approval_id] = ticket.expires_at
+                    self._resolved(record, ticket, meta["by"], now)
         elif fact.kind is FactKind.TURN_TERMINAL:
             self._turn_terminal(record, meta, content, now)
         elif fact.kind is FactKind.STATUS:
@@ -442,7 +444,7 @@ class Core:
             # A driver may learn what its vendor allows only after the handshake.
             record.capabilities = CapabilityMatrix.from_dict(meta["capabilities"])
         elif fact.kind is FactKind.SESSION_ENDED:
-            self._remove_session(record)
+            self._remove_session(record, now)
             return
         self._recompute(record)
 
@@ -492,7 +494,7 @@ class Core:
         for approval_id in [
             approval_id for approval_id, ticket in record.tickets.items() if not ticket.reserved
         ]:
-            del record.tickets[approval_id]
+            self._resolved(record, record.tickets.pop(approval_id), "cancelled", now)
         message = content.get("message", "")
         if status is TurnStatus.COMPLETED:
             payload = {"message": message, "error_code": ""}
@@ -502,18 +504,18 @@ class Core:
             payload = {"message": message, "error_code": code}
             self._interaction(record, "task_failed", payload, correlation, now)
 
-    def _effect_result(self, record: SessionRecord, frame: dict[str, Any]) -> None:
+    def _effect_result(self, record: SessionRecord, frame: dict[str, Any], now: int) -> None:
         effect_id = identity_field(frame.get("effect_id"), "effect_id")
         outcome = enum_field(EffectOutcome, frame.get("outcome"), "outcome")
         flight = self._in_flight.get(effect_id)
         if flight is None or flight.session != record.key:
             return
         if outcome is EffectOutcome.ACCEPTED:
-            self._settle(flight, ResultCode.DISPATCHED, delivered=True)
+            self._settle(flight, ResultCode.DISPATCHED, delivered=True, now=now)
         elif outcome is EffectOutcome.UNDELIVERED:
-            self._settle(flight, ResultCode.UNDELIVERED, delivered=False)
+            self._settle(flight, ResultCode.UNDELIVERED, delivered=False, now=now)
         else:
-            self._settle(flight, ResultCode.UNSUPPORTED, delivered=False)
+            self._settle(flight, ResultCode.UNSUPPORTED, delivered=False, now=now)
 
     # Clients -----------------------------------------------------------
 
@@ -700,16 +702,22 @@ class Core:
             ticket.approval_id,
         )
 
-    def _settle(self, flight: _InFlight, code: ResultCode, *, delivered: bool) -> None:
+    def _settle(self, flight: _InFlight, code: ResultCode, *, delivered: bool, now: int) -> None:
         """Answer a dispatched command. An undelivered one leaves no trace."""
         self._in_flight.pop(flight.effect_id, None)
         record = self._sessions.get(flight.session)
         if flight.approval_id is not None and record is not None:
             ticket = record.tickets.get(flight.approval_id)
             if ticket is not None:
-                if delivered or ticket.resolved:
+                if delivered or ticket.resolved_by:
                     del record.tickets[flight.approval_id]
                     record.decided[flight.approval_id] = ticket.expires_at
+                    if delivered:
+                        decision = "approve" if flight.command.kind is CommandKind.APPROVE else "reject"
+                        unknown = code is not ResultCode.DISPATCHED
+                        self._resolved(record, ticket, "deskhelm", now, decision=decision, unknown=unknown)
+                    else:
+                        self._resolved(record, ticket, ticket.resolved_by, now)
                 else:
                     ticket.reserved = False
                 self._recompute(record)
@@ -799,6 +807,19 @@ class Core:
             if Stream.INTERACTION in state.streams and _wanted(state, record.key):
                 self._send(state.connection_id, frame)
 
+    def _resolved(
+        self, record: SessionRecord, ticket: Ticket, by: str, now: int, *, decision: str = "", unknown: bool = False
+    ) -> None:
+        """Tell every surface how an approval ended, so they all say the same."""
+        if ticket.kind is not RequestKind.APPROVAL:
+            return
+        payload: dict[str, Any] = {"request_id": ticket.approval_id, "by": by}
+        if decision:
+            payload["decision"] = decision
+        if unknown:
+            payload["unknown"] = True
+        self._interaction(record, "approval_resolved", payload, ticket.approval_id, now)
+
     def _drop_deltas(self, record: SessionRecord, correlation: str, role: object) -> None:
         kept: deque[dict[str, Any]] = deque()
         for event in record.window:
@@ -819,9 +840,9 @@ class Core:
             self._focus = key
             self._focus_dirty = True
 
-    def _remove_session(self, record: SessionRecord) -> None:
+    def _remove_session(self, record: SessionRecord, now: int) -> None:
         for flight in [flight for flight in self._in_flight.values() if flight.session == record.key]:
-            self._settle(flight, ResultCode.DISPATCH_FAILED, delivered=True)
+            self._settle(flight, ResultCode.DISPATCH_FAILED, delivered=True, now=now)
         self._sessions.pop(record.key, None)
         self._dirty.discard(record.key)
         self._removed.append(record.key)
@@ -841,7 +862,7 @@ class Core:
             return
         for flight in [flight for flight in self._in_flight.values() if flight.session == record.key]:
             # The effect may already have reached the vendor.
-            self._settle(flight, ResultCode.DISPATCH_FAILED, delivered=True)
+            self._settle(flight, ResultCode.DISPATCH_FAILED, delivered=True, now=now)
         record.owner = None
         record.lifecycle = Lifecycle.DISCONNECTED
         record.disconnected_at = now

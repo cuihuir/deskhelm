@@ -2,7 +2,7 @@
 // deskhelm_client/texts.py, so they have one copy; the page keeps only words
 // of its own. The server's message for a command result wins when it sends one.
 
-const words = { result: {}, activity: {}, outcome: {}, failure: {}, tool: {} };
+const words = { result: {}, activity: {}, outcome: {}, failure: {}, resolution: {}, tool: {} };
 
 export function setWords(shared) {
   if (!shared || typeof shared !== "object") return;
@@ -108,6 +108,16 @@ export function outcomeText(item) {
   const text = words.outcome[item.status] || "";
   const failure = words.failure[item.code] || "";
   return failure ? `${text}：${failure}` : text;
+}
+
+// How an approval item ended, as deskhelm_client.texts.resolution_text says it.
+export function resolutionText(item, expired) {
+  const said = words.resolution;
+  if (item.resolution === "deskhelm") {
+    const text = said[item.decision === "reject" ? "reject" : "approve"] || "";
+    return item.uncertain ? `${text}，${said.uncertain || ""}` : text;
+  }
+  return said[item.resolution] || (expired ? said.expired || "" : "已结束");
 }
 
 export function relativeTime(ms, now = Date.now()) {
