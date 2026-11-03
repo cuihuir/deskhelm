@@ -13,5 +13,5 @@ def runtime_directory() -> Path:
 
 
 def default_socket_path() -> Path:
-    # Until the v1 Bridge is removed, v2 listens beside it.
-    return runtime_directory() / "bridge-v2.sock"
+    # The user's one Bridge; v2 took this name over from v1 at the switch-over.
+    return runtime_directory() / "bridge.sock"

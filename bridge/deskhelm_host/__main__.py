@@ -19,7 +19,7 @@ from typing import Any
 from deskhelm_protocol import SessionKey
 from deskhelm_protocol.paths import default_socket_path, runtime_directory
 
-from .bridge_process import ensure_bridge
+from .bridge_process import bridge_protocol, ensure_bridge
 from .link import BridgeLink
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -48,39 +48,62 @@ def build_driver(kind: str, cwd: Path, digest: str) -> Any:
     raise ValueError(f"unknown agent {kind!r}")
 
 
+def session_for(agent: str, cwd: Path, project_id: str | None = None, session_id: str | None = None) -> tuple[SessionKey, str]:
+    """The session a host in ``cwd`` opens, and the directory digest."""
+    digest = hashlib.sha256(str(cwd).encode("utf-8")).hexdigest()[:12]
+    return SessionKey(agent, session_id or f"local-{digest}", project_id or cwd.name), digest
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="deskhelm-host", description="Run one agent session host here.")
     parser.add_argument("agent", choices=("claude", "codex", "grok"))
     parser.add_argument("--socket", type=Path, default=None)
     parser.add_argument("--project-id", default=None)
     parser.add_argument("--session-id", default=None)
-    parser.add_argument("--codex-sandbox", choices=("read-only", "workspace-write"), default="read-only")
-    parser.add_argument(
-        "--yolo",
-        action="store_true",
-        help="codex only: full access and no approvals; extremely dangerous",
-    )
+    parser.add_argument("--agent-workdir", type=Path, default=None, help="the project directory; defaults to here")
+    codex = parser.add_argument_group("codex")
+    codex.add_argument("--codex-sandbox", choices=("read-only", "workspace-write"), default="read-only")
+    codex.add_argument("--yolo", action="store_true", help="full access and no approvals; extremely dangerous")
+    codex.add_argument("--voice", action="store_true", help="also attach local voice and focus this session")
+    codex.add_argument("--default-source", action="store_true", help="voice: use the default microphone")
+    codex.add_argument("--codex-executable", default="codex")
+    codex.add_argument("--check", action="store_true", help="check Codex, the Bridge, and voice, then exit")
+    # The managed TUI always runs in this terminal; the flag stays accepted.
+    codex.add_argument("--tui", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    if args.agent != "codex" and (args.yolo or args.codex_sandbox != "read-only"):
-        parser.error("--codex-sandbox and --yolo apply to codex only")
+    codex_only = (args.yolo, args.voice, args.default_source, args.check, args.tui, args.codex_sandbox != "read-only")
+    if args.agent != "codex" and any(codex_only):
+        parser.error("the codex options apply to codex only")
+    if args.default_source and not args.voice:
+        parser.error("--default-source needs --voice")
 
-    cwd = Path.cwd().resolve()
-    digest = hashlib.sha256(str(cwd).encode("utf-8")).hexdigest()[:12]
-    session = SessionKey(args.agent, args.session_id or f"local-{digest}", args.project_id or cwd.name)
+    cwd = (args.agent_workdir or Path.cwd()).expanduser().resolve()
+    session, digest = session_for(args.agent, cwd, args.project_id, args.session_id)
     socket_path = args.socket or default_socket_path()
     runtime_directory().mkdir(mode=0o700, parents=True, exist_ok=True)
+    if bridge_protocol(socket_path) == "other":
+        print(f"deskhelm host: {socket_path} belongs to something other than a v2 Bridge, "
+              "such as a v1 Bridge; stop it first", file=sys.stderr)
+        return 1
     if args.agent == "codex":
         _adapter_path("codex")
-        from deskhelm_codex_adapter.host import run_codex_host
+        from deskhelm_codex_adapter.host import check_voice, run_codex_host
 
+        voice = None
+        if args.voice:
+            voice = ["--socket", str(socket_path), *(["--default-source"] if args.default_source else [])]
+        if args.check:
+            return _check_codex(args.codex_executable, voice, check_voice)
         return run_codex_host(
             cwd=cwd,
             session=session,
             digest=digest,
             socket_path=socket_path,
             client_id=f"deskhelm-host-codex-{digest}",
+            codex=args.codex_executable,
             sandbox=args.codex_sandbox,
             yolo=args.yolo,
+            voice=voice,
         )
 
     driver = build_driver(args.agent, cwd, digest)
@@ -113,6 +136,21 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         link.close()
     return 0 if code == 0 else 1
+
+
+def _check_codex(codex: str, voice: list[str] | None, check_voice) -> int:
+    from deskhelm_codex_adapter import detect_codex_version
+
+    try:
+        version = detect_codex_version(codex)
+    except RuntimeError as error:
+        print(f"deskhelm host: {error}", file=sys.stderr)
+        return 1
+    print(f"deskhelm host: {version} found", file=sys.stderr)
+    if voice is not None and not check_voice(voice):
+        return 1
+    print("deskhelm host: codex preflight passed", file=sys.stderr)
+    return 0
 
 
 if __name__ == "__main__":

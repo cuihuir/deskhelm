@@ -18,10 +18,12 @@ import termios
 import time
 from typing import Any
 
+from deskhelm_client import BridgeClient
 from deskhelm_host.bridge_process import ensure_bridge
 from deskhelm_host.link import BridgeLink
 from deskhelm_protocol import ApprovalSupport, SessionKey
 from deskhelm_protocol.paths import runtime_directory
+from deskhelm_voice_host.launch import VOICE_ENVIRONMENT, voice_host_command
 
 from .app_server import detect_codex_version
 from .driver import CodexSession
@@ -29,6 +31,7 @@ from .driver import CodexSession
 START_TIMEOUT_SECONDS = 15.0
 STOP_TIMEOUT_SECONDS = 5.0
 OPEN_TIMEOUT_SECONDS = 10.0
+VOICE_CHECK_SECONDS = 120.0
 SANDBOXES = ("read-only", "workspace-write")
 _RELAY = Path(__file__).resolve().parents[3] / "tools" / "run-with-pty.py"
 
@@ -65,10 +68,12 @@ def run_codex_host(
     codex: str = "codex",
     sandbox: str = "read-only",
     yolo: bool = False,
+    voice: list[str] | None = None,
 ) -> int:
+    """Run the managed TUI; ``voice`` holds voice host arguments to start it too."""
     if sandbox not in SANDBOXES:
         raise ValueError(f"unknown Codex sandbox {sandbox!r}")
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+    if not _interactive_terminal():
         print("deskhelm host: codex needs an interactive terminal", file=sys.stderr)
         return 2
     try:
@@ -82,6 +87,9 @@ def run_codex_host(
             print("deskhelm host: a Codex host already runs in this directory", file=sys.stderr)
             return 1
         path.unlink(missing_ok=True)
+    if voice is not None and not check_voice(voice):
+        # A missing microphone is found before the TUI takes the terminal.
+        return 1
 
     driver = CodexSession(
         session,
@@ -95,6 +103,8 @@ def run_codex_host(
     stderr = sys.stderr
     app_server: subprocess.Popen[bytes] | None = None
     relay: subprocess.Popen[bytes] | None = None
+    speech: subprocess.Popen[bytes] | None = None
+    speech_noted = False
     log: Any = None
     signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
     previous = {number: signal.getsignal(number) for number in signals}
@@ -122,6 +132,11 @@ def run_codex_host(
         driver.start(link.emit)
         _wait_for_socket(proxy_socket, app_server, "the Codex TUI proxy")
         print(f"deskhelm host: codex session {session.session_id} on {socket_path}", file=sys.stderr)
+        if voice is not None:
+            # Starting this session with voice is the explicit choice to
+            # speak to it, as `deskhelm codex --voice` always meant.
+            _focus(socket_path, session, f"{client_id}-focus")
+            speech = _start_voice(voice, runtime_directory() / f"codex-{digest}-voice.log")
         # The TUI owns the terminal now; diagnostics from host threads go to
         # an owner-only log instead of the screen.
         descriptor = os.open(
@@ -133,6 +148,7 @@ def run_codex_host(
             [
                 sys.executable,
                 str(_RELAY),
+                *redaction_arguments(),
                 "--guard-ctrl-c",
                 "--",
                 *tui_command(codex, proxy_socket, sandbox=sandbox, yolo=yolo),
@@ -148,6 +164,10 @@ def run_codex_host(
                 print("deskhelm host: the Codex app-server exited", file=sys.stderr)
                 code = 1
                 break
+            if speech is not None and not speech_noted and speech.poll() is not None:
+                # The TUI goes on without voice; the voice log says why.
+                print(f"deskhelm host: the voice host stopped with code {speech.returncode}", file=sys.stderr)
+                speech_noted = True
             time.sleep(0.1)
     except _Stopped as stopped:
         code = 128 + stopped.signal_number
@@ -163,6 +183,10 @@ def run_codex_host(
         sys.stderr = stderr
         if log is not None:
             log.close()
+        if speech is not None:
+            _stop(speech, group=True)
+            if speech_noted:
+                print("deskhelm host: voice stopped early; see codex-*-voice.log in the runtime directory", file=sys.stderr)
         driver.close()
         link.close()
         if app_server is not None:
@@ -172,6 +196,74 @@ def run_codex_host(
         for number, handler in previous.items():
             signal.signal(number, handler)
     return code
+
+
+def _interactive_terminal() -> bool:
+    # Under project-secrets stdout is a pipe; the relay draws on /dev/tty.
+    if not sys.stdin.isatty():
+        return False
+    try:
+        os.close(os.open("/dev/tty", os.O_WRONLY | os.O_NOCTTY))
+    except OSError:
+        return False
+    return True
+
+
+def redaction_arguments() -> list[str]:
+    """Hide injected voice settings from the TUI output, as the v1 relay did."""
+    arguments: list[str] = []
+    for name in VOICE_ENVIRONMENT:
+        if os.environ.get(name):
+            arguments.extend(("--redact-env", name))
+    return arguments
+
+
+def check_voice(arguments: list[str]) -> bool:
+    """Run the voice host preflight; its messages name settings, never values."""
+    try:
+        command, environment = voice_host_command([*arguments, "--check"])
+        checked = subprocess.run(
+            command,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=VOICE_CHECK_SECONDS,
+            check=False,
+        )
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        print(f"deskhelm host: the voice check did not finish: {error}", file=sys.stderr)
+        return False
+    if checked.returncode != 0:
+        sys.stderr.write(checked.stderr)
+    return checked.returncode == 0
+
+
+def _start_voice(arguments: list[str], log_path: Path) -> subprocess.Popen[bytes]:
+    command, environment = voice_host_command(arguments)
+    descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        return subprocess.Popen(
+            command,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=descriptor,
+            stderr=descriptor,
+            start_new_session=True,
+        )
+    finally:
+        os.close(descriptor)
+
+
+def _focus(socket_path: Path, session: SessionKey, client_id: str) -> None:
+    client = BridgeClient(socket_path, client_id=client_id)
+    client.start()
+    try:
+        if client.wait_ready(OPEN_TIMEOUT_SECONDS):
+            client.command("focus", session)
+    finally:
+        client.close()
 
 
 def _accepts(path: Path) -> bool:

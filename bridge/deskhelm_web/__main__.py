@@ -12,7 +12,7 @@ from deskhelm_protocol.paths import default_socket_path
 from .http import default_web_token_path, load_web_token, normalize_web_host, normalize_web_port
 from .server import WebSurface
 
-DEFAULT_PORT = 8767
+DEFAULT_PORT = 8766
 
 
 def main(argv: list[str] | None = None) -> int:

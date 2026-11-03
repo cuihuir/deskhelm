@@ -12,145 +12,28 @@ if [[ ! -x "$runner" ]]; then
   exit 1
 fi
 
-if [[ ${1-} != "codex" && ${1-} != "alpha" ]]; then
-  exec "$runner" "$@"
-fi
-
-for argument in "$@"; do
-  case "$argument" in
-    -h|--help)
-      exec "$runner" "$@"
-      ;;
-  esac
-done
-
-codex_command=(
-  "$runner"
-  "$1"
-  --agent-workdir
-  "$PWD"
-  "${@:2}"
-)
-
-# Default Alpha joins the user bridge. Do not inject a private socket, and do
-# not signal that bridge. An explicit --socket keeps a private bridge.
-socket_explicit=false
-for argument in "${@:2}"; do
-  if [[ $argument == "--socket" || $argument == --socket=* ]]; then
-    socket_explicit=true
-    break
-  fi
-done
-if [[ $socket_explicit == false ]]; then
-  # Use the same Python path helpers Alpha uses, including non-ASCII names.
-  if ! codex_listing=$(
-    PYTHONPATH="$repository_root/bridge${PYTHONPATH:+:$PYTHONPATH}" \
-      "$repository_root/.venv/bin/python" -c '
-from pathlib import Path
-from deskhelm_bridge.paths import alpha_codex_socket_paths, default_alpha_socket_path
-proxy, upstream = alpha_codex_socket_paths(default_alpha_socket_path(Path.cwd()))
-print(proxy)
-print(upstream)
-'
-  ); then
-    echo "deskhelm: could not resolve this directory's Codex sockets" >&2
-    exit 1
-  fi
-  codex_proxy=$(printf '%s\n' "$codex_listing" | sed -n '1p')
-  codex_upstream=$(printf '%s\n' "$codex_listing" | sed -n '2p')
-  if [[ -z $codex_proxy || -z $codex_upstream ]]; then
-    echo "deskhelm: could not resolve this directory's Codex sockets" >&2
-    exit 1
-  fi
-  if [[ -e $codex_proxy || -e $codex_upstream ]]; then
-    if [[ ! -t 0 ]]; then
-      echo "deskhelm: this directory still has a Codex socket" >&2
-      echo "deskhelm: stop that app-server before starting again" >&2
-      exit 1
-    fi
-    echo "deskhelm: this directory still has a Codex socket" >&2
-    read -r -p "Stop that app-server and continue? [y/N] " rebuild
-    if [[ $rebuild != [yY] ]]; then
-      echo "deskhelm: keeping the existing Codex app-server" >&2
-      exit 1
-    fi
-    # Signal only the app-server group. The TUI proxy owner is the user bridge.
-    owner_pids="$(lsof -t -- "$codex_upstream" 2>/dev/null || true)"
-    process_groups=""
-    while read -r owner_pid; do
-      [[ $owner_pid =~ ^[0-9]+$ ]] || continue
-      process_group=$(ps -o pgid= -p "$owner_pid" 2>/dev/null | tr -d ' ' || true)
-      [[ $process_group =~ ^[0-9]+$ ]] || continue
-      [[ " $process_groups " == *" $process_group "* ]] || process_groups+="$process_group "
-    done <<< "$owner_pids"
-    for process_group in $process_groups; do
-      kill -INT -- -"$process_group" 2>/dev/null || true
-    done
-    for _ in {1..200}; do
-      [[ ! -e $codex_proxy && ! -e $codex_upstream ]] && break
-      sleep 0.05
-    done
-    if [[ -e $codex_proxy || -e $codex_upstream ]]; then
-      for process_group in $process_groups; do
-        kill -KILL -- -"$process_group" 2>/dev/null || true
-      done
-      for _ in {1..100}; do
-        [[ ! -e $codex_proxy && ! -e $codex_upstream ]] && break
-        sleep 0.05
-      done
-    fi
-    if [[ -e $codex_proxy || -e $codex_upstream ]]; then
-      proxy_owners="$(lsof -t -- "$codex_proxy" 2>/dev/null || true)"
-      upstream_owners="$(lsof -t -- "$codex_upstream" 2>/dev/null || true)"
-      if [[ -z ${proxy_owners//[$' \t\n']/} && -z ${upstream_owners//[$' \t\n']/} ]]; then
-        rm -f -- "$codex_proxy" "$codex_upstream"
-      else
-        echo "deskhelm: Codex proxy is still held; detach that session before rebuilding" >&2
-        exit 1
-      fi
-    fi
-  fi
-fi
-secrets_command=(
-  project-secrets
-  --project
-  "$repository_root"
-  run
-  --env
-  default
-  --require
-  DESKHELM_ALPHA_VOICE_SOURCE
-  DESKHELM_ALPHA_ASR_MODEL_DIRECTORY
-  DESKHELM_ALPHA_TTS_DIRECTORY
-  --
-)
-
-launch_tui=false
-check_only=false
+# Since the switch-over the v2 hosts own their sockets, the PTY relay, and the
+# two-press Ctrl-C guard, and the working directory is preserved by exec. This
+# launcher only adds the encrypted voice settings when voice is asked for.
 voice_enabled=false
-for argument in "${@:2}"; do
-  case "$argument" in
-    --tui)
-      launch_tui=true
-      ;;
-    --check)
-      check_only=true
-      ;;
-    --voice)
-      voice_enabled=true
-      ;;
-  esac
-done
+case ${1-} in
+  voice | codex | alpha)
+    [[ ${1-} == voice ]] && voice_enabled=true
+    for argument in "${@:2}"; do
+      case "$argument" in
+        -h | --help)
+          exec "$runner" "$@"
+          ;;
+        --voice)
+          voice_enabled=true
+          ;;
+      esac
+    done
+    ;;
+esac
 
 if [[ $voice_enabled == false ]]; then
-  if [[ $launch_tui == true && $check_only == false ]]; then
-    exec "$repository_root/.venv/bin/python" \
-      "$repository_root/tools/run-with-pty.py" \
-      --guard-ctrl-c \
-      -- \
-      "${codex_command[@]}"
-  fi
-  exec "${codex_command[@]}"
+  exec "$runner" "$@"
 fi
 
 if ! command -v project-secrets >/dev/null 2>&1; then
@@ -158,16 +41,14 @@ if ! command -v project-secrets >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ $launch_tui == true && $check_only == false ]]; then
-  exec "${secrets_command[@]}" \
-    "$repository_root/.venv/bin/python" \
-    "$repository_root/tools/run-with-pty.py" \
-    --redact-env DESKHELM_ALPHA_VOICE_SOURCE \
-    --redact-env DESKHELM_ALPHA_ASR_MODEL_DIRECTORY \
-    --redact-env DESKHELM_ALPHA_TTS_DIRECTORY \
-    --guard-ctrl-c \
-    -- \
-    "${codex_command[@]}"
-fi
-
-exec "${secrets_command[@]}" "${codex_command[@]}"
+# The Codex host's relay redacts these values from the TUI output.
+exec project-secrets \
+  --project "$repository_root" \
+  run \
+  --env default \
+  --require \
+  DESKHELM_ALPHA_VOICE_SOURCE \
+  DESKHELM_ALPHA_ASR_MODEL_DIRECTORY \
+  DESKHELM_ALPHA_TTS_DIRECTORY \
+  -- \
+  "$runner" "$@"

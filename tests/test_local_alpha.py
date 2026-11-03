@@ -866,14 +866,6 @@ class LocalAlphaProfileTests(unittest.TestCase):
         self.assertFalse(legacy.tui)
         self.assertTrue(legacy.check)
 
-    def test_user_launcher_does_not_inject_a_private_socket(self) -> None:
-        launcher = Path(__file__).resolve().parents[1] / "tools" / "deskhelm-user-launcher"
-        text = launcher.read_text(encoding="utf-8")
-        self.assertNotIn("codex_command+=(--socket", text)
-        self.assertIn('[[ ${1-} != "codex" && ${1-} != "alpha" ]]', text)
-        self.assertNotIn("bridge.sock", text)
-        self.assertIn("codex_upstream", text)
-
     @staticmethod
     def _artifacts(root: Path) -> LocalAlphaArtifacts:
         asr = root / "paraformer"
