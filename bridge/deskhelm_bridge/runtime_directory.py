@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-from .control import ControlCommand, ControlKind
+from .control import ControlCommand, ControlKind, ControlUndelivered
 from .control_router import CatalogProvider, ControlHandler, ControlRouter
 from .event import PROTOCOL_VERSION, ProtocolError
 from .session_registry import SessionKey
@@ -336,10 +336,10 @@ class AgentRuntimeDirectory:
         session = SessionKey(command.agent_id, command.session_id, command.project_id)
         with self._lock:
             if session in self._pending:
-                raise RuntimeError("runtime is still attaching")
+                raise ControlUndelivered("runtime is still attaching")
             handler = self._handlers.get(session, {}).get(kind)
         if handler is None:
-            raise RuntimeError("runtime is not attached")
+            raise ControlUndelivered("runtime is not attached")
         handler(command)
 
     def _catalog(

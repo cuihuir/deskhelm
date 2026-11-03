@@ -588,7 +588,7 @@ class CodexAppServerAdapterTests(unittest.TestCase):
 
         self.assertEqual(self.adapter.attached_thread_id(), "")
         self.assertEqual(self.adapter.subscribed_thread_id(), "")
-        self.assertEqual(result.code, ControlResultCode.DISPATCH_FAILED)
+        self.assertEqual(result.code, ControlResultCode.HANDLER_UNAVAILABLE)
 
     def test_ephemeral_loaded_thread_is_ignored(self) -> None:
         transport = _FakeAppServerTransport()

@@ -5,7 +5,7 @@ import socket
 from threading import Lock, Thread
 import uuid
 
-from deskhelm_bridge.control import ControlCommand, ControlKind
+from deskhelm_bridge.control import ControlCommand, ControlKind, ControlUndelivered
 from deskhelm_bridge.runtime_directory import RuntimeAttachSpec
 
 from .stream import ClaudeEventDecoder
@@ -55,6 +55,7 @@ class ClaudeRelayRuntime:
         self._unregisters.clear()
 
     def submit_prompt(self, command: ControlCommand) -> None:
+        self._require_open()
         text = command.payload.text
         self._decoder.note_outbound_prompt(text)
         self._emit(self._decoder.user_message(text, command.command_id))
@@ -98,6 +99,7 @@ class ClaudeRelayRuntime:
         return dict(self._decoder.catalog)
 
     def _decide(self, command: ControlCommand, *, allow: bool) -> None:
+        self._require_open()
         request_id = command.payload.request_id
         pending = self._decoder.pending_approvals.pop(request_id, None)
         if pending is None:
@@ -149,11 +151,16 @@ class ClaudeRelayRuntime:
         with self._write_lock:
             client = self._socket
             if client is None or self._closed:
-                raise RuntimeError("claude relay is closed")
+                raise ControlUndelivered("claude relay is closed")
             try:
                 client.sendall(payload)
             except OSError as error:
+                # Part of the line may have been written, so this is ambiguous.
                 raise RuntimeError("claude relay is closed") from error
+
+    def _require_open(self) -> None:
+        if self._socket is None or self._closed:
+            raise ControlUndelivered("claude relay is closed")
 
     def _emit(self, event) -> None:
         publish = self._publish

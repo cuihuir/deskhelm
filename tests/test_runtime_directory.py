@@ -78,7 +78,7 @@ class RuntimeDirectoryTests(unittest.TestCase):
             registry.register(SessionKey("codex", "missing", "demo"))
             missing = router.route(self._command("missing", "command-3"))
             self.assertEqual(missing.status, ControlResultStatus.REJECTED)
-            self.assertEqual(missing.code, ControlResultCode.DISPATCH_FAILED)
+            self.assertEqual(missing.code, ControlResultCode.HANDLER_UNAVAILABLE)
 
             self.assertTrue(runtimes[0].facade.resolve_approval("missing-approval") is False)
             router.observe_interaction(
@@ -153,7 +153,7 @@ class RuntimeDirectoryTests(unittest.TestCase):
             worker.start()
             self.assertTrue(entered.wait(2))
             pending = router.route(self._command("one", "while-attaching"))
-            self.assertEqual(pending.code, ControlResultCode.DISPATCH_FAILED)
+            self.assertEqual(pending.code, ControlResultCode.HANDLER_UNAVAILABLE)
             self.assertEqual(directory_runtime.detach_frame(self._identity("one")), "detached")
             release.set()
             worker.join(timeout=2)

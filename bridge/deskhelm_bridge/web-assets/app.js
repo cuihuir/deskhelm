@@ -26,7 +26,7 @@
     target_not_found: "找不到这个会话",
     target_inactive: "这个会话不在活动状态",
     target_not_focused: "需要先聚焦这个会话",
-    handler_unavailable: "当前没有处理这个操作的 Agent",
+    handler_unavailable: "Agent 当前无法接收这个操作",
     approval_not_found: "找不到这条批准请求",
     approval_already_decided: "这条批准已经处理过",
     approval_summary_mismatch: "批准摘要已经变化",

@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 import socket
 from threading import Lock, Thread
-import time
 
-from deskhelm_bridge.control import ControlCommand, ControlKind
+from deskhelm_bridge.control import ControlCommand, ControlKind, ControlUndelivered
 from deskhelm_bridge.runtime_directory import RuntimeAttachSpec
 
 from .stream import GrokEventDecoder
@@ -55,20 +54,22 @@ class GrokRelayRuntime:
         self._unregisters.clear()
 
     def submit_prompt(self, command: ControlCommand) -> None:
-        self._wait_until_ready()
+        self._require_ready()
         text = command.payload.text
         self._emit(self._decoder.user_message(text, command.command_id))
         self._write(self._decoder.next_prompt(text))
 
     def interrupt(self, command: ControlCommand) -> None:
         del command
-        self._wait_until_ready()
+        self._require_ready()
         self._write(self._decoder.cancel_request())
 
     def approve(self, command: ControlCommand) -> None:
+        self._require_open()
         self._write(self._decoder.permission_result(command.payload.request_id, allow=True))
 
     def reject(self, command: ControlCommand) -> None:
+        self._require_open()
         self._write(self._decoder.permission_result(command.payload.request_id, allow=False))
 
     def configure_session(self, command: ControlCommand) -> None:
@@ -84,12 +85,16 @@ class GrokRelayRuntime:
         del agent_id, session_id, project_id
         return dict(self._decoder.catalog)
 
-    def _wait_until_ready(self) -> None:
-        deadline = time.monotonic() + 30
-        while not self._decoder.session_id_vendor:
-            if self._closed or time.monotonic() >= deadline:
-                raise RuntimeError("grok session is not ready")
-            time.sleep(0.05)
+    def _require_open(self) -> None:
+        if self._socket is None or self._closed:
+            raise ControlUndelivered("grok relay is closed")
+
+    def _require_ready(self) -> None:
+        # Handlers must not block, so a prompt sent before session/new
+        # finishes is rejected instead of waiting for it.
+        self._require_open()
+        if not self._decoder.session_id_vendor:
+            raise ControlUndelivered("grok session is not ready")
 
     def _read(self) -> None:
         client = self._socket
@@ -122,10 +127,11 @@ class GrokRelayRuntime:
         with self._write_lock:
             client = self._socket
             if client is None or self._closed:
-                raise RuntimeError("grok relay is closed")
+                raise ControlUndelivered("grok relay is closed")
             try:
                 client.sendall(payload)
             except OSError as error:
+                # Part of the line may have been written, so this is ambiguous.
                 raise RuntimeError("grok relay is closed") from error
 
     def _emit(self, event) -> None:

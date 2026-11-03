@@ -13,6 +13,10 @@ from .event import PROTOCOL_VERSION, ProtocolError
 CONTROL_COMMAND_MESSAGE_TYPE = "control_command"
 
 
+class ControlUndelivered(RuntimeError):
+    """Raised by a handler that knows its command never reached the runtime."""
+
+
 class ControlKind(StrEnum):
     FOCUS = "focus"
     SUBMIT_PROMPT = "submit_prompt"

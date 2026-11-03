@@ -16,6 +16,7 @@ from deskhelm_bridge.control import (
     ConfigureSessionPayload,
     ControlCommand,
     ControlKind,
+    ControlUndelivered,
     InterruptPayload,
     SubmitPromptPayload,
 )
@@ -650,26 +651,35 @@ class CodexAppServerAdapter:
         if not isinstance(payload, ApprovalDecisionPayload):
             raise ValueError("approval command has an invalid payload")
         now_ms = int(time.time() * 1000)
-        proxy: TuiApprovalProxy | None = None
         with self._lock:
             pending = self._pending_approvals.get(payload.request_id)
             if pending is None or pending.expires_at <= now_ms:
                 raise RuntimeError("Codex approval request is no longer pending")
-            del self._pending_approvals[payload.request_id]
-            self._approvals_by_rpc.pop(pending.rpc_key, None)
-            if pending.proxy_token:
-                proxy = self._tui_proxy
-                if proxy is None:
-                    raise RuntimeError("Codex TUI approval proxy is unavailable")
-            else:
+            proxy = self._tui_proxy if pending.proxy_token else None
+            if pending.proxy_token and proxy is None:
+                raise ControlUndelivered("Codex TUI approval proxy is unavailable")
+            if proxy is None:
                 self._queue_message_locked(
                     {
                         "id": pending.rpc_id,
                         "result": _approval_result(pending, decision),
                     }
                 )
-        if proxy is not None:
-            proxy.resolve_approval(pending.proxy_token, decision)
+                self._forget_approval_locked(payload.request_id, pending)
+                return
+        # The proxy takes its own lock, so call it without holding this one.
+        # Keep the record until the proxy accepts, so an undelivered decision
+        # leaves both sides pending.
+        proxy.resolve_approval(pending.proxy_token, decision)
+        with self._lock:
+            self._forget_approval_locked(payload.request_id, pending)
+
+    def _forget_approval_locked(
+        self, request_id: str, pending: _PendingApproval
+    ) -> None:
+        if self._pending_approvals.get(request_id) is pending:
+            del self._pending_approvals[request_id]
+            self._approvals_by_rpc.pop(pending.rpc_key, None)
 
     def _run(self) -> None:
         delay = self.reconnect_initial_seconds
@@ -1596,11 +1606,11 @@ class CodexAppServerAdapter:
 
     def _queue_message_locked(self, message: dict[str, Any]) -> None:
         if not self._connected:
-            raise RuntimeError("Codex app-server is not connected")
+            raise ControlUndelivered("Codex app-server is not connected")
         try:
             self._outbound.put_nowait(message)
         except Full as error:
-            raise RuntimeError("Codex app-server outbound queue is full") from error
+            raise ControlUndelivered("Codex app-server outbound queue is full") from error
 
     def _queue_error_response_locked(self, rpc_id: str | int) -> None:
         self._queue_message_locked(
@@ -1615,9 +1625,9 @@ class CodexAppServerAdapter:
 
     def _require_attached_thread_locked(self) -> str:
         if not self._connected or not self._initialized:
-            raise RuntimeError("Codex app-server is not ready")
+            raise ControlUndelivered("Codex app-server is not ready")
         if not self._attached_thread_id:
-            raise RuntimeError("no Codex thread is attached")
+            raise ControlUndelivered("no Codex thread is attached")
         return self._attached_thread_id
 
     def _matches_attaching_thread_locked(self, thread_id: str) -> bool:

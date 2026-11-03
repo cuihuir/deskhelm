@@ -57,9 +57,21 @@ the relevant interaction terminal event; dispatch is not a completion claim.
 
 `dispatch_failed` intentionally carries no downstream error text. A handler may
 have performed a side effect before failing, so the result is retained for
-deduplication. For approval and rejection, any dispatch attempt consumes the
-pending request because its downstream outcome is ambiguous and automatic
-replay is forbidden.
+deduplication. For approval and rejection, a dispatch that may have reached the
+runtime consumes the pending request because its downstream outcome is
+ambiguous and automatic replay is forbidden.
+
+`handler_unavailable` means no handler took the command. Either none is
+registered, or the handler proved that the command never reached its runtime,
+for example because the runtime is detached, still attaching, or its relay is
+closed. Nothing happened downstream, so the result is not retained for
+deduplication, an approval request stays pending, and the same command may be
+sent again.
+
+A duplicate of a command that is still being dispatched waits for that dispatch
+and returns its result with `duplicate: true`. If the dispatch does not finish
+within the router's bound, the duplicate receives `dispatch_failed` with
+`duplicate: true`, because the first outcome is still unknown.
 
 Malformed controller frames return `protocol_error` with `invalid_frame` and
 close the connection instead of producing a `control_result`.

@@ -15,6 +15,8 @@ from threading import Event, RLock, Thread
 import time
 from typing import Any, Protocol
 
+from deskhelm_bridge.control import ControlUndelivered
+
 from .app_server_transport import (
     AppServerTransport,
     AppServerTransportError,
@@ -248,10 +250,10 @@ class CodexTuiProxy:
                 pending.rpc_key not in self._suppressed_by_rpc
                 and len(self._suppressed_by_rpc) >= self.max_pending_approvals
             ):
-                raise RuntimeError("Codex TUI approval suppression is full")
+                raise ControlUndelivered("Codex TUI approval suppression is full")
             decisions = self._decisions
             if decisions is None:
-                raise RuntimeError("Codex TUI proxy is not connected")
+                raise ControlUndelivered("Codex TUI proxy is not connected")
             self._pending_by_token.pop(token, None)
             self._pending_by_rpc.pop(pending.rpc_key, None)
             self._suppressed_by_rpc[pending.rpc_key] = _SuppressedApproval(
@@ -264,7 +266,9 @@ class CodexTuiProxy:
                 self._suppressed_by_rpc.pop(pending.rpc_key, None)
                 self._pending_by_token[token] = pending
                 self._pending_by_rpc[pending.rpc_key] = token
-                raise RuntimeError("Codex TUI proxy decision queue is full") from error
+                raise ControlUndelivered(
+                    "Codex TUI proxy decision queue is full"
+                ) from error
 
     def close(self) -> None:
         with self._lock:

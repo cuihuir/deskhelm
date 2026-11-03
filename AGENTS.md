@@ -220,10 +220,15 @@ Keep third-party reference files outside version control under
 - Never replay approval or rejection blindly. Consequential controls must name
   their target session and copy the pending request ID, summary, and expiry
   exactly. Approval and rejection are never automatically retried.
-- Treat any approval dispatch attempt as consuming the pending request, even if
-  its handler fails, because the downstream decision may already have applied.
+- Treat an approval dispatch that may have reached the runtime as consuming the
+  pending request, even if its handler fails, because the downstream decision
+  may already have applied. A handler that proves the command never reached the
+  runtime raises `ControlUndelivered`; the request stays pending, the result is
+  `handler_unavailable`, and that result is not retained for deduplication.
 - Control handlers must be explicit, non-blocking, and bounded. Missing handlers
   reject safely; never report dispatch success before a handler accepts work.
+  The router calls handlers outside its lock. A duplicate of a command that is
+  still dispatching waits a bounded time for that result.
 - Agent providers run behind the generic bounded gateway. Allow at most one
   active run per complete session, bound concurrent runs and retained provider
   session records, and do not create an unbounded prompt queue.

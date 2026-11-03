@@ -1,10 +1,12 @@
 from dataclasses import replace
 import json
 from pathlib import Path
+from threading import Event, Thread
 import unittest
 
-from deskhelm_bridge.control import ControlCommand, ControlKind
+from deskhelm_bridge.control import ControlCommand, ControlKind, ControlUndelivered
 from deskhelm_bridge.control_result import (
+    ControlResult,
     ControlResultCode,
     ControlResultStatus,
 )
@@ -269,6 +271,168 @@ class ControlRouterTests(unittest.TestCase):
             retry_result.code, ControlResultCode.APPROVAL_ALREADY_DECIDED
         )
         self.assertEqual(self.router.pending_approval_count(), 0)
+
+    def test_handler_runs_outside_the_router_lock(self) -> None:
+        command = self._command("submit-prompt.json")
+        blocked: list[bool] = []
+
+        def handler(_: ControlCommand) -> None:
+            reader = Thread(target=self.router.pending_approval_count)
+            reader.start()
+            reader.join(timeout=2)
+            blocked.append(reader.is_alive())
+
+        self.router.register_handler(ControlKind.SUBMIT_PROMPT, handler)
+        result = self.router.route(command, now_ms=command.issued_at)
+
+        self.assertEqual(result.code, ControlResultCode.DISPATCHED)
+        self.assertEqual(blocked, [False])
+
+    def test_duplicate_waits_for_the_in_flight_dispatch(self) -> None:
+        command = self._command("submit-prompt.json")
+        entered = Event()
+        release = Event()
+        calls: list[ControlCommand] = []
+        results: dict[str, ControlResult] = {}
+
+        def handler(received: ControlCommand) -> None:
+            calls.append(received)
+            entered.set()
+            release.wait(timeout=5)
+
+        def route_into(name: str, now_ms: int) -> None:
+            results[name] = self.router.route(command, now_ms=now_ms)
+
+        self.router.register_handler(ControlKind.SUBMIT_PROMPT, handler)
+        first = Thread(target=route_into, args=("first", command.issued_at))
+        first.start()
+        self.assertTrue(entered.wait(timeout=5))
+        duplicate = Thread(target=route_into, args=("duplicate", command.issued_at + 1))
+        duplicate.start()
+        duplicate.join(timeout=0.2)
+        still_waiting = duplicate.is_alive()
+        release.set()
+        first.join(timeout=5)
+        duplicate.join(timeout=5)
+
+        self.assertTrue(still_waiting)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(results["first"].code, ControlResultCode.DISPATCHED)
+        self.assertFalse(results["first"].duplicate)
+        self.assertEqual(results["duplicate"].code, ControlResultCode.DISPATCHED)
+        self.assertTrue(results["duplicate"].duplicate)
+
+    def test_duplicate_of_a_slow_dispatch_is_ambiguous_after_the_wait(self) -> None:
+        router = ControlRouter(session_registry=self.registry, duplicate_wait_ms=20)
+        command = self._command("submit-prompt.json")
+        entered = Event()
+        release = Event()
+        first_results: list[ControlResult] = []
+
+        def handler(_: ControlCommand) -> None:
+            entered.set()
+            release.wait(timeout=5)
+
+        def route_first() -> None:
+            first_results.append(router.route(command, now_ms=command.issued_at))
+
+        router.register_handler(ControlKind.SUBMIT_PROMPT, handler)
+        first = Thread(target=route_first)
+        first.start()
+        self.assertTrue(entered.wait(timeout=5))
+        duplicate = router.route(command, now_ms=command.issued_at + 1)
+        release.set()
+        first.join(timeout=5)
+        later = router.route(command, now_ms=command.issued_at + 2)
+
+        self.assertEqual(duplicate.code, ControlResultCode.DISPATCH_FAILED)
+        self.assertTrue(duplicate.duplicate)
+        self.assertEqual(first_results[0].code, ControlResultCode.DISPATCHED)
+        self.assertEqual(later.code, ControlResultCode.DISPATCHED)
+        self.assertTrue(later.duplicate)
+
+    def test_second_decision_is_rejected_while_the_first_is_in_flight(self) -> None:
+        self.router.observe_interaction(self._interaction("approval-request.json"))
+        entered = Event()
+        release = Event()
+
+        def approve(_: ControlCommand) -> None:
+            entered.set()
+            release.wait(timeout=5)
+
+        self.router.register_handler(ControlKind.APPROVE, approve)
+        self.router.register_handler(ControlKind.REJECT, lambda _: None)
+        command = self._command("approve.json")
+        first = Thread(
+            target=self.router.route,
+            args=(command,),
+            kwargs={"now_ms": command.issued_at},
+        )
+        first.start()
+        self.assertTrue(entered.wait(timeout=5))
+        reject = replace(
+            command,
+            kind=ControlKind.REJECT,
+            command_id="command-reject-in-flight",
+            idempotency_key="approval-9-reject-in-flight",
+        )
+        second = self.router.route(reject, now_ms=command.issued_at + 1)
+        release.set()
+        first.join(timeout=5)
+
+        self.assertEqual(second.code, ControlResultCode.APPROVAL_ALREADY_DECIDED)
+        self.assertEqual(self.router.pending_approval_count(), 0)
+
+    def test_undelivered_approval_dispatch_keeps_the_request_pending(self) -> None:
+        self.router.observe_interaction(self._interaction("approval-request.json"))
+        attempts: list[ControlCommand] = []
+
+        def approve(received: ControlCommand) -> None:
+            attempts.append(received)
+            if len(attempts) == 1:
+                raise ControlUndelivered("relay is closed")
+
+        self.router.register_handler(ControlKind.APPROVE, approve)
+        command = self._command("approve.json")
+
+        undelivered = self.router.route(command, now_ms=command.issued_at)
+        pending_after = self.router.pending_approval_count()
+        retry = self.router.route(command, now_ms=command.issued_at + 1)
+
+        self.assertEqual(undelivered.status, ControlResultStatus.REJECTED)
+        self.assertEqual(undelivered.code, ControlResultCode.HANDLER_UNAVAILABLE)
+        self.assertEqual(pending_after, 1)
+        self.assertEqual(retry.code, ControlResultCode.DISPATCHED)
+        self.assertFalse(retry.duplicate)
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(self.router.pending_approval_count(), 0)
+
+    def test_external_resolution_during_an_undelivered_dispatch_is_kept(self) -> None:
+        event = self._interaction("approval-request.json")
+        self.router.observe_interaction(event)
+
+        def approve(_: ControlCommand) -> None:
+            self.router.resolve_approval(
+                event.payload.request_id, now_ms=event.occurred_at
+            )
+            raise ControlUndelivered("relay is closed")
+
+        self.router.register_handler(ControlKind.APPROVE, approve)
+        command = self._command("approve.json")
+
+        result = self.router.route(command, now_ms=command.issued_at)
+        retry = self.router.route(
+            replace(
+                command,
+                command_id="command-approve-after-keyboard",
+                idempotency_key="approval-9-after-keyboard",
+            ),
+            now_ms=command.issued_at + 1,
+        )
+
+        self.assertEqual(result.code, ControlResultCode.HANDLER_UNAVAILABLE)
+        self.assertEqual(self.router.pending_approval_count(), 0)
+        self.assertEqual(retry.code, ControlResultCode.APPROVAL_ALREADY_DECIDED)
 
     def test_approval_tracking_is_bounded(self) -> None:
         router = ControlRouter(
