@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 from pathlib import Path
 import sys
@@ -19,12 +20,16 @@ from deskhelm_protocol import EffectKind, FactKind, SessionKey, Tier  # noqa: E4
 from deskhelm_voice_host.__main__ import main as voice_main, tts_settings  # noqa: E402
 from deskhelm_voice_host.policy import VoiceHost  # noqa: E402
 from helpers.v2 import FakeDriver  # noqa: E402
+import voice.deskhelm_voice as voice_library  # noqa: E402
 from voice.deskhelm_voice import (  # noqa: E402
+    AudioNode,
+    AudioNodeKind,
     CapturedAudio,
     FakeAsrProvider,
     FakeCaptureProvider,
     FakePlaybackProvider,
     FakeTtsProvider,
+    PipeWireAudioInventory,
     Transcript,
     VoiceGateway,
 )
@@ -175,6 +180,39 @@ class VoiceHostCommandTests(unittest.TestCase):
 
         self.assertEqual(piper["provider"], "piper")
         self.assertEqual((indextts["provider"], indextts["model"].name), ("indextts", "index"))
+
+    def _inventory(self) -> PipeWireAudioInventory:
+        return PipeWireAudioInventory(
+            sources=(AudioNode(AudioNodeKind.SOURCE, "builtin-mic", "Built-in", "Audio/Source"),),
+            sinks=(AudioNode(AudioNodeKind.SINK, "builtin-speaker", "Built-in", "Audio/Sink"),),
+            default_source_name="builtin-mic",
+            default_sink_name="builtin-speaker",
+        )
+
+    def test_a_missing_microphone_is_named_by_its_setting_and_the_default_is_opt_in(self) -> None:
+        stderr = io.StringIO()
+        environment = {"DESKHELM_ALPHA_VOICE_SOURCE": "usb-mic-private-name", "DESKHELM_ALPHA_VOICE_SINK": ""}
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, environment), \
+                mock.patch.object(voice_library, "discover_pipewire_audio", return_value=self._inventory()), \
+                mock.patch.object(sys, "stderr", stderr):
+            (Path(directory) / "zh_CN-chaowen-medium.onnx").write_bytes(b"")
+            paths = ["--no-ptt", "--asr-model-directory", directory, "--tts-directory", directory]
+            missing = voice_main(paths)
+            missing_text = stderr.getvalue()
+            stderr.seek(0)
+            stderr.truncate()
+            chosen = voice_main([*paths, "--default-source"])
+            chosen_text = stderr.getvalue()
+            with self.assertRaises(SystemExit):
+                voice_main([*paths, "--source", "other", "--default-source"])
+
+        self.assertEqual(missing, 1)
+        self.assertIn("--default-source", missing_text)
+        self.assertNotIn("usb-mic-private-name", missing_text)
+        # With the default microphone the next check, the models, is reached.
+        self.assertEqual(chosen, 1)
+        self.assertNotIn("not connected", chosen_text)
+        self.assertIn("Paraformer", chosen_text)
 
     def test_model_paths_are_required(self) -> None:
         names = ("DESKHELM_ALPHA_ASR_MODEL_DIRECTORY", "DESKHELM_ALPHA_TTS_DIRECTORY")

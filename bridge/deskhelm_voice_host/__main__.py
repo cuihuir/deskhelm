@@ -115,9 +115,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--socket", type=Path, default=None)
     parser.add_argument("--asr-model-directory", type=Path, default=_path(environment.get(ASR_ENV)))
     parser.add_argument("--tts-directory", type=Path, default=_path(environment.get(TTS_ENV)))
-    parser.add_argument("--source", default=environment.get(SOURCE_ENV, "").strip() or None,
-                        help="stable PipeWire source name; a missing one fails without fallback")
-    parser.add_argument("--sink", default=environment.get(SINK_ENV, "").strip() or None)
+    parser.add_argument("--source", default=None,
+                        help=f"stable PipeWire source name, else {SOURCE_ENV}; a missing one fails without fallback")
+    parser.add_argument("--sink", default=None, help=f"stable PipeWire sink name, else {SINK_ENV}")
+    parser.add_argument("--default-source", action="store_true",
+                        help="use the computer's current default microphone even when a source is configured")
+    parser.add_argument("--default-sink", action="store_true",
+                        help="use the computer's current default speaker even when a sink is configured")
     parser.add_argument("--latency", default="20ms")
     parser.add_argument("--pw-cat-command-prefix", default="pw-cat")
     parser.add_argument("--pw-dump-executable", default="pw-dump")
@@ -135,6 +139,33 @@ def _path(value: str | None) -> Path | None:
     return Path(value) if value and value.strip() else None
 
 
+def _device(parser: argparse.ArgumentParser, explicit: str | None, use_default: bool, variable: str, flag: str) -> str | None:
+    if use_default and explicit:
+        parser.error(f"--{flag} and --default-{flag} conflict")
+    if use_default:
+        return None
+    return explicit or os.environ.get(variable, "").strip() or None
+
+
+def missing_devices(inventory: Any, source: str | None, sink: str | None) -> list[str]:
+    """Configured devices that PipeWire does not list right now."""
+    missing = []
+    if source and all(node.name != source for node in inventory.sources):
+        missing.append("source")
+    if sink and all(node.name != sink for node in inventory.sinks):
+        missing.append("sink")
+    return missing
+
+
+_MISSING_DEVICE = {
+    # Device names can come from the secret profile, so they are not shown.
+    "source": f"the configured microphone ({SOURCE_ENV} or --source) is not connected; connect it, "
+    "or add --default-source to use the computer's current default microphone",
+    "sink": f"the configured speaker ({SINK_ENV} or --sink) is not connected; connect it, "
+    "or add --default-sink to use the computer's current default speaker",
+}
+
+
 def _keys_command(args: argparse.Namespace, *extra: str) -> list[str]:
     return [str(args.ptt_python), "-m", "deskhelm_voice_host.keys", "--device", str(args.ptt_device), *extra]
 
@@ -146,6 +177,8 @@ def _keys_environment() -> dict[str, str]:
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
+    args.source = _device(parser, args.source, args.default_source, SOURCE_ENV, "source")
+    args.sink = _device(parser, args.sink, args.default_sink, SINK_ENV, "sink")
     missing = [name for name, value in (("--asr-model-directory", args.asr_model_directory),
                                          ("--tts-directory", args.tts_directory)) if value is None]
     if missing:
@@ -157,6 +190,11 @@ def main(argv: list[str] | None = None) -> int:
         inventory = _voice().discover_pipewire_audio(
             pw_dump_executable=args.pw_dump_executable, wpctl_executable=args.wpctl_executable
         )
+        absent = missing_devices(inventory, args.source, args.sink)
+        if absent:
+            for kind in absent:
+                print(f"deskhelm voice: {_MISSING_DEVICE[kind]}", file=sys.stderr)
+            return 1
         composition = config.compose(inventory)
     except (OSError, RuntimeError, ValueError) as error:
         print(f"deskhelm voice: {error}", file=sys.stderr)
