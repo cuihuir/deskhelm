@@ -69,7 +69,7 @@ so model dependencies never enter the root package.
 
 ## Validation
 
-- Full suite in the voice runtime without `PYTHONPATH`: 311 tests pass on
+- Full suite in the voice runtime without `PYTHONPATH`: 310 tests pass on
   `next` (289 at the release). The root environment passes every test except
   the ASR provider tests, which need NumPy.
 - Every documented command starts from outside the checkout without
