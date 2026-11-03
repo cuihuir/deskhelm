@@ -1,4 +1,6 @@
 {"type":"header","format":"deskhelm-replay-v1","runtime":"claude","scenario":"approval_reject","source_type":"synthetic","notes":"Synthetic. The can_use_tool request carries the field set Claude Code 2.1.312 sent in a local check on 2026-11-03 with --permission-prompt-tool stdio; every value is a placeholder and no recorded frame is copied."}
+{"type":"outbound","frame":{"type":"control_request","request_id":"$initialize","request":{"subtype":"initialize"}}}
+{"type":"inbound","frame":{"type":"control_response","response":{"subtype":"success","request_id":"$initialize","response":{"commands":[]}}}}
 {"type":"inbound","frame":{"type":"system","subtype":"init","model":"example-model","permissionMode":"default"}}
 {"type":"control","kind":"submit_prompt","text":"Create notes.txt containing ok"}
 {"type":"outbound","frame":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Create notes.txt containing ok"}]}}}

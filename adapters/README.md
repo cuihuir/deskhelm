@@ -21,9 +21,11 @@ tool output, or the whole output marked `replace` when the vendor replaced it
 (Grok sends the whole content on each update). Claude needs
 `--permission-prompt-tool stdio`; without it, Claude Code 2.1.312 denies a
 tool that needs permission without asking. Its driver declines
-`AskUserQuestion` at once because the session takes no input. Grok approvals
-use only the `allow_once` or `reject_once` option; without one, the decision
-is undelivered and the request stays pending.
+`AskUserQuestion` at once because the session takes no input, and it sends
+the SDK `initialize` request at start, because Claude sends `system/init`
+only with the first prompt; the session is ready when Claude answers. Grok
+approvals use only the `allow_once` or `reject_once` option; without one, the
+decision is undelivered and the request stays pending.
 
 Compatibility evidence lives under `tests/fixtures/adapters/<adapter>/` with a
 manifest that records source type, runtime version, and provenance. Replay

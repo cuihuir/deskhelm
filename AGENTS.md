@@ -296,7 +296,10 @@ access ADRs) has not started.
 - Claude runs `-p` with `--permission-prompt-tool stdio`, so a tool that needs
   permission arrives as `can_use_tool`; without it Claude Code 2.1.312 denies
   such tools silently. The driver declines `AskUserQuestion` at once because
-  the session takes no input.
+  the session takes no input. Claude Code 2.1.312 sends `system/init` only
+  with the first prompt, so the driver sends the SDK `initialize` request at
+  start and is ready when Claude answers it; the answer names the account
+  and is never published.
 - Grok approvals select only the option whose ACP kind is `allow_once` or
   `reject_once`. Without one, the decision is undelivered and the request
   stays pending; never fall back to `allow_always` or `reject_always`. A tool

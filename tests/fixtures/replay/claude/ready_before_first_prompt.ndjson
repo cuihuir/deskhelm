@@ -1,0 +1,10 @@
+{"type":"header","format":"deskhelm-replay-v1","runtime":"claude","scenario":"ready_before_first_prompt","source_type":"synthetic","notes":"Synthetic. The frame order follows a local check of Claude Code 2.1.312 on 2026-11-04: it answered the SDK initialize request at once and sent system/init only after the first prompt. No recorded frame is copied; the real initialize answer also names the account, which no transcript holds."}
+{"type":"outbound","frame":{"type":"control_request","request_id":"$initialize","request":{"subtype":"initialize"}}}
+{"type":"inbound","frame":{"type":"control_response","response":{"subtype":"success","request_id":"$initialize","response":{"commands":[]}}}}
+{"type":"control","kind":"submit_prompt","text":"Reply with the single word pong"}
+{"type":"outbound","frame":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Reply with the single word pong"}]}}}
+{"type":"inbound","frame":{"type":"system","subtype":"init","model":"example-model"}}
+{"type":"inbound","frame":{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"po"}}}}
+{"type":"inbound","frame":{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"pong"}]}}}
+{"type":"inbound","frame":{"type":"result","subtype":"success","result":"pong"}}
+{"type":"events","kinds":["message","message","message","task_completed"]}

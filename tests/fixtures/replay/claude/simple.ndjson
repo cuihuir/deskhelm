@@ -1,4 +1,6 @@
 {"type":"header","format":"deskhelm-replay-v1","runtime":"claude","scenario":"simple","source_type":"synthetic","notes":"Synthetic. Frame shapes follow the existing claude-stream fixture for claude -p stream-json; no recorded frame is copied."}
+{"type":"outbound","frame":{"type":"control_request","request_id":"$initialize","request":{"subtype":"initialize"}}}
+{"type":"inbound","frame":{"type":"control_response","response":{"subtype":"success","request_id":"$initialize","response":{"commands":[]}}}}
 {"type":"inbound","frame":{"type":"system","subtype":"init","model":"example-model"}}
 {"type":"control","kind":"submit_prompt","text":"Reply with the single word pong"}
 {"type":"outbound","frame":{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Reply with the single word pong"}]}}}

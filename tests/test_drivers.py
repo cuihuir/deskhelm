@@ -70,9 +70,43 @@ class _DriverCase(unittest.TestCase):
         self.vendor.batches.put(list(frames))
 
 
+class ClaudeReadinessTests(_DriverCase):
+    def setUp(self) -> None:
+        self.start(lambda cwd, vendor, clock: ClaudeSession(cwd, vendor=vendor, clock=clock))
+        self.request = self.vendor.written.get(timeout=2)
+
+    def answer(self, request_id: str) -> dict:
+        response = {"account": {"email": "someone@example.com"}, "commands": [{"name": "review"}]}
+        return {"type": "control_response", "response": {"subtype": "success", "request_id": request_id, "response": response}}
+
+    def test_the_answer_to_initialize_makes_a_new_session_ready(self) -> None:
+        # Claude Code 2.1.312 sends system/init only with the first prompt.
+        self.assertEqual(self.request["request"], {"subtype": "initialize"})
+        self.feed(self.answer("another-request"), {"type": "control_request", "request_id": "req-x", "request": {"subtype": "hook_callback"}})
+        self.vendor.written.get(timeout=2)
+        self.assertFalse(self.driver.state().ready)
+
+        self.feed(self.answer(self.request["request_id"]))
+        self.facts.wait_for(FactKind.READY)
+
+        self.assertTrue(self.driver.state().ready)
+        self.assertNotIn("someone@example.com", repr(self.facts.facts))
+
+    def test_init_with_the_first_prompt_adds_the_catalog_without_a_second_ready(self) -> None:
+        self.feed(self.answer(self.request["request_id"]))
+        self.facts.wait_for(FactKind.READY)
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "hello"})
+        self.feed({"type": "system", "subtype": "init", "model": "example-model"})
+        self.facts.wait_for(FactKind.CATALOG)
+
+        self.assertEqual(len(self.facts.of(FactKind.READY)), 1)
+        self.assertEqual(self.driver.state().catalog["model"], "example-model")
+
+
 class ClaudeDriverTests(_DriverCase):
     def setUp(self) -> None:
         self.start(lambda cwd, vendor, clock: ClaudeSession(cwd, vendor=vendor, clock=clock))
+        self.assertEqual(self.vendor.written.get(timeout=2)["request"], {"subtype": "initialize"})
         self.feed({"type": "system", "subtype": "init", "model": "example-model", "skills": ["review"]})
         self.facts.wait_for(FactKind.READY)
 

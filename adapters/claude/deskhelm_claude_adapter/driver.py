@@ -104,6 +104,7 @@ class ClaudeSession:
         # What streamed of the current reply, for a reply that is cut off.
         self._streamed = ""
         self._catalog: dict[str, Any] | None = None
+        self._initialize_ref = uuid.uuid4().hex
         self._reader: Thread | None = None
 
     # DriverSession -----------------------------------------------------
@@ -113,6 +114,15 @@ class ClaudeSession:
         self._vendor.start()
         self._reader = Thread(target=self._read, name="deskhelm-claude-read", daemon=True)
         self._reader.start()
+        # Claude Code 2.1.312 sends system/init only with the first prompt but
+        # answers the SDK's initialize request at once, so a new session is
+        # ready before anyone writes to it.
+        try:
+            self._vendor.write_line(
+                {"type": "control_request", "request_id": self._initialize_ref, "request": {"subtype": "initialize"}}
+            )
+        except VendorClosed:
+            pass
 
     def perform(self, kind: EffectKind, payload: dict[str, Any]) -> EffectOutcome:
         try:
@@ -239,6 +249,17 @@ class ClaudeSession:
             self._result(value)
         elif kind == "control_request":
             self._control_request(value)
+        elif kind == "control_response":
+            # The answer to initialize names the account, commands, and
+            # agents; only its arrival is used.
+            response = value.get("response")
+            if isinstance(response, dict) and response.get("request_id") == self._initialize_ref:
+                self._become_ready()
+
+    def _become_ready(self) -> None:
+        if not self._ready:
+            self._ready = True
+            self._emit(FactKind.READY)
 
     def _init(self, value: dict[str, Any]) -> None:
         model = value.get("model") if isinstance(value.get("model"), str) else ""
@@ -266,9 +287,7 @@ class ClaudeSession:
             "skills": skills[:64],
         }
         self._emit(FactKind.CATALOG, content={"catalog": self._catalog})
-        if not self._ready:
-            self._ready = True
-            self._emit(FactKind.READY)
+        self._become_ready()
 
     def _assistant(self, value: dict[str, Any]) -> None:
         message = value.get("message")
