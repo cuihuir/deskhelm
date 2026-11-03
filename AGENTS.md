@@ -161,7 +161,10 @@ Keep third-party reference files outside version control under
   generic ACP driver with its Grok flavor (`adapters/acp/`) are drivers. A
   driver records a turn before the prompt reaches the vendor and rebuilds a
   reopened session from `state()`. A host starts the v2 Bridge only before
-  its first open and never restarts one that later stops. The rules below
+  its first open and never restarts one that later stops. The Codex host
+  owns the directory's app-server, the TUI approval proxy, and the PTY relay;
+  its driver wraps the v1 app-server adapter. Tool labels are fixed item
+  kinds, and command lines and paths stay in fact content. The rules below
   still govern v1, which stays the default until the switch-over.
 - Keep integrations Agent-agnostic and local-first.
 - Preserve the separation between small `StateEvent` projections, rich
@@ -270,7 +273,11 @@ Keep third-party reference files outside version control under
   Keep thread attachment separate from event subscription: attach directly to
   one unambiguous loaded thread so a new empty remote TUI accepts controls before
   its first rollout exists, then retry bounded `thread/resume` calls until that
-  connection is subscribed. A missing rollout is retriable only for a
+  connection is subscribed. Only a resume result, a server request, or turn
+  events on that connection prove subscription; `turn/start` and status
+  changes, which Codex 0.166.0 sends to every connection, do not. A
+  subscribed adapter also receives each approval request the TUI receives;
+  with a TUI proxy it ignores that copy. A missing rollout is retriable only for a
   discovered thread; explicit thread failures remain fail-closed. Ignore a
   bounded, positively identified ephemeral internal thread, but require an
   explicit selector before choosing among multiple non-ephemeral threads.
@@ -330,8 +337,9 @@ Keep third-party reference files outside version control under
 - Publish each prompt DeskHelm accepts once, as a complete user message on
   that interaction plane. The correlation id is the control command id.
   Codex remembers the last eight accepted texts, and Claude and Grok remember
-  the latest one; one matching vendor echo is not published again. A different
-  vendor user item keeps its own id. ADR 0042.
+  the latest one; one matching vendor echo is not published again. A Codex
+  user item counts once, at `item/completed`. A different vendor user item
+  keeps its own id. ADR 0042.
 - Publish attached-thread Codex `item/started` and `item/completed`
   notifications as bounded interaction events. Keep token deltas opted out.
   Do not publish reasoning, working directories, image bytes, local image
@@ -593,11 +601,20 @@ Current commands:
   session host. It starts the v2 Bridge if none is listening, with that
   Bridge's output in `bridge-v2.log` in the runtime directory, and reopens
   its session after a Bridge restart. Stopping the host stops its vendor.
+- `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_host codex
+  [--codex-sandbox <read-only|workspace-write>] [--yolo]`: run the managed
+  Codex TUI in this interactive terminal as one v2 session host, beside any
+  v1 `deskhelm codex` in the same directory. It owns `codex-<digest>-app.sock`
+  and `codex-<digest>-tui.sock` in the runtime directory, keeps the two-press
+  Ctrl-C guard, and writes host diagnostics to `codex-<digest>-host.log`
+  while the TUI owns the screen. Quitting the TUI or stopping the host stops
+  the app-server and removes both sockets. `--yolo` is full access with no
+  approvals; use it only when that access is intended.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_core
   tests.test_core_server tests.test_host_link tests.test_drivers
-  tests.test_replay_transcripts -v`: validate the v2 core, socket server,
-  host link, Claude and Grok drivers, and every replay transcript without a
-  vendor CLI.
+  tests.test_codex_host tests.test_replay_transcripts -v`: validate the v2
+  core, socket server, host link, Claude, Grok, and Codex drivers, the Codex
+  host helpers, and every replay transcript without a vendor CLI.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --plain`: run the Bridge.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --max-connections 16`:
   run with an explicit bounded connection limit.
