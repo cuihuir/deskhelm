@@ -178,8 +178,13 @@ class VoiceHostCommandTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 tts_settings(root / "missing")
 
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "kokoro-v1_0.pth").write_bytes(b"")
+            kokoro = tts_settings(Path(directory))
+
         self.assertEqual(piper["provider"], "piper")
         self.assertEqual((indextts["provider"], indextts["model"].name), ("indextts", "index"))
+        self.assertEqual((kokoro["provider"], kokoro["config"].name), ("kokoro", "config.json"))
 
     def _inventory(self) -> PipeWireAudioInventory:
         return PipeWireAudioInventory(

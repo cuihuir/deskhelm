@@ -14,12 +14,17 @@ if str(TESTS) not in sys.path:
 from helpers.replay import _FakeVendor, _QueueTransport  # noqa: E402
 
 from deskhelm_acp_adapter import AcpSession, GrokFlavor  # noqa: E402
+from deskhelm_claude_adapter.command import claude_argv  # noqa: E402
 from deskhelm_claude_adapter.driver import MAX_PENDING_APPROVALS, ClaudeSession  # noqa: E402
 from deskhelm_codex_adapter.driver import CodexSession  # noqa: E402
 from deskhelm_protocol import EffectKind, EffectOutcome, FactKind, SessionKey  # noqa: E402
 
 
 FIXTURES = TESTS / "fixtures" / "adapters"
+
+
+def _lines(name: str, file: str) -> list[dict]:
+    return [json.loads(line) for line in (FIXTURES / name / file).read_text(encoding="utf-8").splitlines() if line]
 
 
 class _Recorder:
@@ -142,6 +147,26 @@ class ClaudeDriverTests(_DriverCase):
         self.assertEqual(self.facts.of(FactKind.TOOL)[0][0]["label"], "tool")
         self.assertNotIn("secret-argument", json.dumps(self.facts.facts))
 
+    def test_the_synthetic_stream_keeps_thinking_arguments_and_errors_private(self) -> None:
+        lines = _lines("claude-stream", "synthetic-turn.jsonl")
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "Reply pong"})
+        self.feed(*lines[:5])
+        self.facts.wait_for(FactKind.TURN_TERMINAL)
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c2", "text": "again"})
+        self.feed(lines[6])
+        self.facts.wait_for(FactKind.TURN_TERMINAL, 2)
+
+        catalog = self.facts.of(FactKind.CATALOG)[-1][1]["catalog"]
+        tools = [(meta["label"], meta["phase"]) for meta, _ in self.facts.of(FactKind.TOOL)]
+        first, second = (meta for meta, _ in self.facts.of(FactKind.TURN_TERMINAL))
+        self.assertEqual((catalog["model"], catalog["skills"][0]["name"], catalog["mcp_servers"][0]["name"]),
+                         ("example-model", "review", "docs"))
+        self.assertEqual(tools, [("Read", "start"), ("Read", "output"), ("Read", "complete")])
+        self.assertEqual((first["status"], second["status"], second["failure"]), ("completed", "failed", "provider"))
+        blob = json.dumps(self.facts.facts)
+        for private in ("hidden thought", "secret-argument", "private vendor boom"):
+            self.assertNotIn(private, blob)
+
     def test_closed_vendor_makes_submit_undelivered(self) -> None:
         self.vendor.terminate()
 
@@ -225,6 +250,37 @@ class AcpDriverTests(_DriverCase):
         self.assertEqual(self.driver.capabilities.approvals.value, "none")
         self.assertNotIn("/home/someone", json.dumps(self.facts.facts))
 
+    def test_the_synthetic_turn_keeps_thoughts_and_arguments_private(self) -> None:
+        lines = _lines("grok-stdio", "synthetic-turn.jsonl")
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "Reply pong"})
+        self.feed(*lines[:7])
+        self.facts.wait_for(FactKind.TURN_TERMINAL)
+
+        catalog = self.facts.of(FactKind.CATALOG)[-1][1]["catalog"]
+        self.assertIn("promptCapabilities.embeddedContext", catalog["agent_capabilities"])
+        self.assertIn("sessionCapabilities.list", catalog["agent_capabilities"])
+        self.assertFalse(any(name == "auth" or name.startswith("_") for name in catalog["agent_capabilities"]))
+        self.assertEqual(catalog["model"], "example-model")
+        self.assertEqual([meta["label"] for meta, _ in self.facts.of(FactKind.TOOL)], ["Read", "Read", "Read"])
+        self.assertEqual(self.facts.of(FactKind.TURN_TERMINAL)[0][0]["status"], "completed")
+        blob = json.dumps(self.facts.facts)
+        for private in ("hidden thought", "secret-argument", "vendor-session"):
+            self.assertNotIn(private, blob)
+
+    def test_titles_with_arguments_stay_private(self) -> None:
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "work"})
+        self.feed(*_lines("grok-stdio", "synthetic-permissions.jsonl"))
+        self.facts.wait_for(FactKind.REQUEST_OPENED, 2)
+        self.facts.wait_for(FactKind.TOOL, 2)
+
+        summaries = [meta["summary"] for meta, _ in self.facts.of(FactKind.REQUEST_OPENED)]
+        labels = [meta["label"] for meta, _ in self.facts.of(FactKind.TOOL)]
+        self.assertEqual(summaries, ["请求使用工具 execute", "请求使用工具 edit"])
+        self.assertEqual(labels, ["read", "run_terminal_command"])
+        blob = json.dumps(self.facts.facts)
+        for private in ("rm -rf", "example-probe", "package.json", "<workspace>", "notes.txt"):
+            self.assertNotIn(private, blob)
+
     def test_unknown_agent_request_gets_an_error(self) -> None:
         self.feed({"jsonrpc": "2.0", "id": 41, "method": "fs/read_text_file", "params": {"path": "/etc/hosts"}})
 
@@ -292,6 +348,20 @@ class AcpDriverTests(_DriverCase):
 
         terminal = self.facts.of(FactKind.TURN_TERMINAL)[0][0]
         self.assertEqual((terminal["status"], terminal["failure"]), ("failed", "process_exit"))
+
+
+class VendorCommandTests(unittest.TestCase):
+    def test_vendor_commands_carry_no_prompt(self) -> None:
+        claude = claude_argv()
+        grok = GrokFlavor(Path("/tmp/deskhelm-grok-leader.sock")).argv()
+
+        self.assertEqual(claude[claude.index("--input-format") + 1], "stream-json")
+        self.assertEqual(claude[claude.index("--permission-prompt-tool") + 1], "stdio")
+        self.assertEqual(claude[claude.index("--permission-mode") + 1], "default")
+        self.assertEqual((grok[-1], "--no-leader" in grok), ("stdio", True))
+        self.assertIn("/tmp/deskhelm-grok-leader.sock", grok)
+        for argv in (claude, grok):
+            self.assertNotIn("Reply pong", " ".join(argv))
 
 
 def _codex(transport: _QueueTransport) -> CodexSession:
