@@ -55,7 +55,7 @@ _CODEX_FAILURE_STATUS_MESSAGES = {
     "codex_control_timeout": "Codex 控制请求超时（codex_control_timeout）",
     "codex_thread_ambiguous": "检测到多个 Codex 会话（codex_thread_ambiguous）",
     "codex_turn_failed": "Codex turn 执行失败（codex_turn_failed）",
-    "interrupted": "Codex turn 已中断（interrupted）",
+    "interrupted": "这一轮已中断（interrupted）",
 }
 
 

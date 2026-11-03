@@ -314,7 +314,9 @@ class VoiceBridgeIntegration:
     def _enqueue_notification(
         self, target: VoiceTarget, text: str, speech_id: str = ""
     ) -> None:
-        notification = _project_notification(target.project_id, text)
+        # Unknown agent ids are not spoken; they fall back to a generic label.
+        agent = _AGENT_LABELS.get(target.agent_id, "Agent")
+        notification = _project_notification(target.project_id, text.format(agent=agent))
         try:
             item = SpeechItem(target=target, text=notification)
             if speech_id:
@@ -381,10 +383,11 @@ _VOICE_FAILURE_MESSAGES = {
     "voice_approval_ambiguous": "有多个请求等待确认，请在屏幕上逐个处理。",
 }
 
-_COMPLETION_NOTIFICATION = "Codex 已完成工作，请查看结果。"
-_FAILURE_NOTIFICATION = "Codex 工作未完成，请查看详情。"
-_APPROVAL_NOTIFICATION = "Codex 需要你的确认。"
-_INPUT_NOTIFICATION = "Codex 需要你提供信息。"
+_COMPLETION_NOTIFICATION = "{agent} 已完成工作，请查看结果。"
+_FAILURE_NOTIFICATION = "{agent} 工作未完成，请查看详情。"
+_APPROVAL_NOTIFICATION = "{agent} 需要你的确认。"
+_INPUT_NOTIFICATION = "{agent} 需要你提供信息。"
+_AGENT_LABELS = {"codex": "Codex", "claude": "Claude", "grok": "Grok"}
 
 _MAX_NOTIFICATION_PROJECT_NAME_CHARS = 64
 
@@ -407,7 +410,7 @@ _TASK_FAILURE_NOTIFICATIONS = {
     "codex_control_failed": "语音指令未被 Codex 接受，请查看终端。",
     "codex_control_timeout": "Codex 控制响应超时，请稍后重试。",
     "codex_thread_ambiguous": "检测到多个 Codex 会话，暂时无法语音控制。",
-    "interrupted": "Codex 已停止当前工作。",
+    "interrupted": "{agent} 已停止当前工作。",
 }
 
 _VOICE_APPROVAL_PHRASES = {

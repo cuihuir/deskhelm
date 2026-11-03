@@ -484,6 +484,43 @@ class VoiceIntegrationTests(unittest.TestCase):
         )
         self.assertNotIn("private failure detail", tts.requests[0])
 
+    def test_notification_names_the_runtime_of_the_session(self) -> None:
+        tts = FakeTtsProvider()
+        voice = VoiceGateway(
+            FakeCaptureProvider([]),
+            FakeAsrProvider([]),
+            tts,
+            FakePlaybackProvider(),
+        )
+        self.resources.append(voice)
+        integration = VoiceBridgeIntegration(voice, self.router, self.hub)
+        integration.register()
+        self.resources.append(integration)
+
+        for sequence, agent_id in enumerate(("grok", "custom-agent"), start=1):
+            self.hub.publish(
+                InteractionEvent(
+                    kind=InteractionKind.TASK_COMPLETED,
+                    agent_id=agent_id,
+                    session_id="session-runtime",
+                    project_id="demo",
+                    source="fake-agent",
+                    source_version="1",
+                    sequence=sequence,
+                    correlation_id=f"done-{sequence}",
+                    payload=TaskPayload(),
+                )
+            )
+            self._wait_for(lambda: len(tts.requests) == sequence)
+
+        self.assertEqual(
+            tts.requests,
+            [
+                "项目 demo，Grok 已完成工作，请查看结果。",
+                "项目 demo，Agent 已完成工作，请查看结果。",
+            ],
+        )
+
     def test_voice_failure_publishes_friendly_system_message(self) -> None:
         received = []
         self.hub.subscribe(received.append)
