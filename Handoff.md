@@ -6,117 +6,100 @@ Project: DeskHelm
 
 Repository: <https://github.com/cuihuir/deskhelm>
 
-## Latest Phase: Architecture v2, Phase 2 Complete
+## Latest Phase: Architecture v2, Phase 3 Complete
 
-Status: paused on 2026-11-03 after phase 2, following the user's rule to
+Status: paused on 2026-11-03 after phase 3, following the user's rule to
 pause after each phase, on branch `refactor/architecture-v2`; nothing is
 pushed. v1 stays the default: `bridge.sock`, `deskhelm codex`,
-`deskhelm agent`, web, dashboard, and voice all run v1 code. Live checks used
-temporary sockets and a temporary runtime directory. No DeskHelm process is
-running.
+`deskhelm agent`, web, dashboard, and voice all run v1 code. Checks used
+temporary sockets. No DeskHelm process is running.
 
-- Baseline: commit `ec128a3`, tag `pre-architecture-v2`, holds the work that
-  was uncommitted since `9809755`. Design:
+- Baseline: commit `ec128a3`, tag `pre-architecture-v2`. Design:
   `docs/architecture/target-architecture.md` and ADR 0043, with D1–D4
   accepted as recommended. `t.sh` stays untracked.
-- Phase 0, fixes on v1, `ed873e8` to `5f42fe7`: handlers run outside the
-  router lock and raise `ControlUndelivered` when nothing reached the
-  runtime, which keeps the approval pending; Grok answers only `allow_once` /
-  `reject_once`, publishes bare tool names, cancels with a notification, and
-  publishes tool output from ACP content blocks; the dashboard sends exact
-  approval summaries; web requests need the token cookie; voice approval
-  phrases never become prompts and `取消` discards; voice notices name the
-  agent; a replay harness. `e6e4c9c` raised the subscriber queue default to
-  64 frames.
-- Phase 1, `6330467` and `cda4cb8`: `bridge/deskhelm_protocol` and the
-  single-threaded `bridge/deskhelm_core`, served on `bridge-v2.sock`.
-  Contract: `protocol/deskhelm-v2.md`.
-- Phase 2:
-  - `ad0151d`: `bridge/deskhelm_host` with the driver contract, the Bridge
-    link that keeps a session across Bridge restarts, and Bridge autostart.
-  - `8cb9b5f`: the Claude driver, the generic ACP driver with its Grok
-    flavor, and `python -m deskhelm_host claude|grok`.
-  - `d5d1db9`, `c522d7f`: Claude runs with `--permission-prompt-tool stdio`,
-    shared by v1 and v2; without it Claude Code 2.1.312 denied every tool
-    that needs permission without asking. The v2 driver declines
-    `AskUserQuestion`. An ACP tool keeps its first label, in v1 and v2.
-  - `8b8ef22`, in the adapter that v1 also uses: Codex 0.166.0 does not
-    subscribe the connection that calls `turn/start`, and it sends
-    `thread/status/changed` to every connection. The adapter treated both as
-    subscription and stopped resuming, so it missed the output and end of
-    turns it started. That is the likely root cause of the stale steers ADR
-    0041 worked around. Once really subscribed, the adapter got every
-    approval twice and every user message twice; with a TUI proxy it now
-    ignores its own approval copy, and a user item counts at
-    `item/completed`. ADR 0033 has an amendment.
-  - `a448a96`: `python -m deskhelm_host codex` owns the directory's
-    app-server, the TUI proxy, and the PTY relay with the two-press Ctrl-C
-    guard. `CodexSession` wraps the adapter: tool labels are fixed item kinds,
-    command lines and paths stay in content, a refused steer is a notice, and
-    a model choice needs a catalog read from the last 110 seconds. All replay
-    transcripts, including a new Codex approval, run through v2 drivers.
-- Validation: the full suite passes, 506 tests, with
+- Phase 0, fixes on v1, `ed873e8` to `e6e4c9c`. Phase 1, `6330467` and
+  `cda4cb8`: protocol v2 and the single-threaded core on `bridge-v2.sock`;
+  contract `protocol/deskhelm-v2.md`.
+- Phase 2: hosts (`ad0151d`), Claude and Grok drivers (`8cb9b5f`), Claude
+  `--permission-prompt-tool stdio` and the ACP label fix (`d5d1db9`,
+  `c522d7f`), the Codex adapter subscription fix that v1 shares
+  (`8b8ef22`), and the Codex host (`a448a96`).
+- Phase 3:
+  - `19003f1`: `bridge/deskhelm_client`, one connection per surface with
+    cursor resume, replay handed over once, command and query correlation,
+    and the one copy of result wording; `python -m deskhelm_client
+    sessions|focus`.
+  - `b38d61c`: `python -m deskhelm_web` on port 8767 beside the v1 page. It
+    keeps the v1 page and HTTP API, maps the console to it, decides
+    approvals by approval id, reads the catalog from the Bridge cache, and
+    shares the token file. A page opened later receives the Bridge's recent
+    window and pending approvals. `app.js` now prefers the server's
+    wording and words the working state; v1 is unaffected.
+  - `367aa36`: `python -m deskhelm_dashboard` with the v1 keys; approvals
+    come from the console and a lost Bridge is a notice.
+  - `9d32fa8`: `python -m deskhelm_voice_host` attaches at the voice tier to
+    a running Bridge. Right Alt speaks to the focused session; the D3
+    phrase rules and `取消` are applied in the host; notices come from
+    console transitions. The key listener is a child in the root
+    environment holding `ptt.lock`.
+  - `381fee0` closes a host socket after a failed reconnect; `d4c8a4a`
+    removes a test race.
+- Validation: the full suite passes, 537 tests, twice in a row, with
   `PYTHONPATH=bridge uv run --project voice/runtime --locked --no-sync python -m unittest discover -s tests`.
-  The focused v2 command in AGENTS.md passes 69 tests, and the managed-TUI
-  regression command passes 93. `git diff --check` is clean; no process is
-  left behind.
-- Live checks on 2026-11-03:
-  - Grok 1.0.60 on v1 and v2: prompt, reply, turn end, and interrupt work.
-    This Grok runs in always-approve mode, so no approval was requested.
-  - Claude Code 2.1.312 on v2: Bash and Write turns work; with the new argv a
-    Write opened an approval, approving wrote the file, and rejecting
-    returned the denial to the model. A `claude` started from this agent
-    sandbox inherits its API proxy and effort level and may think for over
-    100 seconds; a normal terminal does not.
-  - Codex CLI 0.166.0 through `deskhelm_host codex` in a PTY: the session
-    opened and became ready once the TUI created its thread; a prompt
-    produced the user message, the reply, and the turn end; one command
-    approval appeared once, was approved from a v2 client through the TUI
-    proxy, and the file was written. `/quit` exited 0 and SIGTERM exited
-    143; both removed the session, both sockets, and every child process.
-    The user then ran it in a real terminal the same day; the display, the
-    Ctrl-C guard, and the exit were fine.
+  The focused v2 command in AGENTS.md passes 100 tests. `app.js` parses
+  under esprima, which settles the old unchecked-script item. A headless
+  Chrome load of the v2 page rendered a fake session with its replayed
+  message and pending approval and logged no script error. A PTY run of the
+  dashboard approved a fake request from the keyboard and quit cleanly.
+  `deskhelm_voice_host --check` passed against the encrypted voice profile
+  without printing device names.
+- Live checks on 2026-11-03: Grok 1.0.60 and Claude Code 2.1.312 on v2
+  (prompts, replies, interrupt, and Claude approve and reject); Codex CLI
+  0.166.0 through `deskhelm_host codex` (prompt, one approval through the
+  TUI proxy, clean exit). The user ran the Codex host in a real terminal;
+  the display, the Ctrl-C guard, and the exit were fine.
 
 Open issues:
 
-- v1 `deskhelm agent claude` now receives approvals, but v1 never declines
-  one: an expired or ninth pending approval waits until the turn is
-  interrupted, and v1 shows `AskUserQuestion` as an approval. v2 declines all
-  three.
-- The Codex adapter fixes reach v1 only through unit tests so far; no v1
-  `deskhelm codex` session was run with them.
+- Not yet exercised by a person: the voice host's speech path (hold right
+  Alt and speak, then hear a notice) and the v2 page in a real browser.
+- The page still merges the interaction stream in the browser; the target
+  view model in Python is not done. The browser sends no idempotency key,
+  which matters only if a POST is retried.
+- v1 `deskhelm agent claude` never declines an expired or ninth approval and
+  shows `AskUserQuestion` as an approval; v2 declines all three. The Codex
+  adapter fixes reach v1 through unit tests only.
 - Untested live: Grok approvals (needs a session outside always-approve
   mode), the Codex `/resume` picker under v2, and a Bridge restart during a
-  Codex host session (covered generically by `test_host_link`).
-- `node` is unavailable here, so `app.js` was not syntax-checked after its
-  phase 0 string change. The web token flow has no browser pass.
-- Every replay transcript is synthetic. Recording live transcripts uses real
-  accounts and needs an operator decision; recordings are anonymized and
-  reviewed before commit.
-- v1 packaging: `deskhelm agent` started outside this checkout cannot import
-  `deskhelm_voice`. Phase 4 packaging fixes it.
+  Codex host session.
+- Every replay transcript is synthetic; recording live ones needs an
+  operator decision. v1 `deskhelm agent` started outside this checkout
+  cannot import `deskhelm_voice`.
 
 Next, after the user confirms:
 
-1. Phase 3: `deskhelm_client`, web and dashboard on v2, and the voice host.
-2. Switch-over: v2 takes `bridge.sock`.
-3. Phase 4: remove v1, uv workspace packaging, condensed AGENTS.md, and a
-   rewritten Handoff.
+1. Switch-over: v2 takes `bridge.sock`, and `deskhelm codex`, `agent`, `web`,
+   `dashboard`, and voice start the v2 hosts and surfaces.
+2. Phase 4: remove v1 per D4, move the page assets into `deskhelm_web`,
+   uv workspace packaging, condensed AGENTS.md, and a rewritten Handoff.
 
 Operator notes:
 
-- v1 runs the Codex adapter inside the user bridge, so the phase 0 and Codex
-  adapter fixes reach v1 only after that bridge restarts, which ends every
-  attached v1 session. A running `deskhelm agent claude` must restart to get
-  the new argv. After restarting `deskhelm web`, open the printed `?token=`
-  link once per browser.
-- To try v2 beside v1, run
-  `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_host claude`, `grok`, or
-  `codex` from an Agent project directory; `codex` needs an interactive
-  terminal. The host starts a v2 Bridge on `bridge-v2.sock` if none is
-  listening. No web, dashboard, or voice surface reads v2 yet.
-- That v2 Bridge keeps running after its host exits. Stop it by the pid of
-  `python3 -m deskhelm_core --socket …`. Its output is in
+- v1 runs the Codex adapter inside the user bridge, so fixes reach v1 only
+  after that bridge restarts, which ends every attached v1 session.
+- To try v2 beside v1: from an Agent project directory run
+  `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_host codex`, `claude`, or
+  `grok`; the first host starts a v2 Bridge on `bridge-v2.sock`. Then
+  `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_web` (open the printed
+  link, port 8767) or `python3 -m deskhelm_dashboard`. For voice, run
+  `project-secrets --project <checkout> run --env default --require
+  DESKHELM_ALPHA_ASR_MODEL_DIRECTORY DESKHELM_ALPHA_TTS_DIRECTORY --
+  env PYTHONPATH=<checkout>/bridge:<checkout>/voice uv run --project
+  <checkout>/voice/runtime --locked --no-sync python -m deskhelm_voice_host`,
+  focus a session on the page, and hold right Alt. Stop the v1 right-Alt
+  listener first; both take `ptt.lock`.
+- The v2 Bridge keeps running after its hosts exit. Stop it by the pid of
+  `python3 -m deskhelm_core --socket …`; its output is in
   `$XDG_RUNTIME_DIR/deskhelm/bridge-v2.log`.
 
 ## Previous Phase: Web Port 8766

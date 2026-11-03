@@ -153,7 +153,7 @@ Keep third-party reference files outside version control under
 - ADR 0043 restructures the architecture in phases 0 to 5, as described in
   `docs/architecture/target-architecture.md`. Until a phase lands, the rules
   below describe the current code. Each phase updates the rules it changes.
-- Phases 1 and 2 run protocol v2 beside v1 on `bridge-v2.sock`;
+- Phases 1 to 3 run protocol v2 beside v1 on `bridge-v2.sock`;
   `protocol/deskhelm-v2.md` is its contract. The core in
   `bridge/deskhelm_core` is one single-threaded actor without I/O and imports
   no adapter or voice code. Each `bridge/deskhelm_host` process owns one
@@ -164,7 +164,17 @@ Keep third-party reference files outside version control under
   its first open and never restarts one that later stops. The Codex host
   owns the directory's app-server, the TUI approval proxy, and the PTY relay;
   its driver wraps the v1 app-server adapter. Tool labels are fixed item
-  kinds, and command lines and paths stay in fact content. The rules below
+  kinds, and command lines and paths stay in fact content. Surfaces share
+  `bridge/deskhelm_client`: one connection per process, the console resumed
+  from its cursor on the same Bridge instance and reset on a new one,
+  replayed interaction handed over once, commands never retried, and one
+  copy of result wording in `deskhelm_client/texts.py`. Surfaces decide
+  approvals by Bridge approval id from the console, so a reconnecting
+  surface still sees pending approvals. The v2 web keeps the v1 page and HTTP
+  API and shares its assets and token file with v1 until phase 4. The voice
+  host attaches at the voice tier, targets the focused session, applies the
+  D3 phrase rules itself, derives notices from console transitions, and runs
+  its right-Alt listener as a child that holds `ptt.lock`. The rules below
   still govern v1, which stays the default until the switch-over.
 - Keep integrations Agent-agnostic and local-first.
 - Preserve the separation between small `StateEvent` projections, rich
@@ -610,11 +620,35 @@ Current commands:
   while the TUI owns the screen. Quitting the TUI or stopping the host stops
   the app-server and removes both sockets. `--yolo` is full access with no
   approvals; use it only when that access is intended.
+- `PYTHONPATH=bridge python3 -m deskhelm_client [--socket <bridge-v2.sock>]
+  sessions|focus --agent-id <id> --session-id <id> --project-id <id>`: list
+  v2 sessions with their pending approvals, or set the focus.
+- `PYTHONPATH=bridge python3 -m deskhelm_web [--socket <bridge-v2.sock>]
+  [--port 8767] [--allow-remote]`: serve the page for the v2 Bridge beside
+  the v1 page on 8766. It prints the same `?token=` link and uses the same
+  token file, so one browser sign-in serves both.
+- `PYTHONPATH=bridge python3 -m deskhelm_dashboard [--socket
+  <bridge-v2.sock>]`: run the v2 terminal dashboard; it needs an interactive
+  terminal and keeps running while the Bridge is away.
+- `PYTHONPATH=<checkout>/bridge:<checkout>/voice uv run --project
+  <checkout>/voice/runtime --locked --no-sync python -m deskhelm_voice_host
+  [--check] [--no-ptt]`: attach local voice to a running v2 Bridge. Model and
+  audio settings default to the `DESKHELM_ALPHA_*` variables, so run it under
+  `project-secrets run`. The right-Alt listener runs with the root
+  environment's Python, which needs `uv sync --extra ptt --locked`.
+  `--check` validates models, audio, and the key without opening audio or
+  naming devices.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_core
   tests.test_core_server tests.test_host_link tests.test_drivers
-  tests.test_codex_host tests.test_replay_transcripts -v`: validate the v2
-  core, socket server, host link, Claude, Grok, and Codex drivers, the Codex
-  host helpers, and every replay transcript without a vendor CLI.
+  tests.test_codex_host tests.test_replay_transcripts tests.test_client
+  tests.test_web_surface tests.test_dashboard_v2 tests.test_voice_host -v`:
+  validate the v2 core, socket server, host link, drivers, Codex host
+  helpers, replay transcripts, client runtime, and surfaces without a vendor
+  CLI, audio device, or model.
+- `uv run --no-project --with esprima python -I -c "import esprima;
+  esprima.parseScript(open('bridge/deskhelm_bridge/web-assets/app.js').read())"`:
+  syntax-check the page script from the repository root in a throwaway
+  environment; there is no Node here.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --plain`: run the Bridge.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --max-connections 16`:
   run with an explicit bounded connection limit.
