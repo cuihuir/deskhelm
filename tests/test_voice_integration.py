@@ -560,17 +560,8 @@ class VoiceIntegrationTests(unittest.TestCase):
         self.assertEqual(decision.expires_at, now_ms + 10_000)
         self.assertEqual(self.router.pending_approval_count(), 0)
 
-    def test_approval_word_is_prompt_when_no_approval_is_pending(self) -> None:
-        voice = VoiceGateway(
-            FakeCaptureProvider([]),
-            FakeAsrProvider([]),
-            FakeTtsProvider(),
-            FakePlaybackProvider(),
-        )
-        self.resources.append(voice)
-        integration = VoiceBridgeIntegration(voice, self.router, self.hub)
-        integration.register()
-        self.resources.append(integration)
+    def test_approval_word_without_a_pending_approval_is_not_sent(self) -> None:
+        integration, notices = self._voice_integration()
         prompts = []
         unregister = self.router.register_handler(
             ControlKind.SUBMIT_PROMPT,
@@ -583,11 +574,55 @@ class VoiceIntegrationTests(unittest.TestCase):
             Transcript("批准", "批准", transcript_id="ordinary-approval-word"),
         )
 
-        self.assertEqual(len(prompts), 1)
-        self.assertIs(prompts[0].kind, ControlKind.SUBMIT_PROMPT)
-        self.assertEqual(prompts[0].payload.text, "批准")
+        self.assertEqual(prompts, [])
+        self.assertEqual(
+            [event.payload.text for event in notices],
+            ["没有等待确认的请求，这句话没有发送。"],
+        )
 
     def test_voice_refuses_ambiguous_multiple_approvals(self) -> None:
+        integration, notices = self._voice_integration()
+        decisions = []
+        unregister = self.router.register_handler(ControlKind.APPROVE, decisions.append)
+        self.resources.append(_CallbackResource(unregister))
+        self._pending_approval("approval-1")
+        self._pending_approval("approval-2")
+
+        integration.submit_transcript(
+            self.target,
+            Transcript("批准", "批准", transcript_id="ambiguous-approval"),
+        )
+
+        self.assertEqual(decisions, [])
+        self.assertEqual(self.router.pending_approval_count(), 2)
+        self.assertEqual(
+            [event.payload.text for event in notices],
+            ["有多个请求等待确认，请在屏幕上逐个处理。"],
+        )
+
+    def test_cancel_word_discards_the_utterance_instead_of_rejecting(self) -> None:
+        integration, notices = self._voice_integration()
+        rejections = []
+        prompts = []
+        for kind, sink in ((ControlKind.REJECT, rejections), (ControlKind.SUBMIT_PROMPT, prompts)):
+            unregister = self.router.register_handler(kind, sink.append)
+            self.resources.append(_CallbackResource(unregister))
+        self._pending_approval("approval-cancel")
+
+        integration.submit_transcript(
+            self.target,
+            Transcript("取消", "取消", transcript_id="cancel-word"),
+        )
+
+        self.assertEqual(rejections, [])
+        self.assertEqual(prompts, [])
+        self.assertEqual(self.router.pending_approval_count(), 1)
+        self.assertEqual(
+            [event.payload.text for event in notices],
+            ["已取消这句话，没有发送。"],
+        )
+
+    def _voice_integration(self) -> tuple[VoiceBridgeIntegration, list[InteractionEvent]]:
         voice = VoiceGateway(
             FakeCaptureProvider([]),
             FakeAsrProvider([]),
@@ -598,33 +633,33 @@ class VoiceIntegrationTests(unittest.TestCase):
         integration = VoiceBridgeIntegration(voice, self.router, self.hub)
         integration.register()
         self.resources.append(integration)
-        now_ms = int(time.time() * 1000)
-        for sequence in (1, 2):
-            request_id = f"approval-{sequence}"
-            self.router.observe_interaction(
-                InteractionEvent(
-                    kind=InteractionKind.APPROVAL_REQUEST,
-                    agent_id=self.session.agent_id,
-                    session_id=self.session.session_id,
-                    project_id=self.session.project_id,
-                    source="codex-app-server",
-                    source_version="test",
-                    sequence=sequence,
-                    occurred_at=now_ms,
-                    correlation_id=request_id,
-                    payload=ApprovalRequestPayload(
-                        request_id=request_id,
-                        summary="fixed summary",
-                        expires_at=now_ms + 10_000,
-                    ),
-                )
-            )
+        notices: list[InteractionEvent] = []
+        unsubscribe = self.hub.subscribe(
+            lambda event: notices.append(event) if event.source == "voice-gateway" else None
+        )
+        self.resources.append(_CallbackResource(unsubscribe))
+        return integration, notices
 
-        with self.assertRaisesRegex(RuntimeError, "exactly one"):
-            integration.submit_transcript(
-                self.target,
-                Transcript("批准", "批准", transcript_id="ambiguous-approval"),
+    def _pending_approval(self, request_id: str) -> None:
+        now_ms = int(time.time() * 1000)
+        self.router.observe_interaction(
+            InteractionEvent(
+                kind=InteractionKind.APPROVAL_REQUEST,
+                agent_id=self.session.agent_id,
+                session_id=self.session.session_id,
+                project_id=self.session.project_id,
+                source="codex-app-server",
+                source_version="test",
+                sequence=1,
+                occurred_at=now_ms,
+                correlation_id=request_id,
+                payload=ApprovalRequestPayload(
+                    request_id=request_id,
+                    summary="fixed summary",
+                    expires_at=now_ms + 10_000,
+                ),
             )
+        )
 
     @staticmethod
     def _interaction_from_provider(

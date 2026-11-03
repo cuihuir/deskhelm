@@ -142,18 +142,24 @@ class VoiceBridgeIntegration:
             target.session_id,
             target.project_id,
         )
-        pending_approvals = self.control_router.pending_approvals_for(
-            session,
-            now_ms=now_ms,
-        )
-        decision_kind = _VOICE_APPROVAL_PHRASES.get(
-            transcript.normalized_text.strip()
-        )
-        if decision_kind is not None and pending_approvals:
+        phrase = transcript.normalized_text.strip()
+        if phrase in _VOICE_DISCARD_PHRASES:
+            self.voice_gateway.report_failure(target, "voice_utterance_discarded")
+            return
+        decision_kind = _VOICE_APPROVAL_PHRASES.get(phrase)
+        if decision_kind is not None:
+            # An approval phrase never becomes a prompt, even when nothing is
+            # pending, because the speaker meant a decision.
+            pending_approvals = self.control_router.pending_approvals_for(
+                session,
+                now_ms=now_ms,
+            )
+            if not pending_approvals:
+                self.voice_gateway.report_failure(target, "voice_no_pending_approval")
+                return
             if len(pending_approvals) != 1:
-                raise RuntimeError(
-                    "voice approval requires exactly one pending request"
-                )
+                self.voice_gateway.report_failure(target, "voice_approval_ambiguous")
+                return
             pending = pending_approvals[0]
             command = ControlCommand(
                 command_id=str(uuid.uuid4()),
@@ -370,6 +376,9 @@ _VOICE_FAILURE_MESSAGES = {
     "voice_prompt_failed": "语音指令暂时无法提交，请稍后重试。",
     "voice_output_failed": "回复已生成，但语音播放失败。",
     "speech_queue_full": "语音提示已跳过。",
+    "voice_utterance_discarded": "已取消这句话，没有发送。",
+    "voice_no_pending_approval": "没有等待确认的请求，这句话没有发送。",
+    "voice_approval_ambiguous": "有多个请求等待确认，请在屏幕上逐个处理。",
 }
 
 _COMPLETION_NOTIFICATION = "Codex 已完成工作，请查看结果。"
@@ -410,5 +419,7 @@ _VOICE_APPROVAL_PHRASES = {
     "拒绝": ControlKind.REJECT,
     "不同意": ControlKind.REJECT,
     "不允许": ControlKind.REJECT,
-    "取消": ControlKind.REJECT,
 }
+
+# Withdraws the utterance; it never rejects an approval.
+_VOICE_DISCARD_PHRASES = frozenset({"取消"})

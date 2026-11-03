@@ -297,7 +297,9 @@ Keep third-party reference files outside version control under
   one-shot response, and must leave persistent, ambiguous, multi-question, and
   secret interactions to the Codex TUI. For Codex permission approvals, grant
   only the requested subset for the current turn; never persist voice-granted
-  permissions to the session.
+  permissions to the session. An approval or rejection phrase never becomes a
+  prompt: with no pending approval or with several, it is refused with a fixed
+  notice. Spoken `取消` discards the utterance and never rejects (ADR 0043).
 - Proxy managed-TUI command and file approvals on their original JSON-RPC
   response channel. Forward the request to the TUI, retain only bounded
   correlation metadata, clear DeskHelm state when the keyboard answers first,
