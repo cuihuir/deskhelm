@@ -111,6 +111,11 @@ class SwitchOverTests(unittest.TestCase):
         self.assertIn("unknown command 'ptt'", unknown[2])
         self.assertEqual(_options_first("focus", ["--agent-id", "a", "--socket", "/s"]),
                          ["--socket", "/s", "focus", "--agent-id", "a"])
+        agent_help = _run(deskhelm_main, ["agent", "--help"])
+        self.assertEqual(agent_help[0], 0)
+        self.assertIn("deskhelm agent {claude,grok}", agent_help[1])
+        self.assertNotIn("--yolo", agent_help[1])
+        self.assertEqual(_run(deskhelm_main, ["agent"])[0], 2)
 
     def test_a_socket_that_is_not_a_v2_bridge_is_named_instead_of_retried(self) -> None:
         old = _V1LikeServer(self.path)

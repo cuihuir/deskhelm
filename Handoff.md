@@ -42,8 +42,14 @@ Since the release, branch `next` (not pushed) holds:
   Bridge now sends a session in a console delta only when its view changed.
   The tab title counts waiting approvals, and the session list marks
   activity not yet seen. `tools/check-web-page.py` checks the page in
-  Chrome (25 checks pass), and an end-to-end run with the real `simulate`
+  Chrome (27 checks pass), and an end-to-end run with the real `simulate`
   and `web` commands carried a prompt through an approval to its reply.
+- A live Codex 0.166.0 turn through the new page (prompt, page approval,
+  command output, reply) found two gaps, now fixed: the session view carries
+  `catalog_rev` so the page rereads a catalog the host pushes later, and a
+  shell-wrapped Codex command is titled by the command inside.
+- The dashboard shows recent activity as transcript items instead of raw
+  event fragments, and `deskhelm agent --help` has its own usage.
 
 `voice/runtime` installs the checkout as an editable path dependency, so no
 command, test, or tool needs `PYTHONPATH`. The two uv projects stay separate
@@ -63,7 +69,7 @@ so model dependencies never enter the root package.
 
 ## Validation
 
-- Full suite in the voice runtime without `PYTHONPATH`: 307 tests pass on
+- Full suite in the voice runtime without `PYTHONPATH`: 311 tests pass on
   `next` (289 at the release). The root environment passes every test except
   the ASR provider tests, which need NumPy.
 - Every documented command starts from outside the checkout without

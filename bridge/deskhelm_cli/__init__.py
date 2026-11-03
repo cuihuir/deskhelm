@@ -47,7 +47,20 @@ def _codex(rest: list[str]) -> int:
     return host_main(["codex", *rest])
 
 
+AGENT_USAGE = """\
+usage: deskhelm agent {claude,grok} [--socket SOCKET] [--project-id ID]
+                      [--session-id ID] [--agent-workdir DIR]
+
+Run Claude Code or Grok in this directory as one session. Prompts stay on the
+vendor's stdin, and the host's Bridge connection is the session lease. Codex
+runs as `deskhelm codex`.
+"""
+
+
 def _agent(rest: list[str]) -> int:
+    if not rest or rest[0] in ("-h", "--help"):
+        print(AGENT_USAGE, end="", file=sys.stdout if rest else sys.stderr)
+        return 0 if rest else 2
     from deskhelm_host.__main__ import main as host_main
 
     return host_main(rest)
