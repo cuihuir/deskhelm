@@ -204,7 +204,7 @@ class ClaudeDriverTests(_DriverCase):
         self.assertEqual(self.facts.of(FactKind.TOOL)[0][0]["label"], "tool")
         self.assertNotIn("secret-argument", json.dumps(self.facts.facts))
 
-    def test_the_synthetic_stream_keeps_thinking_arguments_and_errors_private(self) -> None:
+    def test_the_synthetic_stream_keeps_thoughts_and_errors_private_and_arguments_in_content(self) -> None:
         lines = _lines("claude-stream", "synthetic-turn.jsonl")
         self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "Reply pong"})
         self.feed(*lines[:5])
@@ -214,15 +214,33 @@ class ClaudeDriverTests(_DriverCase):
         self.facts.wait_for(FactKind.TURN_TERMINAL, 2)
 
         catalog = self.facts.of(FactKind.CATALOG)[-1][1]["catalog"]
-        tools = [(meta["label"], meta["phase"]) for meta, _ in self.facts.of(FactKind.TOOL)]
+        tools = self.facts.of(FactKind.TOOL)
         first, second = (meta for meta, _ in self.facts.of(FactKind.TURN_TERMINAL))
         self.assertEqual((catalog["model"], catalog["skills"][0]["name"], catalog["mcp_servers"][0]["name"]),
                          ("example-model", "review", "docs"))
-        self.assertEqual(tools, [("Read", "start"), ("Read", "output"), ("Read", "complete")])
+        self.assertEqual([(meta["label"], meta["phase"]) for meta, _ in tools],
+                         [("Read", "start"), ("Read", "output"), ("Read", "complete")])
+        self.assertEqual(tools[0][1], {"text": "secret-argument"})
+        self.assertNotIn("exit_code", tools[2][0])
         self.assertEqual((first["status"], second["status"], second["failure"]), ("completed", "failed", "provider"))
+        self.assertNotIn("secret-argument", json.dumps([meta for _, meta, _ in self.facts.facts]))
         blob = json.dumps(self.facts.facts)
-        for private in ("hidden thought", "secret-argument", "private vendor boom"):
+        for private in ("hidden thought", "private vendor boom"):
             self.assertNotIn(private, blob)
+
+    def test_a_refused_tool_fails_with_error_output_and_no_exit_code(self) -> None:
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "delete it"})
+        bash = {"command": "rm hello.py", "description": "Delete hello.py"}
+        self.feed(
+            {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": bash}]}},
+            {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "is_error": True, "content": ""}]}},
+        )
+        self.facts.wait_for(FactKind.TOOL, 3)
+
+        start, output, complete = self.facts.of(FactKind.TOOL)
+        self.assertEqual(start, ({"tool_ref": "t1", "label": "Bash", "phase": "start"}, {"text": "rm hello.py"}))
+        self.assertEqual(output[0]["stream"], "stderr")
+        self.assertNotIn("exit_code", complete[0])
 
     def test_closed_vendor_makes_submit_undelivered(self) -> None:
         self.vendor.terminate()
@@ -307,36 +325,61 @@ class AcpDriverTests(_DriverCase):
         self.assertEqual(self.driver.capabilities.approvals.value, "none")
         self.assertNotIn("/home/someone", json.dumps(self.facts.facts))
 
-    def test_the_synthetic_turn_keeps_thoughts_and_arguments_private(self) -> None:
+    def test_the_synthetic_turn_keeps_thoughts_private_and_arguments_in_content(self) -> None:
         lines = _lines("grok-stdio", "synthetic-turn.jsonl")
         self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "Reply pong"})
         self.feed(*lines[:7])
         self.facts.wait_for(FactKind.TURN_TERMINAL)
 
         catalog = self.facts.of(FactKind.CATALOG)[-1][1]["catalog"]
+        tools = self.facts.of(FactKind.TOOL)
         self.assertIn("promptCapabilities.embeddedContext", catalog["agent_capabilities"])
         self.assertIn("sessionCapabilities.list", catalog["agent_capabilities"])
         self.assertFalse(any(name == "auth" or name.startswith("_") for name in catalog["agent_capabilities"]))
         self.assertEqual(catalog["model"], "example-model")
-        self.assertEqual([meta["label"] for meta, _ in self.facts.of(FactKind.TOOL)], ["Read", "Read", "Read"])
+        self.assertEqual([meta["label"] for meta, _ in tools], ["Read", "Read", "Read"])
+        self.assertEqual(tools[0][1], {"text": "secret-argument"})
+        self.assertNotIn("exit_code", tools[-1][0])
         self.assertEqual(self.facts.of(FactKind.TURN_TERMINAL)[0][0]["status"], "completed")
+        self.assertNotIn("secret-argument", json.dumps([meta for _, meta, _ in self.facts.facts]))
         blob = json.dumps(self.facts.facts)
-        for private in ("hidden thought", "secret-argument", "vendor-session"):
+        for private in ("hidden thought", "vendor-session"):
             self.assertNotIn(private, blob)
 
-    def test_titles_with_arguments_stay_private(self) -> None:
+    def test_labels_stay_bare_and_titles_go_to_content(self) -> None:
         self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "work"})
         self.feed(*_lines("grok-stdio", "synthetic-permissions.jsonl"))
         self.facts.wait_for(FactKind.REQUEST_OPENED, 2)
         self.facts.wait_for(FactKind.TOOL, 2)
 
         summaries = [meta["summary"] for meta, _ in self.facts.of(FactKind.REQUEST_OPENED)]
-        labels = [meta["label"] for meta, _ in self.facts.of(FactKind.TOOL)]
+        tools = self.facts.of(FactKind.TOOL)
         self.assertEqual(summaries, ["请求使用工具 execute", "请求使用工具 edit"])
-        self.assertEqual(labels, ["read", "run_terminal_command"])
-        blob = json.dumps(self.facts.facts)
+        self.assertEqual([meta["label"] for meta, _ in tools], ["read", "run_terminal_command"])
+        # A descriptive vendor title is content; a bare name is only the label.
+        self.assertEqual([content for _, content in tools], [{"text": "Read package.json"}, {}])
+        metas = json.dumps([meta for _, meta, _ in self.facts.facts])
         for private in ("rm -rf", "example-probe", "package.json", "<workspace>", "notes.txt"):
-            self.assertNotIn(private, blob)
+            self.assertNotIn(private, metas)
+        for unpublished in ("rm -rf", "<workspace>", "notes.txt"):
+            self.assertNotIn(unpublished, json.dumps(self.facts.facts))
+
+    def test_a_tool_takes_its_command_from_raw_input_and_fails_without_an_exit_code(self) -> None:
+        # The shape Grok 1.0.60 sent in a local check; every value is synthetic.
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "work"})
+        self.feed(
+            {"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "vendor-session", "update": {
+                "sessionUpdate": "tool_call", "toolCallId": "tool-x", "title": "run_terminal_command",
+                "rawInput": {"command": "false", "description": "Fail on purpose"}}}},
+            {"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "vendor-session", "update": {
+                "sessionUpdate": "tool_call_update", "toolCallId": "tool-x", "status": "failed"}}},
+        )
+        self.facts.wait_for(FactKind.TOOL, 3)
+
+        start, output, complete = self.facts.of(FactKind.TOOL)
+        self.assertEqual(start, ({"tool_ref": "tool-x", "label": "run_terminal_command", "phase": "start"}, {"text": "false"}))
+        self.assertEqual((output[0]["stream"], output[1]), ("stderr", {"text": ""}))
+        self.assertNotIn("exit_code", complete[0])
 
     def test_unknown_agent_request_gets_an_error(self) -> None:
         self.feed({"jsonrpc": "2.0", "id": 41, "method": "fs/read_text_file", "params": {"path": "/etc/hosts"}})

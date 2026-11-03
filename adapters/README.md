@@ -18,7 +18,10 @@ on stdin, never in process arguments.
 
 A driver completes a streamed reply with its whole text and sends only new
 tool output, or the whole output marked `replace` when the vendor replaced it
-(Grok sends the whole content on each update). Claude needs
+(Grok sends the whole content on each update). A tool's start fact carries
+its command or path as content, for the operator only. An exit code comes
+only from the vendor; Claude and ACP tools have none, so a failed tool sends
+error output instead. Claude needs
 `--permission-prompt-tool stdio`; without it, Claude Code 2.1.312 denies a
 tool that needs permission without asking. Its driver declines
 `AskUserQuestion` at once because the session takes no input, and it sends

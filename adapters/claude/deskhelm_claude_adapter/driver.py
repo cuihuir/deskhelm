@@ -36,16 +36,29 @@ from deskhelm_protocol import (
 from .command import claude_argv
 
 MAX_TEXT_CHARS = 8192
+MAX_TITLE_CHARS = 2048
 MAX_PENDING_APPROVALS = 8
 APPROVAL_WINDOW_MS = 10 * 60 * 1000
 _LABEL = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 # Claude asks the user through this tool. It is input, not an approval, and
 # this session declares no input support.
 _QUESTION_TOOL = "AskUserQuestion"
+# The input field that says what a tool works on: a command, a path, a
+# pattern, an address, or a task.
+_TITLE_FIELDS = ("command", "file_path", "notebook_path", "pattern", "path", "url", "query", "description")
 
 
 def _label(value: object) -> str:
     return value if isinstance(value, str) and _LABEL.fullmatch(value) else "tool"
+
+
+def _tool_title(tool_input: object) -> str:
+    if isinstance(tool_input, dict):
+        for field in _TITLE_FIELDS:
+            value = tool_input.get(field)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:MAX_TITLE_CHARS]
+    return ""
 
 
 def _clip(text: str) -> str:
@@ -304,7 +317,11 @@ class ClaudeSession:
                 tool_ref = block.get("id") if isinstance(block.get("id"), str) and block["id"] else uuid.uuid4().hex
                 label = _label(block.get("name"))
                 self._tools[tool_ref] = label
-                self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "start"})
+                # The command or path is content, which only the operator sees.
+                title = _tool_title(block.get("input"))
+                self._emit(
+                    FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "start"}, {"text": title} if title else None
+                )
 
     def _user(self, value: dict[str, Any]) -> None:
         message = value.get("message")
@@ -324,14 +341,16 @@ class ClaudeSession:
             tool_ref = block.get("tool_use_id") if isinstance(block.get("tool_use_id"), str) and block["tool_use_id"] else "tool"
             label = self._tools.get(tool_ref, "tool")
             text = _tool_result_text(block.get("content"))
-            if text:
+            # Claude reports a failed or refused tool as an error result, not
+            # an exit code; error output is what marks the tool failed.
+            failed = bool(block.get("is_error"))
+            if text or failed:
                 self._emit(
                     FactKind.TOOL,
-                    {"tool_ref": tool_ref, "label": label, "phase": "output", "stream": "stdout"},
+                    {"tool_ref": tool_ref, "label": label, "phase": "output", "stream": "stderr" if failed else "stdout"},
                     {"text": text},
                 )
-            exit_code = 1 if block.get("is_error") else 0
-            self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "complete", "exit_code": exit_code})
+            self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "complete"})
 
     def _result(self, value: dict[str, Any]) -> None:
         self._flush_delta()

@@ -2,7 +2,8 @@
 
 The driver speaks ACP over the vendor's stdio and turns it into facts. Agent
 quirks live in a flavor; this module never checks an agent id. Thought text,
-tool arguments, raw output, diffs, and paths are not published.
+raw output, and diffs are not published, and a tool's command or path goes
+only to content, which only the operator sees.
 """
 
 from __future__ import annotations
@@ -35,9 +36,12 @@ from deskhelm_protocol import (
 )
 
 MAX_TEXT_CHARS = 8192
+MAX_TITLE_CHARS = 2048
 MAX_PENDING_PERMISSIONS = 8
 APPROVAL_WINDOW_MS = 10 * 60 * 1000
 _LABEL = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
+# The raw input field that says what a tool works on.
+_TITLE_FIELDS = ("command", "file_path", "path", "pattern", "url", "query")
 _INITIALIZE_ID = 1
 _SESSION_NEW_ID = 2
 
@@ -82,6 +86,22 @@ def tool_label(tool: object) -> str:
         value = tool.get(key)
         if isinstance(value, str) and _LABEL.fullmatch(value):
             return value
+    return ""
+
+
+def tool_title(tool: object) -> str:
+    """The command or path from a tool's raw input, else a descriptive title."""
+    if not isinstance(tool, dict):
+        return ""
+    raw = tool.get("rawInput")
+    if isinstance(raw, dict):
+        for key in _TITLE_FIELDS:
+            value = raw.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:MAX_TITLE_CHARS]
+    title = tool.get("title")
+    if isinstance(title, str) and title.strip() and not _LABEL.fullmatch(title):
+        return title.strip()[:MAX_TITLE_CHARS]
     return ""
 
 
@@ -397,7 +417,10 @@ class AcpSession:
             tool_ref = update.get("toolCallId") if isinstance(update.get("toolCallId"), str) and update["toolCallId"] else uuid.uuid4().hex
             label = tool_label(update) or "tool"
             self._tools[tool_ref] = label
-            self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "start"})
+            title = tool_title(update)
+            self._emit(
+                FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "start"}, {"text": title} if title else None
+            )
         elif kind == "tool_call_update":
             self._flush_delta()
             self._tool_update(update)
@@ -422,8 +445,10 @@ class AcpSession:
         status = update.get("status")
         if status in {"completed", "failed"} and tool_ref not in self._tool_done:
             self._tool_done.add(tool_ref)
-            exit_code = 0 if status == "completed" else 1
-            self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "complete", "exit_code": exit_code})
+            if status == "failed":
+                # ACP has no exit codes; error output is what marks a failure.
+                self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "output", "stream": "stderr"}, {"text": ""})
+            self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "complete"})
 
     def _permission(self, rpc_id: Any, params: object) -> None:
         params = params if isinstance(params, dict) else {}

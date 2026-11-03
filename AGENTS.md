@@ -220,9 +220,11 @@ access ADRs) has not started.
   turn before the prompt reaches the vendor, reports one terminal outcome per
   turn, honors interrupt, and rebuilds a reopened session from `state()`.
 - Parse vendor formats inside `adapters/`. Tool labels are fixed kinds or bare
-  tool names; command lines, paths, and tool arguments stay in fact content.
-  Do not publish reasoning, working directories, image bytes, local image
-  paths, or vendor error text.
+  tool names; command lines, paths, and tool arguments stay in fact content,
+  and a tool's start fact carries its command or path there. An exit code
+  comes only from the vendor; a tool that failed without one sends error
+  output. Do not publish reasoning, working directories, image bytes, local
+  image paths, or vendor error text.
 - Publish each accepted prompt once as a complete user message correlated by
   its command id; one matching vendor echo is not published again (ADR 0042).
 - Never place prompts in process arguments. Prefer bounded stdin, suppress
