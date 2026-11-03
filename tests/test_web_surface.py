@@ -236,6 +236,7 @@ class WebSurfaceTests(unittest.TestCase):
 
         self.assertEqual((found[1]["available"], found[1]["model"]), (True, "example-model"))
         self.assertEqual(found[1]["agent_capabilities"], ["fs.read"])
+        self.assertEqual(self._session(web)["catalog_rev"], 1)
         self.assertEqual((unknown[1]["available"], unknown[1]["notice"]), (False, "catalog_unavailable"))
         self.assertEqual(malformed, (400, {"error": "invalid_catalog_request"}))
 

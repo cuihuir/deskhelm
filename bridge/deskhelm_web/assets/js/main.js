@@ -47,9 +47,10 @@ const actions = {
     if (result.ok && result.payload.code === "dispatched") store.setDecided(approvalId, kind);
   },
   async loadCatalog(session) {
-    store.setCatalog(session.key, { status: "loading", data: null });
+    const rev = session.catalog_rev;
+    store.setCatalog(session.key, { status: "loading", data: null, rev });
     const result = await catalog(session);
-    store.setCatalog(session.key, { status: result.ok ? "ready" : "failed", data: result.payload });
+    store.setCatalog(session.key, { status: result.ok ? "ready" : "failed", data: result.payload, rev });
   },
   async configure(session, model, effort) {
     const entry = store.state.catalogs.get(session.key);
@@ -58,10 +59,18 @@ const actions = {
     const result = await run("configure_session", session, { model, effort: effort || null });
     const data = { ...entry.data };
     if (result.ok && result.payload.code === "dispatched") {
+      // Shown at once; the host's next catalog confirms it.
       data.model = model;
       data.reasoning_effort = effort;
     }
-    store.setCatalog(session.key, { status: "ready", data });
+    store.setCatalog(session.key, { ...entry, status: "ready", data, applying: false });
+  },
+  // Read the session's catalog when the host has pushed one this page has not read.
+  ensureCatalog(session) {
+    const entry = store.state.catalogs.get(session.key);
+    if (session.catalog_rev && (!entry || (entry.status !== "loading" && entry.rev !== session.catalog_rev))) {
+      actions.loadCatalog(session);
+    }
   },
   insertText(text) {
     if (composer) composer.insert(text);

@@ -168,13 +168,18 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     page.locator("#session-list .session", has_text="Codex").click()
     page.locator("#prompt:not([disabled])").wait_for(timeout=10_000)
     check("the selected session names the agent", page.locator("#topbar h1").text_content() == "Codex")
+    page.locator(".chip .chip-label", has_text="GPT-5.5 Codex · 中").wait_for(timeout=5000)
+    codex.emit(FactKind.CATALOG, content={"catalog": {**CATALOG, "reasoning_effort": "high"}})
+    page.locator(".chip .chip-label", has_text="GPT-5.5 Codex · 高").wait_for(timeout=5000)
+    check("the model chip follows each catalog the host pushes", True)
 
     # Markdown and tools from the replay window.
     check("a reply renders Markdown code, lists, and tables",
           page.locator(".msg.assistant .md .code pre").count() == 1
           and page.locator(".msg.assistant .md ol li").count() == 2
           and page.locator(".msg.assistant .md table td").count() == 2)
-    check("a tool row shows its command line", page.locator(".tool .tool-title", has_text="uv run pytest").count() == 1)
+    check("a tool row shows its command line without the shell wrapper",
+          page.locator(".tool .tool-title").first.text_content() == "uv run pytest")
     page.locator(".tool.is-failed .tool-head").click()
     check("a failed tool opens to its output", "1 failed" in page.locator(".tool.is-failed pre").text_content())
     codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "complete", "exit_code": 1}, {"text": ""})
@@ -292,7 +297,8 @@ def main() -> int:
         codex, claude = drivers["codex"], drivers["claude"]
         codex.emit(FactKind.CATALOG, content={"catalog": CATALOG})
         codex.emit(FactKind.TURN_STARTED, {"turn_ref": "x1"})
-        codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "start"}, {"text": "uv run pytest"})
+        codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "start"},
+                   {"text": "/usr/bin/zsh -lc 'uv run pytest'"})
         codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "output", "stream": "stdout"},
                    {"text": "..F\n1 failed\n"})
         codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "complete", "exit_code": 1}, {"text": ""})

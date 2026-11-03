@@ -79,6 +79,12 @@ export function toolWord(kind) {
   return TOOL_WORDS[kind] || kind || "工具";
 }
 
+// Codex runs commands as `/usr/bin/zsh -lc "..."`; show the command inside.
+export function commandText(title) {
+  const match = /^(?:\/\S*\/)?(?:ba|z)?sh -lc (['"])([\s\S]*)\1$/.exec(title || "");
+  return match ? match[2] : title || "";
+}
+
 export function toolIcon(kind) {
   if (TOOL_ICONS[kind]) return TOOL_ICONS[kind];
   const name = String(kind || "").toLowerCase();

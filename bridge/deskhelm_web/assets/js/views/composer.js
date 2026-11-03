@@ -104,8 +104,7 @@ export function mountComposer(store, root, actions) {
     stop.hidden = !(ready && busy && session.capabilities.interrupt);
     const configurable = Boolean(session) && Array.isArray(session.capabilities.configure) && session.capabilities.configure.length > 0;
     chip.hidden = !configurable;
-    // The Bridge caches each catalog, so reading it once per session is cheap.
-    if (configurable && ready && !store.state.catalogs.has(session.key)) actions.loadCatalog(session);
+    if (configurable && ready) actions.ensureCatalog(session);
     if (configurable) chipLabel.textContent = choiceLabel(store.state.catalogs.get(session.key));
     chip.setAttribute("aria-expanded", store.state.ui.menu ? "true" : "false");
     menu.hidden = !(configurable && store.state.ui.menu);
@@ -124,9 +123,10 @@ export function mountComposer(store, root, actions) {
 
   function paintMenu(session) {
     const entry = store.state.catalogs.get(session.key);
-    if (!entry) actions.loadCatalog(session);
     const content = [h("div", { class: "menu-title", text: "下一轮使用" })];
-    if (!entry || entry.status === "loading") {
+    if (!entry && !session.catalog_rev) {
+      content.push(h("p", { class: "hint", text: "这个会话还没有提供模型列表。" }));
+    } else if (!entry || entry.status === "loading") {
       content.push(h("p", { class: "hint", text: "正在读取模型…" }));
     } else if (entry.status !== "ready" || !entry.data.available) {
       content.push(h("p", { class: "hint", text: "这个会话暂时列不出模型。" }));

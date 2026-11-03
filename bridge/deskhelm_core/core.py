@@ -142,6 +142,8 @@ class SessionRecord:
     host_seq: int = 0
     disconnected_at: int | None = None
     catalog: dict[str, Any] | None = None
+    # Counts the catalogs the host pushed, so clients know when to read again.
+    catalog_rev: int = 0
     window: deque[dict[str, Any]] = field(default_factory=deque)
     window_bytes: int = 0
     # The view the console last carried, so an unchanged session sends no delta.
@@ -165,6 +167,7 @@ class SessionRecord:
             "approvals": [ticket.view() for ticket in self.tickets.values()],
             "attention": self.attention,
             "opened_at": self.opened_at,
+            "catalog_rev": self.catalog_rev,
         }
 
 
@@ -432,6 +435,7 @@ class Core:
                 self._interaction(record, "attention", payload, "", now)
         elif fact.kind is FactKind.CATALOG:
             record.catalog = content["catalog"]
+            record.catalog_rev += 1
         elif fact.kind is FactKind.CAPABILITIES:
             # A driver may learn what its vendor allows only after the handshake.
             record.capabilities = CapabilityMatrix.from_dict(meta["capabilities"])

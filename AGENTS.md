@@ -276,7 +276,9 @@ access ADRs) has not started.
   other input resets the guard.
 - The host pushes the catalog (models, MCP status, and skill names) when its
   thread attaches, after a turn at most once a minute, and after a model
-  choice, and the Bridge caches it, so a query never blocks on a host.
+  choice, and the Bridge caches it, so a query never blocks on a host. The
+  session view's `catalog_rev` counts pushed catalogs; a client reads the
+  catalog again when it changes and never polls.
   `configure` stores a model and reasoning effort for the next `turn/start`
   only after a catalog read from the last 110 seconds; otherwise it is
   undelivered and a fresh read starts. It never writes Codex configuration,

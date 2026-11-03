@@ -314,5 +314,6 @@ def _session_view(key: SessionKey, view: dict[str, Any], updated_at: int, previe
         ],
         "opened_at": int(view.get("opened_at") or 0),
         "updated_at": max(updated_at, int(view.get("opened_at") or 0)),
+        "catalog_rev": int(view.get("catalog_rev") or 0),
         "preview": preview,
     }

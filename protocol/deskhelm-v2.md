@@ -138,7 +138,9 @@ A `SessionView` carries the key, `runtime`, `capabilities`, `lifecycle`
 (`active`, `disconnected`), `activity` (`starting`, `idle`, `working`,
 `waiting_approval`, `waiting_input`), `turn_id`, `last_outcome`,
 `approvals` (each with `approval_id`, `kind`, `summary`, `expires_at`,
-`answerable`), `attention`, and `opened_at`.
+`answerable`), `attention`, `opened_at`, and `catalog_rev`, which counts the
+catalogs the host has pushed (0 before the first), so a client knows when to
+query the catalog again.
 
 `{"type": "subscribe", "stream": "interaction", "sessions": [key, …]}` is
 for the operator tier only; `sessions` is optional. The Bridge answers with

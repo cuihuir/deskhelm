@@ -23,7 +23,8 @@ export function mountDetails(store, root, actions) {
   function load(force) {
     const session = store.selected();
     if (!session || !store.state.ui.details) return;
-    if (force || !store.state.catalogs.has(session.key)) actions.loadCatalog(session);
+    if (force) actions.loadCatalog(session);
+    else actions.ensureCatalog(session);
   }
 
   function row(label, value, copyable) {
@@ -72,6 +73,7 @@ export function mountDetails(store, root, actions) {
 
   function catalogSections(session) {
     const entry = store.state.catalogs.get(session.key);
+    if (!entry && !session.catalog_rev) return [section("目录", h("p", { class: "hint", text: "这个会话还没有提供模型、MCP 和 skills。" }))];
     if (!entry || entry.status === "loading") return [section("目录", h("p", { class: "hint", text: "正在读取模型、MCP 和 skills…" }))];
     const data = entry.data || {};
     if (entry.status !== "ready" || !data.available) {
@@ -117,6 +119,10 @@ export function mountDetails(store, root, actions) {
     load(false);
     render();
   });
-  for (const topic of ["snapshot", "sessions", "catalog"]) store.on(topic, render);
+  store.on("sessions", () => {
+    load(false);
+    render();
+  });
+  for (const topic of ["snapshot", "catalog"]) store.on(topic, render);
   render();
 }

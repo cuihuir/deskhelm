@@ -458,6 +458,19 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(quiet, [])
         self.assertEqual([change["session"]["activity"] for change in busy[0]["changes"]], ["working"])
 
+    def test_each_pushed_catalog_counts_in_the_console(self) -> None:
+        harness = _Harness()
+        harness.client("web")
+        harness.host("host")
+        harness.take("web")
+        harness.fact("host", "catalog", content={"catalog": {"models": [{"id": "m"}]}})
+        first = harness.take("web", "delta")
+        harness.fact("host", "catalog", content={"catalog": {"models": [{"id": "n"}]}})
+        second = harness.take("web", "delta")
+
+        self.assertEqual(first[0]["changes"][0]["session"]["catalog_rev"], 1)
+        self.assertEqual(second[0]["changes"][0]["session"]["catalog_rev"], 2)
+
     def test_catalog_query_reads_the_cached_catalog(self) -> None:
         harness = _Harness()
         harness.host("host")
