@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import queue
+import re
+import secrets
 import select
 import socket
 import sys
@@ -26,6 +30,7 @@ from .control import (
     SubmitPromptPayload,
 )
 from .event import PROTOCOL_VERSION, AgentEvent
+from .paths import deskhelm_runtime_directory
 from .transport import (
     INTERACTION_SUBSCRIPTION_V1_CAPABILITY,
     MAX_FRAME_BYTES,
@@ -46,6 +51,13 @@ MAX_EVENTS_PER_SESSION = 120
 MAX_EVENTS = 480
 MAX_SSE_CLIENTS = 8
 MAX_IDENTITY_CHARS = 512
+WEB_COOKIE_NAME = "deskhelm_web"
+WEB_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{16,256}")
+_UNAUTHORIZED_BODY = (
+    "请打开 deskhelm web 启动时打印的链接。\n"
+    "Open the link that deskhelm web printed when it started.\n"
+).encode("utf-8")
 _SESSION_SEPARATOR = "\u001f"
 _ASSET_DIR = Path(__file__).resolve().parent / "web-assets"
 _ASSET_SPECS = {
@@ -189,6 +201,44 @@ def normalize_web_port(port: int) -> int:
     return port
 
 
+def default_web_token_path() -> Path:
+    return deskhelm_runtime_directory() / "web-token"
+
+
+def load_web_token(path: Path) -> str:
+    """Return the token stored at path, creating one with mode 0600 if needed.
+
+    Keeping the token across restarts keeps existing browser cookies valid.
+    """
+    try:
+        token = path.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError):
+        token = ""
+    if _TOKEN_PATTERN.fullmatch(token):
+        return token
+    token = secrets.token_urlsafe(32)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+        handle.write(token + "\n")
+    os.replace(temporary, path)
+    return token
+
+
+def _cookie_value(header: str, name: str) -> str:
+    for part in header.split(";"):
+        key, separator, value = part.strip().partition("=")
+        if separator and key == name:
+            return value.strip()
+    return ""
+
+
+def _same_origin(origin: str, host: str | None) -> bool:
+    parts = urlsplit(origin)
+    return parts.scheme == "http" and bool(host) and parts.netloc == host
+
+
 def _load_assets() -> dict[str, tuple[bytes, str]]:
     assets: dict[str, tuple[bytes, str]] = {}
     for path, (name, content_type) in _ASSET_SPECS.items():
@@ -242,11 +292,16 @@ class WebClient:
         port: int,
         client_id: str,
         session_refresh_seconds: float = 1.0,
+        access_token: str | None = None,
     ) -> None:
         if not isinstance(client_id, str) or not client_id.strip() or len(client_id) > 128:
             raise ValueError("web client_id is invalid")
         if session_refresh_seconds <= 0:
             raise ValueError("session refresh interval must be greater than zero")
+        token = secrets.token_urlsafe(32) if access_token is None else access_token
+        if not isinstance(token, str) or not _TOKEN_PATTERN.fullmatch(token):
+            raise ValueError("web access token is invalid")
+        self.access_token = token
         self.socket_path = socket_path
         self.host = host
         self.port = port
@@ -540,7 +595,15 @@ class WebClient:
     def handle_post(self, request: BaseHTTPRequestHandler) -> None:
         path = urlsplit(request.path).path
         if path != "/api/control":
-            self._send_json(request, 404, {"error": "not_found"})
+            self._refuse(request, 404, {"error": "not_found"})
+            return
+        media_type = request.headers.get("Content-Type", "").split(";", 1)[0]
+        if media_type.strip().lower() != "application/json":
+            self._refuse(request, 415, {"error": "json_required"})
+            return
+        origin = request.headers.get("Origin")
+        if origin is not None and not _same_origin(origin, request.headers.get("Host")):
+            self._refuse(request, 403, {"error": "origin_not_allowed"})
             return
         try:
             length = int(request.headers.get("Content-Length", "0"))
@@ -607,12 +670,103 @@ class WebClient:
                 return None
 
             def do_GET(self) -> None:  # noqa: N802
-                client.handle_get(self)
+                if client.admit(self):
+                    client.handle_get(self)
 
             def do_POST(self) -> None:  # noqa: N802
-                client.handle_post(self)
+                if client.admit(self):
+                    client.handle_post(self)
 
         return Handler
+
+    def admit(self, request: BaseHTTPRequestHandler) -> bool:
+        """Check the Host and the credential; a refused request is answered."""
+        if not self._host_allowed(request.headers.get("Host")):
+            self._refuse(request, 403, {"error": "host_not_allowed"})
+            return False
+        split = urlsplit(request.path)
+        offered = parse_qs(split.query).get("token")
+        if offered and request.command == "GET":
+            if self._token_matches(offered[0]):
+                self._set_cookie_and_redirect(request, split.path)
+            else:
+                self._send_unauthorized(request)
+            return False
+        if not self._token_matches(self._credential(request)):
+            self._send_unauthorized(request)
+            return False
+        return True
+
+    def _host_allowed(self, host: str | None) -> bool:
+        if self.host != "127.0.0.1":
+            # --allow-remote binds beyond loopback, where any name may reach
+            # the server; the token still guards every request.
+            return True
+        allowed = {f"127.0.0.1:{self.port}", f"localhost:{self.port}"}
+        if self.port == 80:
+            allowed |= {"127.0.0.1", "localhost"}
+        return host in allowed
+
+    def _credential(self, request: BaseHTTPRequestHandler) -> str:
+        scheme, _, value = request.headers.get("Authorization", "").partition(" ")
+        if scheme == "Bearer" and value.strip():
+            return value.strip()
+        return _cookie_value(request.headers.get("Cookie", ""), WEB_COOKIE_NAME)
+
+    def _token_matches(self, value: str) -> bool:
+        return bool(value) and hmac.compare_digest(
+            value.encode("utf-8"), self.access_token.encode("utf-8")
+        )
+
+    def _set_cookie_and_redirect(
+        self, request: BaseHTTPRequestHandler, path: str
+    ) -> None:
+        # Redirect drops the token from the address bar; "//name" would leave
+        # this origin.
+        location = path if path.startswith("/") and not path.startswith("//") else "/"
+        request.close_connection = True
+        request.send_response(303)
+        request.send_header("Location", location)
+        request.send_header(
+            "Set-Cookie",
+            f"{WEB_COOKIE_NAME}={self.access_token}; Path=/; HttpOnly; "
+            f"SameSite=Strict; Max-Age={WEB_COOKIE_MAX_AGE_SECONDS}",
+        )
+        request.send_header("Content-Length", "0")
+        request.send_header("Cache-Control", "no-store")
+        request.send_header("Referrer-Policy", "no-referrer")
+        request.send_header("Connection", "close")
+        request.end_headers()
+
+    def _send_unauthorized(self, request: BaseHTTPRequestHandler) -> None:
+        request.close_connection = True
+        self._send_bytes(
+            request,
+            401,
+            _UNAUTHORIZED_BODY,
+            "text/plain; charset=utf-8",
+            extra_headers=(
+                ("WWW-Authenticate", 'Bearer realm="deskhelm-web"'),
+                ("Connection", "close"),
+            ),
+        )
+
+    def _refuse(
+        self,
+        request: BaseHTTPRequestHandler,
+        status: int,
+        payload: dict[str, Any],
+    ) -> None:
+        # The request body may be unread, so the connection cannot be reused.
+        request.close_connection = True
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        self._send_bytes(
+            request,
+            status,
+            body,
+            "application/json; charset=utf-8",
+            extra_headers=(("Connection", "close"),),
+        )
 
     def _send_json(
         self,
@@ -629,6 +783,7 @@ class WebClient:
         status: int,
         body: bytes,
         content_type: str,
+        extra_headers: tuple[tuple[str, str], ...] = (),
     ) -> None:
         request.send_response(status)
         request.send_header("Content-Type", content_type)
@@ -638,6 +793,8 @@ class WebClient:
         request.send_header("X-Robots-Tag", "noindex, nofollow")
         request.send_header("Referrer-Policy", "no-referrer")
         request.send_header("Content-Security-Policy", _CSP)
+        for name, value in extra_headers:
+            request.send_header(name, value)
         request.end_headers()
         request.wfile.write(body)
 
@@ -991,18 +1148,28 @@ def run_web_client(
     client_id: str = "deskhelm-web",
     allow_remote: bool = False,
     session_refresh_seconds: float = 1.0,
+    token_path: Path | None = None,
 ) -> int:
+    normalized_host = normalize_web_host(host, allow_remote=allow_remote)
+    normalized_port = normalize_web_port(port)
+    token = load_web_token(token_path or default_web_token_path())
     client = WebClient(
         socket_path,
-        host=normalize_web_host(host, allow_remote=allow_remote),
-        port=normalize_web_port(port),
+        host=normalized_host,
+        port=normalized_port,
         client_id=client_id,
         session_refresh_seconds=session_refresh_seconds,
+        access_token=token,
     )
     client.start()
     print(f"deskhelm web reading {socket_path}", file=sys.stderr)
     print(
         f"deskhelm web listening on http://{client.host}:{client.port}",
+        file=sys.stderr,
+    )
+    print(
+        "open once to sign this browser in: "
+        f"http://{client.host}:{client.port}/?token={token}",
         file=sys.stderr,
     )
     if allow_remote and client.host not in {"127.0.0.1", "localhost"}:

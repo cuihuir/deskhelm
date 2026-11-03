@@ -82,8 +82,12 @@ Omit `--socket` to read `bridge.sock`. Every DeskHelm session attached there
 appears on the page. An explicit `--socket` still selects one bridge,
 including a private Alpha bridge. An empty path is rejected.
 
-Open `http://127.0.0.1:8766`. `--allow-remote` is required before the process
-binds anywhere other than loopback, because the page shows interaction content.
+Open the `http://127.0.0.1:8766/?token=…` link that `deskhelm web` prints. It
+signs the browser in with an HttpOnly cookie for 30 days and then shows the
+page without the token. Every request needs that cookie. The token lives with
+mode 0600 in the DeskHelm runtime directory and survives restarts of the web
+process. `--allow-remote` is required before the process binds anywhere other
+than loopback, because the page shows interaction content.
 Model, reasoning, MCP, and skills open from the composer and do not sit in
 the transcript. The page fetches that catalog when the selected session
 changes, and again on refresh. Choosing a model or effort sends

@@ -38,6 +38,7 @@ from deskhelm_bridge.web_client import (
     WebClient,
     WebControlError,
     _FrameBuffer,
+    load_web_token,
     normalize_web_host,
     normalize_web_port,
 )
@@ -45,6 +46,9 @@ from deskhelm_bridge.web_client import (
 
 ROOT = Path(__file__).resolve().parents[1]
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+TEST_TOKEN = "test-web-token-0123456789"
+AUTH_HEADERS = {"Authorization": f"Bearer {TEST_TOKEN}"}
+JSON_HEADERS = {**AUTH_HEADERS, "Content-Type": "application/json"}
 
 
 def _identity(session_id: str = "session-web") -> dict[str, str]:
@@ -211,6 +215,28 @@ class WebClientBoundsTests(unittest.TestCase):
         self.assertEqual(body["code"], "handler_unavailable")
 
 
+class WebTokenTests(unittest.TestCase):
+    def test_token_file_is_private_and_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "web" / "web-token"
+            first = load_web_token(path)
+            second = load_web_token(path)
+            mode = path.stat().st_mode & 0o777
+
+        self.assertEqual(first, second)
+        self.assertEqual(mode, 0o600)
+
+    def test_invalid_token_file_is_replaced(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "web-token"
+            path.write_text("short\n", encoding="ascii")
+            token = load_web_token(path)
+            stored = path.read_text(encoding="ascii").strip()
+
+        self.assertNotEqual(token, "short")
+        self.assertEqual(stored, token)
+
+
 class WebClientHttpTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = WebClient(
@@ -218,6 +244,7 @@ class WebClientHttpTests(unittest.TestCase):
             host="127.0.0.1",
             port=0,
             client_id="deskhelm-web",
+            access_token=TEST_TOKEN,
         )
         self.client.start()
 
@@ -227,8 +254,81 @@ class WebClientHttpTests(unittest.TestCase):
     def _url(self, path: str) -> str:
         return f"http://127.0.0.1:{self.client.port}{path}"
 
+    def _raw(
+        self,
+        method: str,
+        path: str,
+        headers: dict[str, str] | None = None,
+        body: bytes | None = None,
+    ) -> tuple[int, dict[str, str], bytes]:
+        connection = http.client.HTTPConnection("127.0.0.1", self.client.port, timeout=3)
+        try:
+            connection.request(method, path, body=body, headers=headers or {})
+            response = connection.getresponse()
+            return response.status, dict(response.getheaders()), response.read()
+        finally:
+            connection.close()
+
+    def test_requests_without_the_token_are_refused(self) -> None:
+        status, headers, _ = self._raw("GET", "/api/snapshot")
+
+        self.assertEqual(status, 401)
+        self.assertIn("Bearer", headers.get("WWW-Authenticate", ""))
+
+    def test_token_link_sets_a_private_cookie_and_drops_the_token(self) -> None:
+        status, headers, _ = self._raw("GET", f"/?token={TEST_TOKEN}")
+        cookie = headers.get("Set-Cookie", "")
+        cookie_status, _, _ = self._raw(
+            "GET", "/api/snapshot", {"Cookie": cookie.split(";", 1)[0]}
+        )
+
+        self.assertEqual(status, 303)
+        self.assertEqual(headers.get("Location"), "/")
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("SameSite=Strict", cookie)
+        self.assertEqual(cookie_status, 200)
+
+    def test_token_redirect_stays_on_this_origin(self) -> None:
+        status, headers, _ = self._raw("GET", f"//evil.example/?token={TEST_TOKEN}")
+        location = headers.get("Location", "")
+
+        self.assertEqual(status, 303)
+        self.assertTrue(location.startswith("/"))
+        self.assertFalse(location.startswith("//"))
+
+    def test_wrong_token_and_unknown_host_are_refused(self) -> None:
+        wrong, _, _ = self._raw("GET", "/?token=wrong-token-0123456789")
+        foreign, _, _ = self._raw(
+            "GET", "/api/snapshot", {**AUTH_HEADERS, "Host": "evil.example"}
+        )
+
+        self.assertEqual(wrong, 401)
+        self.assertEqual(foreign, 403)
+
+    def test_control_requires_json_and_a_same_origin_browser(self) -> None:
+        text, _, _ = self._raw(
+            "POST", "/api/control", {**AUTH_HEADERS, "Content-Type": "text/plain"}, b"{}"
+        )
+        cross, _, _ = self._raw(
+            "POST", "/api/control", {**JSON_HEADERS, "Origin": "http://evil.example"}, b"{}"
+        )
+        same, _, body = self._raw(
+            "POST",
+            "/api/control",
+            {**JSON_HEADERS, "Origin": f"http://127.0.0.1:{self.client.port}"},
+            b"{",
+        )
+
+        self.assertEqual(text, 415)
+        self.assertEqual(cross, 403)
+        self.assertEqual(same, 400)
+        self.assertEqual(body, b'{"error":"invalid_control_request"}')
+
     def _open(self, path: str, data: bytes | None = None, method: str | None = None) -> tuple[int, bytes]:
-        request = urllib.request.Request(self._url(path), data=data, method=method)
+        headers = JSON_HEADERS if data is not None else AUTH_HEADERS
+        request = urllib.request.Request(
+            self._url(path), data=data, method=method, headers=headers
+        )
         try:
             with _OPENER.open(request, timeout=3) as response:
                 return response.status, response.read()
@@ -290,7 +390,7 @@ class WebClientHttpTests(unittest.TestCase):
 
     def test_event_stream_starts_with_a_snapshot(self) -> None:
         connection = http.client.HTTPConnection("127.0.0.1", self.client.port, timeout=3)
-        connection.request("GET", "/api/events")
+        connection.request("GET", "/api/events", headers=AUTH_HEADERS)
         response = connection.getresponse()
         self.assertEqual(response.status, 200)
         data = b""
@@ -338,6 +438,7 @@ class WebClientBridgeTests(unittest.TestCase):
                     port=0,
                     client_id="deskhelm-web",
                     session_refresh_seconds=0.05,
+                    access_token=TEST_TOKEN,
                 )
                 client.start()
                 self._poll(client, lambda snapshot: snapshot["connected"] is True)
@@ -497,16 +598,18 @@ class WebClientBridgeTests(unittest.TestCase):
         raise AssertionError(last)
 
     def _snapshot(self, client: WebClient) -> dict:
-        with _OPENER.open(
+        request = urllib.request.Request(
             f"http://127.0.0.1:{client.port}/api/snapshot",
-            timeout=3,
-        ) as response:
+            headers=AUTH_HEADERS,
+        )
+        with _OPENER.open(request, timeout=3) as response:
             return json.loads(response.read().decode("utf-8"))
 
     def _get(self, client: WebClient, path: str) -> tuple[int, dict]:
         request = urllib.request.Request(
             f"http://127.0.0.1:{client.port}{path}",
             method="GET",
+            headers=AUTH_HEADERS,
         )
         try:
             with _OPENER.open(request, timeout=3) as response:
@@ -522,6 +625,7 @@ class WebClientBridgeTests(unittest.TestCase):
             f"http://127.0.0.1:{client.port}/api/control",
             data=json.dumps(payload).encode("utf-8"),
             method="POST",
+            headers=JSON_HEADERS,
         )
         with _OPENER.open(request, timeout=3) as response:
             return response.status, json.loads(response.read().decode("utf-8"))

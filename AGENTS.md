@@ -355,6 +355,11 @@ Keep third-party reference files outside version control under
   lists every attached session. Browsing a thread does not focus it. The page
   does not create sessions, read transcript files, or promise replay. Bind
   `127.0.0.1` unless `--allow-remote` is explicit.
+- Every web request needs the token stored with mode 0600 in the DeskHelm
+  runtime directory. The printed `?token=` link sets an HttpOnly,
+  SameSite=Strict cookie and redirects to a token-free path. A loopback bind
+  accepts only `127.0.0.1` or `localhost` Host headers. POST requires
+  `application/json`, and a browser Origin must match the request Host.
 - `session_catalog_query` is a read-only controller frame for one active
   session's models, MCP status, skill names, and vendor-declared capability
   tokens. The Codex adapter is the
@@ -530,8 +535,9 @@ Current commands:
   relay factory; restart it before the first `deskhelm agent` against
   `bridge.sock`.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge web [--socket <bridge.sock>]`:
-  run the loopback Codex-layout web client from ADR 0036. Open
-  `http://127.0.0.1:8766`. Omitting `--socket` reads the user bridge and lists
+  run the loopback Codex-layout web client from ADR 0036. Open the
+  `http://127.0.0.1:8766/?token=…` link it prints once per browser; the
+  cookie then lasts 30 days. Omitting `--socket` reads the user bridge and lists
   every attached session. An explicit `--socket` selects one bridge. An empty
   path is rejected. Browsing a session does not change Bridge focus. The page
   shows live interaction only and sends explicit focus, interrupt,
