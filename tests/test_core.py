@@ -443,6 +443,21 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual([frame["type"] for frame in resumed[1:]], ["delta"])
         self.assertEqual(harness.take("stale")[-1]["type"], "snapshot")
 
+    def test_a_fact_that_changes_no_session_view_sends_no_delta(self) -> None:
+        harness = _Harness()
+        harness.client("web")
+        harness.host("host")
+        harness.fact("host", "ready")
+        harness.take("web")
+        for text in ("Hel", "lo"):
+            harness.fact("host", "message", {"message_ref": "m1", "role": "assistant", "phase": "delta"}, {"text": text})
+        quiet = harness.take("web", "delta")
+        harness.fact("host", "turn_started", {"turn_ref": "t1"})
+        busy = harness.take("web", "delta")
+
+        self.assertEqual(quiet, [])
+        self.assertEqual([change["session"]["activity"] for change in busy[0]["changes"]], ["working"])
+
     def test_catalog_query_reads_the_cached_catalog(self) -> None:
         harness = _Harness()
         harness.host("host")

@@ -128,6 +128,8 @@ vendor cannot do it. Effect handling must not block.
 and then `delta` frames with `seq` increasing by one and a list of
 `changes`: `{"op": "session", "session": SessionView}`,
 `{"op": "session_removed", …key}`, or `{"op": "focus", "focus": key|null}`.
+A session appears in a delta only when its view changed, so a streaming
+reply sends no console deltas.
 A client that saw `seq` from the same `instance_id` may send
 `"after": {"instance_id": "…", "seq": 12}` and receives only the missed
 deltas when the Bridge still holds them, otherwise a snapshot.

@@ -144,6 +144,8 @@ class SessionRecord:
     catalog: dict[str, Any] | None = None
     window: deque[dict[str, Any]] = field(default_factory=deque)
     window_bytes: int = 0
+    # The view the console last carried, so an unchanged session sends no delta.
+    sent_view: dict[str, Any] | None = None
 
     def ticket_for(self, provider_ref: str) -> Ticket | None:
         return next(
@@ -858,7 +860,10 @@ class Core:
         for key in sorted(self._dirty, key=lambda item: (item.agent_id, item.session_id, item.project_id)):
             record = self._sessions.get(key)
             if record is not None:
-                changes.append({"op": "session", "session": record.view()})
+                view = record.view()
+                if view != record.sent_view:
+                    record.sent_view = view
+                    changes.append({"op": "session", "session": view})
         if self._focus_dirty:
             changes.append({"op": "focus", "focus": None if self._focus is None else self._focus.to_dict()})
         if changes:
