@@ -1,6 +1,7 @@
 // Wires the store, the event stream, the views, and the page's actions.
 
 import { catalog, control, openStream, sessionFields } from "./api.js";
+import { newId } from "./dom.js";
 import { createStore, storageGet, storageSet } from "./store.js";
 import { countdown, relativeTime, resultText } from "./text.js";
 import { mountComposer } from "./views/composer.js";
@@ -23,7 +24,7 @@ function announce(text) {
 }
 
 async function run(kind, session, extra) {
-  const result = await control({ kind, ...sessionFields(session), ...extra });
+  const result = await control({ kind, ...sessionFields(session), command_id: newId(), ...extra });
   announce(resultText(result.payload, result.ok));
   return result;
 }
@@ -58,8 +59,9 @@ const actions = {
     store.setCatalog(session.key, { ...entry, applying: true });
     const result = await run("configure_session", session, { model, effort: effort || null });
     const data = { ...entry.data };
-    if (result.ok && result.payload.code === "dispatched") {
-      // Shown at once; the host's next catalog confirms it.
+    // A choice shows at once and the host's next catalog confirms it; a reset
+    // waits for that catalog to name the agent's own model.
+    if (result.ok && result.payload.code === "dispatched" && model) {
       data.model = model;
       data.reasoning_effort = effort;
     }

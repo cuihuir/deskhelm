@@ -3,7 +3,7 @@
 // opens and on refresh; it is never polled.
 
 import { copyText, h, icon } from "../dom.js";
-import { EFFORT_TEXT, MCP_STATUS, activityText, capabilityWords } from "../text.js";
+import { EFFORT_TEXT, MCP_STATUS, activityDetail, capabilityWords } from "../text.js";
 import { runtimeLine } from "./header.js";
 
 export function mountDetails(store, root, actions) {
@@ -60,7 +60,7 @@ export function mountDetails(store, root, actions) {
           row("运行时", runtimeLine(session) || "未知"),
           row("项目", session.project_id),
           row("会话", h("code", { text: session.session_id }), session.session_id),
-          row("状态", activityText(session)),
+          row("状态", activityDetail(session)),
           opened ? row("打开于", opened) : [],
           row("语音", store.state.focus === session.key ? "按住右 Alt 说的话会发给这个会话" : "没有聚焦这个会话"),
         ),

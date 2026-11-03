@@ -123,7 +123,7 @@ export function mountComposer(store, root, actions) {
 
   function paintMenu(session) {
     const entry = store.state.catalogs.get(session.key);
-    const content = [h("div", { class: "menu-title", text: "下一轮使用" })];
+    const content = [h("div", { class: "menu-title", text: "从下一轮起使用" })];
     if (!entry && !session.catalog_rev) {
       content.push(h("p", { class: "hint", text: "这个会话还没有提供模型列表。" }));
     } else if (!entry || entry.status === "loading") {
@@ -158,9 +158,18 @@ export function mountComposer(store, root, actions) {
           }))),
         );
       }
-      if (!models.length) content.push(h("p", { class: "hint", text: "没有可切换的模型。" }));
+      if (!models.length) {
+        const unavailable = data.models_notice === "unavailable";
+        content.push(h("p", { class: "hint", text: unavailable ? "模型列表暂时取不到，稍后再打开。" : "没有可切换的模型。" }));
+      } else {
+        content.push(h("button", {
+          class: "link-button reset-choice", type: "button", disabled: entry.applying,
+          text: "恢复 Agent 自己的设置", on: { click: () => actions.configure(session, null, null) },
+        }));
+      }
     }
-    content.push(h("p", { class: "menu-note", text: "只用于下一轮，不会写入 Agent 的全局配置。" }));
+    // The choice lasts until it is changed or the host restarts.
+    content.push(h("p", { class: "menu-note", text: "用于之后从这里和语音发出的指令，不改 Agent 的全局配置。" }));
     menu.replaceChildren(...content);
   }
 

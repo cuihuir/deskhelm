@@ -76,10 +76,22 @@ export function resultText(payload, ok) {
   return words.result[code] || PAGE_RESULT_TEXT[code] || (ok ? "已发送" : "没有完成");
 }
 
+const LAST_TURN_TEXT = { completed: "已完成", interrupted: "已中断", failed: "失败" };
+
 export function activityText(session) {
   if (!session) return "";
   if (session.lifecycle === "disconnected") return "已断开";
-  return words.activity[session.activity] || session.activity || "";
+  // An idle session says how its last turn ended.
+  const ended = session.activity === "idle" && session.outcome ? LAST_TURN_TEXT[session.outcome.status] : "";
+  return ended || words.activity[session.activity] || session.activity || "";
+}
+
+// The state with a failed turn's reason, for places with room to say it.
+export function activityDetail(session) {
+  const text = activityText(session);
+  const outcome = session && session.activity === "idle" ? session.outcome : null;
+  const reason = outcome && outcome.status === "failed" ? words.failure[outcome.failure] : "";
+  return reason ? `${text}：${reason}` : text;
 }
 
 // One tone per state, shared by the sidebar, the header, and the dot.

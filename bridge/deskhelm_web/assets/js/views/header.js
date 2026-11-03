@@ -1,7 +1,7 @@
 // The top bar of the selected session, and the banner for connection trouble.
 
 import { h, icon } from "../dom.js";
-import { NOTICE_TEXT, activityText, activityTone } from "../text.js";
+import { NOTICE_TEXT, activityDetail, activityTone } from "../text.js";
 import { avatar } from "./sidebar.js";
 
 export function runtimeLine(session) {
@@ -39,7 +39,7 @@ export function mountHeader(store, root, banner, actions) {
     pill.hidden = !session;
     if (session) {
       pill.className = `pill tone-${activityTone(session)}`;
-      pill.replaceChildren(h("span", { class: "dot" }), activityText(session));
+      pill.replaceChildren(h("span", { class: "dot" }), activityDetail(session));
     }
     const focused = Boolean(session) && state.focus === session.key;
     focus.hidden = !session;

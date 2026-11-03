@@ -175,6 +175,11 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     codex.emit(FactKind.CATALOG, content={"catalog": {**CATALOG, "reasoning_effort": "high"}})
     page.locator(".chip .chip-label", has_text="GPT-5.5 Codex · 高").wait_for(timeout=5000)
     check("the model chip follows each catalog the host pushes", True)
+    page.click(".chip")
+    page.locator(".menu .reset-choice").click()
+    reset = codex.take(EffectKind.CONFIGURE)
+    check("the model menu can return to the agent's own setting", (reset["model"], reset["effort"]) == (None, None))
+    page.keyboard.press("Escape")
 
     # Markdown and tools from the replay window.
     check("a reply renders Markdown code, lists, and tables",
@@ -318,6 +323,12 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     finally:
         streaming.set()
         streamer.join()
+    grok = drivers["grok"]
+    grok.emit(FactKind.TURN_STARTED, {"turn_ref": "g1"})
+    grok.emit(FactKind.TURN_TERMINAL, {"status": "failed", "failure": "usage_limit", "reusable": True, "turn_ref": "g1"}, {})
+    page.locator("#topbar .pill", has_text="失败：用量已到上限").wait_for(timeout=5000)
+    check("a session whose last turn failed says so and why",
+          page.locator("#session-list .session", has_text="Grok").locator(".state").text_content() == "失败")
     claude.emit(FactKind.MESSAGE, {"message_ref": "c-stream", "role": "assistant", "phase": "complete"}, {"text": "streamed"})
     page.locator("#session-list .session", has_text="Claude").click()
     page.locator(".msg.user", has_text="Summarize the pricing page").wait_for(timeout=5000)
