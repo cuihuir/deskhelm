@@ -25,6 +25,17 @@ has not started. The redesign baseline is tag `pre-architecture-v2`
 | Voice host | `bridge/deskhelm_voice_host`, `deskhelm voice` | Paraformer ASR, Piper, Kokoro, or IndexTTS notices, right-Alt PTT; user-verified |
 | Demo | `deskhelm simulate` | Fake session host with a scripted turn and approval |
 
+Since the release, branch `next` (not pushed) holds:
+
+- The page tells an unknown prompt outcome (`dispatch_failed`, a Bridge
+  timeout or lost connection, or a lost HTTP response) apart from a failed
+  one, and its fallback wording mirrors `deskhelm_client/texts.py` under a
+  test. The page never retries, so it needs no idempotency key of its own.
+- The sidebar session card keeps its time label inside the card.
+- A stopped `deskhelm agent` host returns 128 plus the signal, not 1.
+- In progress: the page refactor the user asked for on 2026-11-04 (a mature
+  but light agent page).
+
 `voice/runtime` installs the checkout as an editable path dependency, so no
 command, test, or tool needs `PYTHONPATH`. The two uv projects stay separate
 so model dependencies never enter the root package.
@@ -49,6 +60,16 @@ so model dependencies never enter the root package.
 - Every documented command starts from outside the checkout without
   `PYTHONPATH`, including the voice host through `uv` and the right-Alt
   listener with the root environment's Python.
+- 2026-11-04, live with Codex CLI 0.166.0 in a private runtime directory:
+  with an approval pending, the Bridge was stopped for 2 s and replaced. The
+  TUI kept running, the host reopened its session on the new Bridge within
+  3.5 s with the approval rebuilt under a new id, approving it finished the
+  turn, and `/quit` exited 0 with no process or socket left.
+- 2026-11-04, live with Grok 1.0.60: prompts, tool output, and turn results
+  flow, and the host stops cleanly. The user's Grok config sets
+  `permission_mode = "always-approve"`, so Grok never asks and its approvals
+  cannot be exercised without changing that config; a session `GROK_CONFIG`
+  overlay of `[ui] permission_mode` did not change it.
 - Live checks on v2: Codex CLI 0.166.0 (session, one proxied approval,
   `/quit`, and SIGTERM with nothing left behind), Claude Code 2.1.312
   (approve and reject), and Grok 1.0.60 (prompt, reply, interrupt). The user
@@ -60,10 +81,8 @@ so model dependencies never enter the root package.
 - Choose a repository license. The repository is public and has no license
   file.
 - Phase 5: hardware and remote-access ADRs.
-- Not yet verified live: Grok approvals, the Codex `/resume` picker under
-  v2, and a Bridge restart during a Codex host session.
-- The page merges the interaction stream in the browser, and the browser
-  sends no idempotency key.
+- Not yet verified live: Grok approvals (see Validation) and the Codex
+  `/resume` picker under v2.
 - The v1 voice turn timing record (ADR 0029) has no v2 equivalent, and the
   voice host does not enable advisory VAD.
 - Every replay transcript is synthetic; recording a live one needs an
@@ -91,6 +110,10 @@ so model dependencies never enter the root package.
   --locked` at the root and `uv sync --locked --python 3.12` in
   `voice/runtime`. Voice fails to import `deskhelm_voice_host` until the
   voice runtime is resynchronized.
+- For live checks, keep tests off the user's Bridge: Codex accepts a
+  private `XDG_RUNTIME_DIR`, but the user's `grok` wrapper reads proxy
+  settings through `gsettings` and hangs without the real session bus, so
+  isolate Grok with a hand-started Bridge and `--socket` instead.
 - A Claude Code session started before the mirror removal may still carry
   `UV_INDEX_URL` in its shell snapshot; unset it before running uv.
 - `deskhelm codex --voice` needs the configured USB microphone; without it,
