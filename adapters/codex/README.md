@@ -41,7 +41,11 @@ identified ephemeral internal thread without selecting among multiple user
 threads. The adapter maps turn completion, command/file/permission approvals,
 and structured user-input requests into DeskHelm interactions. Prompt,
 interrupt, approve, and reject controls return to the same thread through the
-app-server protocol. Permission approval grants only the requested subset for
+app-server protocol. A steer that fails because no turn is active is sent
+once as `turn/start` with the same prompt. Other steer errors stay failures.
+A prompt DeskHelm accepts is published once as a user message. A later vendor
+user item with the same text is not published again.
+Permission approval grants only the requested subset for
 the current turn; rejection grants none.
 
 Codex `thread/status/changed` and resumed thread status also drive a bounded
@@ -57,7 +61,7 @@ plain `codex` process. Start the DeskHelm Alpha first, then manually run the
 loaded threads, secret input, and multi-question input remain terminal-only in
 the initial implementation.
 
-For a single-terminal workflow, `deskhelm alpha --tui` starts the same remote
+For a single-terminal workflow, `deskhelm codex --tui` starts the same remote
 command as a foreground child after the managed app-server and Bridge are
 ready. Exiting that TUI stops the complete Alpha stack. This is a convenience
 launcher only; the adapter still uses the same local app-server protocol.

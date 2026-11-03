@@ -157,12 +157,15 @@ Acceptance criteria:
 
 ## Immediate Backlog
 
-1. Repeat confirmed live VAD utterances for WebRTC modes 0 and 2, then test
+1. Exercise Dashboard `a`/`r` approval/rejection against a live managed Alpha,
+   including keyboard-vs-voice races and expiry. Keep approval summaries
+   bounded and do not add PTY ownership or transcript persistence.
+2. Repeat confirmed live VAD utterances for WebRTC modes 0 and 2, then test
    disconnect/runtime failure without granting VAD endpoint control.
-2. Add a normalized-gain AMI variant and a licensed Chinese conversational set
+3. Add a normalized-gain AMI variant and a licensed Chinese conversational set
    before selecting a production VAD default.
-3. Expand Paraformer/SenseVoice coverage to consented Chinese/mixed coding
+4. Expand Paraformer/SenseVoice coverage to consented Chinese/mixed coding
    commands with controlled input gain, compare recovery, and retain
    whisper.cpp as a licensing/quality fallback before selecting a default.
-4. Keep actual speaker-first-audio measurement deferred until it materially
+5. Keep actual speaker-first-audio measurement deferred until it materially
    affects a hardware or production voice decision.

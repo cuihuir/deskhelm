@@ -56,7 +56,11 @@ The Bridge returns a process-local stream identifier and the active limits:
 
 The role is fixed for the life of the connection. Controllers request
 `control_command_v1`; their `client_id` is the required `issued_by` identity for
-every command on that connection.
+every command on that connection. A bridge with the runtime directory also
+accepts `agent_runtime_attach_v1` when the controller requests it. That
+capability covers attach, detach, and a directory status query. See
+[`agent-runtime-attach-v1.md`](agent-runtime-attach-v1.md). A bridge without
+the directory does not accept the capability.
 
 ## Negotiated Publisher Frames
 
@@ -97,6 +101,83 @@ frames. It has no snapshot, history, replay, or resume offset. See
 [`interaction-subscription-v1.md`](interaction-subscription-v1.md).
 
 ## Controller Frames
+
+A controller may send a `focus_query` frame between control commands to read
+the current Bridge-local focus. A local operator client may also send a
+`session_query` frame to read a bounded current session registry snapshot. Both
+queries are read-only and use the already negotiated controller connection.
+The Bridge returns a bounded `focus_query_result` with either a complete
+session identity or `null`:
+
+```json
+{
+  "protocol_version": 1,
+  "message_type": "focus_query_result",
+  "stream_id": "550e8400-e29b-41d4-a716-446655440000",
+  "focused_session": {
+    "agent_id": "codex",
+    "session_id": "session-42",
+    "project_id": "deskhelm"
+  }
+}
+```
+
+The query is read-only and does not change focus. A UI that changes the visible
+session sends a normal targeted `focus` control command; registration,
+attention, and approval events never change focus implicitly. A `press_ptt`
+control is accepted only when its complete target still matches this focus; PTT
+release remains bound to the target captured by the accepted press.
+
+`session_query` returns `session_query_result` with complete identities, slots,
+bounded lifecycle timestamps, adapter identity, declared capabilities, and the
+current focused identity. It is intended for local dashboards and the web
+client that need to map the small `AgentEvent v1` slot projection back to a
+targetable session and show which runtime is attached. It does not provide
+history or a live session stream. `adapter_id`, `adapter_version`,
+`runtime_name`, and `runtime_version` are empty strings when the session has
+no adapter record. `capabilities` is an array of known `AdapterCapability`
+values, or an empty array:
+
+```json
+{
+  "protocol_version": 1,
+  "message_type": "session_query_result",
+  "stream_id": "550e8400-e29b-41d4-a716-446655440000",
+  "focused_session": null,
+  "sessions": [
+    {
+      "agent_id": "codex",
+      "session_id": "session-42",
+      "project_id": "deskhelm",
+      "slot": 0,
+      "state": "active",
+      "registered_at": 1787011201000,
+      "updated_at": 1787011202000,
+      "disconnected_at": null,
+      "adapter_id": "deskhelm-codex",
+      "adapter_version": "0.1.0",
+      "runtime_name": "codex-cli",
+      "runtime_version": "0.163.0",
+      "capabilities": ["interaction_events", "submit_prompt", "interrupt"]
+    }
+  ]
+}
+```
+
+`session_catalog_query` asks for one active session's bounded model, MCP, and
+skills catalog. The Bridge returns `session_catalog_result` with the same
+identity. The query is read-only, has no cursor, and does not change focus or
+session state. See [`session-catalog-v1.md`](session-catalog-v1.md).
+
+```json
+{
+  "protocol_version": 1,
+  "message_type": "session_catalog_query",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm"
+}
+```
 
 A controller sends one complete `control_command` and receives one correlated
 `control_result` before sending the next command. Routing is synchronous and

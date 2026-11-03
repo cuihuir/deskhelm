@@ -15,7 +15,10 @@ default provider composition.
 `deskhelm-user-launcher` is the source-checkout user command. Link it once as
 `~/.local/bin/deskhelm`; it resolves the checkout from its real path, preserves
 the invoking working directory, and runs the synchronized root environment.
-Core `deskhelm alpha --tui` does not require `project-secrets`, audio models, or
+Default `deskhelm codex` joins the user bridge and does not receive a private
+`--socket`. `deskhelm alpha` is the same command. If this directory still has a Codex socket, a terminal rebuild
+stops that app-server only. It does not signal the user bridge.
+Core `deskhelm codex --tui` does not require `project-secrets`, audio models, or
 hardware. Every real TUI path uses `run-with-pty.py`, which relays terminal
 input, output, resizing, and exit status using only the Python standard library.
 Its bounded Ctrl-C guard maps the first raw or Kitty-protocol Ctrl-C to

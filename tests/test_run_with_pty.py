@@ -139,10 +139,13 @@ class RunWithPtyTests(unittest.TestCase):
         input_filter = TuiInputFilter(confirm_seconds=1)
 
         first = input_filter.feed(RAW_CTRL_C, now=10)
+        self.assertFalse(input_filter.take_forwarded_ctrl_c())
         second = input_filter.feed(RAW_CTRL_C, now=10.5)
 
         self.assertEqual(first, RAW_CLEAR_INPUT)
         self.assertEqual(second, RAW_CTRL_C)
+        self.assertTrue(input_filter.take_forwarded_ctrl_c())
+        self.assertFalse(input_filter.take_forwarded_ctrl_c())
 
     def test_ctrl_c_confirmation_expires_and_resets_on_input(self) -> None:
         input_filter = TuiInputFilter(confirm_seconds=1)

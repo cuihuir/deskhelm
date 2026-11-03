@@ -2,7 +2,7 @@
 
 Date: 2026-08-21
 
-Status: Accepted
+Status: Accepted. The exclusive evdev grab is superseded by ADR 0039.
 
 ## Context
 
@@ -16,6 +16,9 @@ another application's text field is active; right `Alt` can also act as AltGr.
 - The initial controller is an explicit foreground terminal PTT mode. It binds
   one complete active session target at startup, then observes right `Alt` only
   while that mode is armed. It has no GUI or text-field detection.
+- Superseded by ADR 0039: the controller does not take an exclusive evdev
+  grab. One listener holds a flock, and a second listener fails closed. The
+  desktop keeps receiving every key, including right Alt.
 - The controller never changes focus. It fails closed when its configured
   complete target is not active.
 - Press and release retain one generated activation ID and use the existing
@@ -37,6 +40,10 @@ another application's text field is active; right `Alt` can also act as AltGr.
 
 - The first physical PTT path avoids persistent global AltGr collisions and
   accidental microphone activation while typing elsewhere.
+- Only one DeskHelm PTT listener runs at a time. Ownership is a flock, not a
+  device grab. Opening another voice-enabled Alpha on that device must be
+  rejected rather than broadcast input across sessions. The keyboard remains
+  usable because the listener does not consume events.
 - Existing `keyd` mappings remain outside DeskHelm's scope. A missing or
   unavailable virtual keyboard device fails explicitly rather than falling
   back to another keyboard or modifying the user's mapping.

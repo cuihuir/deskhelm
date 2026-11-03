@@ -13,6 +13,7 @@ from deskhelm_bridge.adapter import AdapterCapability, AdapterSessionAction
 from deskhelm_bridge.alpha import (
     ASR_MODEL_DIRECTORY_ENV,
     TTS_DIRECTORY_ENV,
+    VOICE_SINK_ENV,
     VOICE_SOURCE_ENV,
     LocalAlphaArtifacts,
     LocalAlphaProfile,
@@ -32,7 +33,13 @@ from deskhelm_bridge.alpha import (
     _wait_for_owned_socket,
     run_local_alpha,
 )
-from deskhelm_bridge.cli import build_parser
+from deskhelm_bridge.cli import build_parser, normalize_command_argv
+from deskhelm_bridge.paths import (
+    alpha_codex_socket_paths,
+    alpha_directory_digest,
+    default_alpha_socket_path,
+    default_socket_path,
+)
 
 
 class LocalAlphaProfileTests(unittest.TestCase):
@@ -66,7 +73,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             artifacts.validate()
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--voice",
                     "--agent-workdir",
                     str(root),
@@ -98,6 +105,28 @@ class LocalAlphaProfileTests(unittest.TestCase):
                 "kokoro",
             )
 
+    def test_indextts_directory_precedes_piper_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifacts = self._indextts_artifacts(root)
+            artifacts.validate()
+            self.assertEqual(artifacts.tts_provider, "indextts")
+            self.assertEqual(artifacts.tts_model_path, artifacts.tts_directory)
+            self.assertEqual(artifacts.tts_voice_path.name, "voice.wav")
+
+            fallback = root / "fallback"
+            fallback.mkdir()
+            (fallback / "zh_CN-chaowen-medium.onnx").write_bytes(b"test")
+            self.assertEqual(
+                LocalAlphaArtifacts.from_environment(
+                    {
+                        ASR_MODEL_DIRECTORY_ENV: str(artifacts.asr_model_directory),
+                        TTS_DIRECTORY_ENV: str(fallback),
+                    }
+                ).tts_provider,
+                "piper",
+            )
+
     def test_profile_builds_app_server_bridge_and_ptt_target(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -106,7 +135,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             workdir.mkdir()
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--agent-workdir",
                     str(workdir),
                     "--socket",
@@ -174,6 +203,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             self.assertIn(str(artifacts.asr_model_directory), bridge)
             self.assertIn(str(artifacts.tts_model_path), bridge)
             self.assertEqual(ptt[ptt.index("--project-id") + 1], "project-a")
+            self.assertIn("--focused", ptt)
             self.assertEqual(registration.preferred_slot, 0)
             self.assertEqual(
                 registration.capabilities,
@@ -202,10 +232,11 @@ class LocalAlphaProfileTests(unittest.TestCase):
                 ASR_MODEL_DIRECTORY_ENV: str(artifacts.asr_model_directory),
                 TTS_DIRECTORY_ENV: str(artifacts.tts_directory),
                 VOICE_SOURCE_ENV: "usb-source",
+                VOICE_SINK_ENV: "usb-sink",
             }
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--voice",
                     "--agent-workdir",
                     str(root),
@@ -217,6 +248,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             profile = LocalAlphaProfile.from_args(args, environment)
 
             self.assertEqual(profile.source_name, "usb-source")
+            self.assertEqual(profile.sink_name, "usb-sink")
             runtime = LocalAlphaRuntime(
                 uv_executable="/usr/bin/uv",
                 codex_executable="/usr/bin/codex",
@@ -233,10 +265,14 @@ class LocalAlphaProfileTests(unittest.TestCase):
                 audio_check[audio_check.index("--source") + 1],
                 "usb-source",
             )
+            self.assertEqual(
+                audio_check[audio_check.index("--sink") + 1],
+                "usb-sink",
+            )
 
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--voice",
                     "--agent-workdir",
                     str(root),
@@ -256,7 +292,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             root = Path(directory)
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--yolo",
                     "--agent-workdir",
                     str(root),
@@ -288,7 +324,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             root = Path(directory)
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--check",
                     "--tui",
                     "--agent-workdir",
@@ -321,7 +357,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             root = Path(directory)
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--tui",
                     "--agent-workdir",
                     str(root),
@@ -356,7 +392,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             root = Path(directory)
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--agent-workdir",
                     str(root),
                     "--voice-source",
@@ -372,7 +408,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             root = Path(directory)
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--tui",
                     "--agent-workdir",
                     str(root),
@@ -401,7 +437,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             root = Path(directory)
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--tui",
                     "--agent-workdir",
                     str(root),
@@ -498,7 +534,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             root = Path(directory)
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--tui",
                     "--agent-workdir",
                     str(root),
@@ -543,6 +579,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
                     "deskhelm_bridge.alpha._register_session",
                     return_value=publisher,
                 ),
+                patch("deskhelm_bridge.alpha._focus_session"),
                 patch("deskhelm_bridge.alpha._wait_for_owned_socket"),
                 patch(
                     "deskhelm_bridge.alpha._capture_terminal_state",
@@ -574,7 +611,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             root = Path(directory)
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--tui",
                     "--agent-workdir",
                     str(root),
@@ -716,7 +753,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
             root = Path(directory)
             args = build_parser().parse_args(
                 [
-                    "alpha",
+                    "codex",
                     "--voice",
                     "--agent-workdir",
                     str(root),
@@ -751,6 +788,7 @@ class LocalAlphaProfileTests(unittest.TestCase):
                     "deskhelm_bridge.alpha._register_session",
                     return_value=publisher,
                 ),
+                patch("deskhelm_bridge.alpha._focus_session"),
                 patch("deskhelm_bridge.alpha._wait_for_owned_socket"),
                 patch("deskhelm_bridge.alpha.time.sleep", side_effect=KeyboardInterrupt),
                 patch("deskhelm_bridge.alpha._stop_process") as stop,
@@ -762,6 +800,79 @@ class LocalAlphaProfileTests(unittest.TestCase):
             self.assertEqual(stop.call_count, 3)
             release.assert_called_once()
             publisher.close.assert_called_once_with()
+
+    def test_omitted_socket_joins_the_user_bridge(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workdir = root / "project-a"
+            workdir.mkdir()
+            args = build_parser().parse_args(
+                ["codex", "--agent-workdir", str(workdir), "--voice-turn-timing", "--voice"]
+            )
+            artifacts = self._artifacts(root)
+            profile = LocalAlphaProfile.from_args(
+                args,
+                {
+                    ASR_MODEL_DIRECTORY_ENV: str(artifacts.asr_model_directory),
+                    TTS_DIRECTORY_ENV: str(artifacts.tts_directory),
+                },
+            )
+            runtime = LocalAlphaRuntime(
+                uv_executable="/usr/bin/uv",
+                codex_executable="/usr/bin/codex",
+                codex_version="codex-cli 1.0",
+                environment={},
+            )
+            bridge = _bridge_command(profile, runtime)
+            registration = _session_event(
+                profile,
+                runtime.codex_version,
+                AdapterSessionAction.REGISTER,
+            )
+            proxy, upstream = alpha_codex_socket_paths(
+                default_alpha_socket_path(workdir)
+            )
+
+            self.assertTrue(profile.shared_bridge)
+            self.assertEqual(profile.socket_path, default_socket_path())
+            self.assertEqual(
+                profile.session_id,
+                f"local-{alpha_directory_digest(workdir)}",
+            )
+            self.assertTrue(profile.client_id.endswith(alpha_directory_digest(workdir)))
+            self.assertNotEqual(profile.session_id, "local-alpha")
+            self.assertEqual(profile.codex_app_server_socket, proxy)
+            self.assertEqual(profile.codex_app_server_upstream_socket, upstream)
+            self.assertNotIn("bridge-codex.sock", " ".join(bridge))
+            self.assertIn("--agent-runtime-directory", bridge)
+            self.assertNotIn("--agent-provider", bridge)
+            self.assertEqual(bridge[bridge.index("--slots") + 1], "32")
+            self.assertEqual(bridge[bridge.index("--max-connections") + 1], "64")
+            self.assertIn("--voice-provider", bridge)
+            self.assertIn("--voice-turn-timing", bridge)
+            self.assertIsNone(registration.preferred_slot)
+
+    def test_codex_is_the_public_command_and_alpha_still_parses(self) -> None:
+        parser = build_parser()
+        help_text = parser.format_help()
+        self.assertIn("codex", help_text)
+        self.assertNotIn("alpha", help_text)
+        current = parser.parse_args(["codex", "--tui", "--check"])
+        self.assertEqual(current.command, "codex")
+        self.assertTrue(current.tui)
+        self.assertTrue(current.check)
+        legacy = parser.parse_args(normalize_command_argv(["alpha", "--check"]))
+        self.assertEqual(legacy.command, "codex")
+        self.assertFalse(legacy.tui)
+        self.assertTrue(legacy.check)
+
+    def test_user_launcher_does_not_inject_a_private_socket(self) -> None:
+        launcher = Path(__file__).resolve().parents[1] / "tools" / "deskhelm-user-launcher"
+        text = launcher.read_text(encoding="utf-8")
+        self.assertNotIn("codex_command+=(--socket", text)
+        self.assertIn('[[ ${1-} != "codex" && ${1-} != "alpha" ]]', text)
+        self.assertNotIn("bridge.sock", text)
+        self.assertIn("codex_upstream", text)
 
     @staticmethod
     def _artifacts(root: Path) -> LocalAlphaArtifacts:
@@ -798,6 +909,18 @@ class LocalAlphaProfileTests(unittest.TestCase):
         ):
             (tts / name).write_bytes(b"test")
         return LocalAlphaArtifacts(asr, tts, "kokoro")
+
+    @staticmethod
+    def _indextts_artifacts(root: Path) -> LocalAlphaArtifacts:
+        asr = root / "paraformer"
+        asr.mkdir()
+        for name in ("model.pt", "config.yaml", "tokens.json", "am.mvn", "seg_dict"):
+            (asr / name).write_bytes(b"test")
+        tts = root / "indextts"
+        tts.mkdir()
+        (tts / "config.yaml").write_bytes(b"test")
+        (tts / "voice.wav").write_bytes(b"test")
+        return LocalAlphaArtifacts(asr, tts, "indextts")
 
 
 if __name__ == "__main__":

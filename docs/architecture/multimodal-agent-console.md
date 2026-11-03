@@ -11,7 +11,7 @@ DeskHelm 不应只是一块宏键盘，也不应只是一套语音输入法。�
 - Bridge 统一不同 Agent 的状态、会话和控制语义。
 - Voice Gateway 提供本地语音输入、提示词处理和固定类别通知。
 - Physical Surface 提供按键、旋钮、RGB、屏幕和高确定性的控制动作。
-- TUI 和桌面客户端可以复用同一套本地协议。
+- TUI、网页和桌面客户端可以复用同一套本地协议。
 
 三种交互方式的分工：
 
@@ -89,6 +89,37 @@ node name 手工指定输入或输出；显式指定的设备缺失时直接报�
 
 设备不接收完整提示词、代码或音频，默认只接收最小化状态和安全的展示摘要。
 
+### TUI Dashboard
+
+TUI Dashboard 是 Bridge 的多会话操作客户端，不是 Agent TUI、终端模拟器、
+transcript 存储或会话 supervisor。它通过独立的状态订阅、交互订阅和控制连接
+构建会话列表、实时详情和显式操作；不读取 Bridge 内部对象，也不解析终端输出。
+
+Dashboard 区分四个概念：光标表示当前浏览行，selected session 表示该行的完整
+会话身份，focused session 是 Bridge 认可的 PTT/实体控制目标，attention 只表示
+需要关注。移动光标和查看详情不会改变 focus，只有显式的定向 `focus` 控制才会
+切换语音和硬件目标。
+
+第一阶段只展示已注册会话并提供安全的 focus、interrupt 和严格相关的审批操作。
+关闭 Dashboard 只断开客户端，不释放 Agent 会话。attach/detach、PTY 保活、恢复
+和远程 session 属于未来独立 supervisor 协议，不通过键盘注入或 transcript 文件
+隐式实现。详细边界见
+[`ADR 0035`](../decisions/0035-bridge-native-tui-dashboard.md)。
+
+### 本地网页客户端
+
+网页客户端是同一套 Bridge 协议上的 Codex 布局查看器，不是 Codex 官方页面，
+也不创建会话或保存对话历史。浏览器不能直接连接 Unix socket，所以一个
+loopback HTTP 进程持有一条状态订阅和一条交互订阅，再把它们分发给浏览器。
+选择线程只改变页面里的当前会话；聚焦语音、中断、普通指令、批准和拒绝都是
+显式控制。需要关注不等于可批准。Codex 终端里的提问仍留在终端。模型、推理、
+MCP 和 skills 从底部输入条打开，不占对话区域。选择会记到下一轮新指令。它不写
+Codex 全局配置，也不调用 MCP 工具。详细边界见
+[`ADR 0037`](../decisions/0037-session-catalog-and-model-selection.md)。
+
+页面只保留连接之后的有界活动。更早的内容留在 Codex。详细边界见
+[`ADR 0036`](../decisions/0036-local-loopback-web-client.md)。
+
 ## 3. 协议留口子
 
 当前 `AgentEvent v1` 是状态投影协议，应保持兼容：
@@ -153,6 +184,7 @@ node name 手工指定输入或输出；显式指定的设备缺失时直接报�
 - `reject`
 - `focus`
 - `submit_prompt`
+- `configure_session`
 - `speak`
 - `stop_speaking`
 - `mute`

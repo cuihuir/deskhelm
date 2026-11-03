@@ -4,6 +4,30 @@ from deskhelm_bridge.client import _voice_status_message
 
 
 class ClientVoiceStatusTests(unittest.TestCase):
+    def test_none_target_filter_allows_focused_mode_status_stream(self) -> None:
+        event = {
+            "agent_id": "codex",
+            "session_id": "session-2",
+            "project_id": "project-2",
+            "source": "voice-gateway",
+            "kind": "message",
+            "payload": {
+                "role": "system",
+                "phase": "complete",
+                "text": "fixed notification",
+            },
+        }
+
+        self.assertEqual(
+            _voice_status_message(
+                event,
+                agent_id=None,
+                session_id=None,
+                project_id=None,
+            ),
+            "fixed notification",
+        )
+
     def test_surfaces_fixed_codex_failure_code_without_private_content(self) -> None:
         event = {
             "agent_id": "codex",

@@ -55,6 +55,54 @@ attaches to one newly loaded manual remote-TUI thread, resumes known threads
 after reconnect, and installs prompt, interrupt, approve, and reject handlers.
 The owned-process gateway and long-lived runtime are mutually exclusive.
 
+The dependency-free TUI Dashboard is an optional local client. It consumes the
+state and interaction subscriptions, queries bounded complete session metadata,
+and sends explicit focus or interrupt controls without owning Agent processes:
+
+```bash
+PYTHONPATH=bridge python3 -m deskhelm_bridge dashboard --socket "$SOCKET"
+```
+
+Use `j`/`k` to move, `f` to focus the selected complete session, `i` to send a
+targeted interrupt, `a`/`r` to approve or reject one visible unexpired pending
+request, `?` for help, and `q` to quit. Approval controls copy the exact
+request metadata and remain subject to Bridge correlation and expiry checks.
+Dashboard disconnect only closes its client connections. It does not persist
+transcript content or attach to arbitrary terminals.
+
+The loopback web client is the Codex-layout browser for the user bridge.
+It does not create sessions, change focus when a thread is selected, or load
+history from before the page connected:
+
+```bash
+PYTHONPATH=bridge python3 -m deskhelm_bridge web
+```
+
+Omit `--socket` to read `bridge.sock`. Every DeskHelm session attached there
+appears on the page. An explicit `--socket` still selects one bridge,
+including a private Alpha bridge. An empty path is rejected.
+
+Open `http://127.0.0.1:8766`. `--allow-remote` is required before the process
+binds anywhere other than loopback, because the page shows interaction content.
+Model, reasoning, MCP, and skills open from the composer and do not sit in
+the transcript. The page fetches that catalog when the selected session
+changes, and again on refresh. Choosing a model or effort sends
+`configure_session` for the next new turn and does not write Codex
+configuration. The Codex adapter must be running before that catalog is
+available. The same page shows Claude and Grok sessions started with
+`deskhelm agent`. Each session carries its runtime name and declared
+capabilities. Vendor-declared names appear under 声明 when that session has
+any.
+
+```bash
+PYTHONPATH=bridge python3 -m deskhelm_bridge agent claude --socket "$SOCKET"
+PYTHONPATH=bridge python3 -m deskhelm_bridge agent grok --socket "$SOCKET"
+```
+
+Run the command in the project directory. The prompt stays on the vendor
+stdin. The attach frame does not carry the working directory. Codex stays on
+`deskhelm codex --tui`.
+
 Python composition can pass an isolated `VoiceGateway` to `run_bridge`. The
 Bridge then registers targeted speech and PTT handlers and converts normalized
 final transcripts into `submit_prompt` commands. Assistant response content,
@@ -77,55 +125,83 @@ PCM in memory only long enough to calculate signal metadata; `test-output`
 plays a bounded low-volume tone. A missing manual target fails instead of
 falling back to another device.
 
-## Local Alpha Profile
+## Managed Codex
 
-The single-project profile supervises Codex app-server and Bridge, holds one
-modern session registration, and stops the complete local stack on exit. Its
-default path is a hardware-independent managed CLI; local voice and PTT are
-explicit additions. It never stores local model paths in repository files:
+`deskhelm codex` starts Codex app-server for one working directory and registers
+that one session. `deskhelm alpha` is a hidden alias for the same command.
+By default it joins the user bridge at `bridge.sock` and
+leaves that process running on exit. It detaches only its own runtime and
+removes this directory's Codex sockets. Explicit `--socket` keeps a private
+bridge and stops that bridge on exit. Local voice and PTT are explicit
+additions. The command never stores local model paths in repository files:
 
 ```bash
-deskhelm alpha --check
-deskhelm alpha --tui
-deskhelm alpha --tui --voice
-deskhelm alpha --tui --yolo
+deskhelm codex --check
+deskhelm codex --tui
+deskhelm codex --tui --voice
+deskhelm codex --tui --yolo
 ```
 
 For a source checkout, `tools/deskhelm-user-launcher` is linked once as the
 user-level `deskhelm` command. It preserves the caller's current directory and
-runs the core Alpha from the synchronized root environment. Every real TUI
+runs the managed Codex command from the synchronized root environment. The default command does
+not receive a private `--socket`. A rebuild stops this directory's Codex
+app-server only and does not signal the user bridge. Every real TUI
 launch uses `tools/run-with-pty.py` for live terminal rendering and the bounded
 two-press Ctrl-C guard. Core TUI startup does not use `project-secrets`.
 `--voice` dynamically loads the required encrypted settings and adds streaming
 redaction to the same relay. The launcher never syncs dependencies during
 startup.
 
-The optional `--voice` profile fixes Paraformer, selects Piper Chaowen Medium or
-Kokoro from the configured TTS directory, keeps advisory VAD disabled, and uses
+The optional `--voice` profile fixes Paraformer, prefers IndexTTS-2.5 when its
+model directory and speaker reference are present, and otherwise selects Piper
+(with explicit Kokoro compatibility), keeps advisory VAD disabled, and uses
 the stable `/dev/input/deskhelm-ptt-kbd` source. Kokoro uses `zf_xiaobei` for
 Chinese or mixed notifications and `af_heart` for English-only notifications.
+The PTT listener reads that input source without an exclusive grab, so the
+desktop keyboard keeps working. A flock admits one listener; a second
+voice-enabled Alpha using the same device fails closed instead of dispatching
+the same key event to another session. Right Alt still reaches the compositor. Each accepted PTT press resolves the
+Bridge's current explicit focus; with no focus, capture is not started.
 Core
 `--check` validates the working directory, socket ownership, and Codex version.
 `--check --voice` additionally validates model files, both uv environments, the
 PTT device, and PipeWire selection without opening audio or loading model
 weights. Runtime startup
 prints the exact manual remote-TUI command, including the selected read-only or
-workspace-write sandbox and `on-request` approval policy. `--voice-source`
-overrides `DESKHELM_ALPHA_VOICE_SOURCE`; either form uses the same strict
-stable-name selection and never falls back when the source is unavailable. Use
-`--voice-sink`, `--voice-pw-cat-command-prefix`, or `--codex-sandbox
+workspace-write sandbox and `on-request` approval policy. `--voice-source` and
+`--voice-sink` override `DESKHELM_ALPHA_VOICE_SOURCE` and
+`DESKHELM_ALPHA_VOICE_SINK`; either form uses the same strict stable-name
+selection and never falls back when a configured device is unavailable. Use
+`--voice-pw-cat-command-prefix` or `--codex-sandbox
 workspace-write` only as explicit local overrides. `--yolo` is a separate,
 explicit remote-TUI mode that passes Codex's full-access, no-approval flag and
 therefore bypasses the sandbox and approval flow; it is intentionally never the
 default. `--voice-turn-timing` remains opt-in.
 
+When a client changes the visible session, it must update Bridge focus
+explicitly. The CLI helper is suitable for a terminal or desktop client:
+
+```bash
+deskhelm focus --socket "$SOCKET" \
+  --agent-id codex --session-id session-42 --project-id deskhelm
+```
+
+Run the physical listener with `deskhelm ptt --focused` so each press reads the
+current focus. A missing focus or a target that changed between query and route
+is rejected without starting capture. Approval and attention notifications do
+not change focus. On the default user bridge, focus is one value shared by
+every attached session. Explicit `--socket` keeps focus local to that private
+bridge.
+
 `--tui` starts the printed remote command as a foreground child in the current
 interactive terminal. The launcher relay preserves terminal input, output,
 resizing, and child exit status. Its bounded guard maps the first raw or
 Kitty-protocol Ctrl-C to clear-input and forwards only a second press within the
-confirmation window; timeout or other input resets it. Alpha monitors
-app-server and Bridge, plus PTT only when `--voice` is selected, and tears down
-every owned process group when the TUI exits. Repeated interrupts cannot abort
+confirmation window; timeout or other input resets it. Alpha monitors the
+app-server, plus PTT only when `--voice` is selected. On exit it stops this
+directory's Codex app-server. Shared mode does not stop the user bridge.
+Explicit `--socket` also stops that private bridge. Repeated interrupts cannot abort
 teardown. The relay exits when its primary child exits even if another process
 still holds the PTY open. The two-terminal mode remains available when `--tui`
 is omitted.
@@ -144,9 +220,13 @@ upstream channel. Permission approvals grant only the requested subset for the
 current turn. Persistent approval, secret input, and multi-question input
 remain terminal-only.
 
-The profile is intentionally single-project. `--agent-workdir` applies to its
-one registered session. Use the lower-level `bridge --agent-project` mappings
-when one Bridge must manage sessions from multiple repositories.
+Each Alpha process registers one session. Several default Alphas share the
+user bridge, so one page lists every directory. `--agent-workdir` applies to
+that one session. The text-only `bridge --agent-project` gateway stays a
+separate path and cannot be combined with `--agent-runtime-directory`. The
+first `alpha --voice` must be the process that starts the user bridge. A
+bridge already running without voice is left as it is; stop it before starting
+voice.
 
 Start the provisional local voice composition only from an environment that
 contains the optional FunASR/PyTorch and selected Piper/ONNX or Kokoro runtime.

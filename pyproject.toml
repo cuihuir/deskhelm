@@ -33,3 +33,6 @@ agent_io_bridge = "bridge/agent_io_bridge"
 deskhelm_bridge = "bridge/deskhelm_bridge"
 deskhelm_codex_adapter = "adapters/codex/deskhelm_codex_adapter"
 deskhelm_voice = "voice/deskhelm_voice"
+
+[tool.setuptools.package-data]
+deskhelm_bridge = ["web-assets/*"]

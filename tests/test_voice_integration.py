@@ -60,6 +60,7 @@ class VoiceIntegrationTests(unittest.TestCase):
         self.target = VoiceTarget("codex", "session-42", "deskhelm")
         self.registry = SessionRegistry(slot_count=2)
         self.registry.register(self.session, preferred_slot=0, now_ms=1786935000000)
+        self.registry.focus(self.session)
         self.router = ControlRouter(self.registry)
         self.hub = InteractionHub()
         self.resources = []
@@ -195,6 +196,29 @@ class VoiceIntegrationTests(unittest.TestCase):
         self.assertEqual(press_result.code, ControlResultCode.DISPATCHED)
         self.assertEqual(stale_result.code, ControlResultCode.DISPATCH_FAILED)
         self.assertEqual(release_result.code, ControlResultCode.DISPATCHED)
+
+    def test_ptt_does_not_start_without_a_focused_session(self) -> None:
+        capture = FakeCaptureProvider(
+            [CapturedAudio(b"fake-pcm", sample_rate_hz=16000)]
+        )
+        voice = VoiceGateway(
+            capture,
+            FakeAsrProvider([Transcript("raw", "normalized")]),
+            FakeTtsProvider(),
+            FakePlaybackProvider(),
+        )
+        self.resources.append(voice)
+        integration = VoiceBridgeIntegration(voice, self.router, self.hub)
+        integration.register()
+        self.resources.append(integration)
+        self.registry.clear_focus()
+
+        result = self.router.route(
+            self._command("press-ptt.json"), now_ms=1786935107000
+        )
+
+        self.assertEqual(result.code, ControlResultCode.TARGET_NOT_FOCUSED)
+        self.assertFalse(capture.started.wait(timeout=0.05))
 
     def test_full_speech_queue_does_not_break_interaction_publishers(self) -> None:
         events: Queue[VoiceEvent] = Queue()

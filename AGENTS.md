@@ -121,7 +121,7 @@ Agent runtimes
   -> adapters
   -> Bridge: sessions, state, targeting, and control routing
      -> Voice Gateway: PTT, ASR, TTS, playback, and voice notifications
-     -> TUI and desktop clients
+     -> TUI, web, and desktop clients
      -> Physical Surface: HID, controls, RGB, displays, and device transport
 ```
 
@@ -256,19 +256,26 @@ Keep third-party reference files outside version control under
   discovered thread; explicit thread failures remain fail-closed. Ignore a
   bounded, positively identified ephemeral internal thread, but require an
   explicit selector before choosing among multiple non-ephemeral threads.
-- Keep Alpha `--tui` as a convenience launcher for the exact local remote-TUI
-  command. It must require an interactive terminal and clean up the complete
-  Alpha stack when the TUI exits. The launcher PTY must translate a first raw
-  or Kitty-protocol Ctrl-C into clear-input and forward Ctrl-C only on a second
-  press within a bounded confirmation window; timeout or other input resets
-  the guard.
+- Keep `deskhelm codex --tui` as a convenience launcher for the exact local
+  remote-TUI command. `deskhelm alpha` remains a hidden alias with the same
+  arguments. It must require an interactive terminal. Default Codex startup joins the
+  user bridge from ADR 0038 and, on exit, detaches that session and stops this
+  directory's Codex app-server. It must not stop or unlink the user bridge.
+  Explicit `--socket` still owns and stops its private bridge. The launcher
+  PTY must translate a first raw or Kitty-protocol Ctrl-C into clear-input and
+  forward Ctrl-C only on a second press within a bounded confirmation window;
+  timeout or other input resets the guard.
 - Keep `tools/deskhelm-user-launcher` as a thin source-checkout entry point. It
   must preserve the invoking working directory, use the already synchronized
   root environment without dependency installation, and use the bounded PTY
-  relay for every real `--tui` launch so Alpha and Codex retain terminal
-  semantics plus the two-press Ctrl-C guard. Core TUI startup must not consult
-  `project-secrets`. Only `--voice` dynamically injects Alpha voice settings
-  through the checkout's encrypted profile without storing their values.
+  relay for every real `--tui` launch so Codex retains terminal
+  semantics plus the two-press Ctrl-C guard. Default `deskhelm codex` omits `--socket`
+  and joins the user bridge. The launcher must not inject a private socket
+  and must not signal the user bridge process group. Leftover Codex sockets
+  may be cleared by signaling only this directory's app-server. Core TUI
+  startup must not consult `project-secrets`. Only `--voice` dynamically
+  injects Alpha voice settings through the checkout's encrypted profile
+  without storing their values.
   Because `project-secrets` output forwarding is line-buffered, the relay must
   render directly to the controlling terminal and perform boundary-safe
   streaming redaction of injected values itself.
@@ -294,6 +301,54 @@ Keep third-party reference files outside version control under
   proxy supplies the real correlated request; status-derived attention remains
   a fallback with no request ID. Deduplicate its fixed voice notice with a
   later correlated request until the status clears.
+- A Codex `turn/steer` whose error says there is no active turn clears that
+  remembered turn and sends one `turn/start` with the same prompt. Review and
+  compact steer errors, and any other steer error, still publish
+  `codex_control_failed` and do not start a turn. ADR 0041. Do not add a second
+  transcript channel for this recovery. Output stays on the existing
+  interaction events for every attached agent.
+- Publish each prompt DeskHelm accepts once, as a complete user message on
+  that interaction plane. The correlation id is the control command id.
+  Codex remembers the last eight accepted texts, and Claude and Grok remember
+  the latest one; one matching vendor echo is not published again. A different
+  vendor user item keeps its own id. ADR 0042.
+- Publish attached-thread Codex `item/started` and `item/completed`
+  notifications as bounded interaction events. Keep token deltas opted out.
+  Do not publish reasoning, working directories, image bytes, local image
+  paths, or tool arguments. Approval and user-input notifications stay
+  private-content-free.
+- Default DeskHelm sessions share one user bridge at `default_socket_path()`
+  (`bridge.sock`), ADR 0038. Default `deskhelm codex` attaches one session
+  there and leaves the bridge running. Explicit `--socket` keeps a private
+  bridge. Codex app-server and TUI proxy sockets stay directory-scoped and
+  are never derived from the user bridge. Attach carries no working
+  directory. The directory holds at most 32 runtimes and cannot be combined
+  with a single agent provider. The first `deskhelm codex --voice` must start the
+  user bridge; a bridge already running without voice is not upgraded.
+- `deskhelm agent claude` and `deskhelm agent grok` start that vendor in the
+  current directory, register an adapter session on the bridge named by
+  `--socket`, and attach one confined stdio relay. Prompts stay on the vendor
+  stdin. Omitted `runtime_kind` remains the Codex socket pair. `claude_stream`
+  and `grok_stdio` name `relay_socket` only. `session_query` includes adapter
+  identity and declared `AdapterCapability` values. Catalog
+  `agent_capabilities` carries vendor-declared names and is not a new enum
+  value. Web, the dashboard, and later clients read those same fields. Agents
+  DeskHelm did not start stay off the page. ADR 0040.
+- The loopback web client in ADR 0036 is a replaceable Bridge client. One web
+  process holds one state subscription and one interaction subscription and
+  fans them out to browsers. Omitting `--socket` reads the user bridge and
+  lists every attached session. Browsing a thread does not focus it. The page
+  does not create sessions, read transcript files, or promise replay. Bind
+  `127.0.0.1` unless `--allow-remote` is explicit.
+- `session_catalog_query` is a read-only controller frame for one active
+  session's models, MCP status, skill names, and vendor-declared capability
+  tokens. The Codex adapter is the
+  catalog provider and answers only for its attached thread. `configure_session`
+  stores a model and reasoning override for the next `turn/start` after a
+  catalog read from the last 120 seconds. It does not write Codex config, call
+  MCP tools, return skill bodies, or follow a vendor cursor. The web 能力 panel
+  fetches on open or refresh and does not poll. `/compact`, `/plan`, and
+  `/fast` remain deferred.
 - Never place prompts in process command-line arguments. Prefer bounded stdin,
   suppress private stderr from ordinary logs, and terminate the owned process
   group on cancellation or timeout.
@@ -312,6 +367,12 @@ Keep third-party reference files outside version control under
 - External PTT release must copy the matching press command ID and match the
   complete active session target. A stale, idle, or cross-session release must
   fail without changing capture state; do not model external PTT as a toggle.
+- The right-Alt PTT listener reads `/dev/input/deskhelm-ptt-kbd` without
+  `EVIOCGRAB`. That node is keyd's virtual keyboard, and a grab hides every
+  key from the desktop. One listener is a non-blocking flock on
+  `deskhelm_runtime_directory() / "ptt.lock"`. A second listener fails closed.
+  Right Alt still reaches the compositor. DeskHelm does not inject keys or
+  open the physical keyboard. ADR 0039.
 - Keep model-backed local voice disabled by default. Validate selected audio
   devices and required external artifacts before Bridge startup, keep model
   imports/weights lazy, and do not describe batch PTT capture as VAD integration.
@@ -419,24 +480,50 @@ Current commands:
 - `cd voice/runtime && uv sync --locked --python 3.12`: create or synchronize
   the ignored, pinned optional local-voice runtime. Run this from its project
   directory so uv resolves the local-voice lock rather than the root lock.
-- `deskhelm alpha --check`: preflight the hardware-independent local Alpha core.
-- `deskhelm alpha --tui`: run the managed Codex TUI from the current project
-  directory. The launcher requires no project secrets or voice runtime, uses a
-  bounded terminal relay for the two-press Ctrl-C guard, routes the TUI through
-  the approval-aware local proxy, and owns Bridge plus Codex app-server cleanup
-  when the TUI exits.
-- `deskhelm alpha --tui --yolo`: explicitly launch that managed Codex TUI with
+- `deskhelm codex --check`: preflight the managed Codex startup without audio.
+- `deskhelm codex --tui`: run the managed Codex TUI from the current project
+  directory and attach it to the user bridge. The launcher requires no project
+  secrets or voice runtime, uses a bounded terminal relay for the two-press
+  Ctrl-C guard, and routes the TUI through the approval-aware local proxy.
+  On exit it detaches this session and stops this directory's Codex app-server.
+  It leaves the user bridge running. Explicit `--socket` still stops that
+  private bridge.
+- `deskhelm codex --tui --yolo`: explicitly launch that managed Codex TUI with
   Codex's full-access, no-approval mode. This bypasses the normal sandbox and
   approval boundary; use only when that level of access is intended.
-- `deskhelm alpha --tui --voice`: add local Paraformer voice, directory-selected
+- `deskhelm codex --tui --voice`: add local Paraformer voice, directory-selected
   Piper or Kokoro TTS, and the explicit right-Alt PTT controller. A Kokoro
   directory uses `zf_xiaobei` for Chinese and `af_heart` for English. Only this
   mode loads
   `DESKHELM_ALPHA_ASR_MODEL_DIRECTORY`, `DESKHELM_ALPHA_TTS_DIRECTORY`, and the
-  optional `DESKHELM_ALPHA_VOICE_SOURCE` through `project-secrets`.
-- `deskhelm alpha --check --voice`: preflight the optional local-voice models,
+  optional `DESKHELM_ALPHA_VOICE_SOURCE` and
+  `DESKHELM_ALPHA_VOICE_SINK` through `project-secrets`.
+- `deskhelm codex --check --voice`: preflight the optional local-voice models,
   runtime, PipeWire selection, and PTT device without opening audio or loading
   model weights. A missing configured source fails without fallback.
+- `deskhelm focus --socket <bridge.sock> --agent-id <id> --session-id <id>
+  --project-id <id>`: mark the session currently visible in a UI as the
+  Bridge's explicit focus before using `deskhelm ptt --focused`.
+- `PYTHONPATH=bridge python3 -m deskhelm_bridge dashboard --socket <bridge.sock>`:
+  run the dependency-free multi-session TUI Dashboard. It consumes state and
+  interaction subscriptions, queries complete session metadata, and supports
+  explicit focus plus targeted interrupt without owning Agent processes.
+- `PYTHONPATH=bridge python3 -m deskhelm_bridge agent <claude|grok>
+  --socket <bridge.sock>`: start that vendor in the current directory and
+  attach it to the named bridge. The prompt stays on stdin. Codex remains
+  `deskhelm codex --tui`. The running user bridge must already contain the
+  relay factory; restart it before the first `deskhelm agent` against
+  `bridge.sock`.
+- `PYTHONPATH=bridge python3 -m deskhelm_bridge web [--socket <bridge.sock>]`:
+  run the loopback Codex-layout web client from ADR 0036. Open
+  `http://127.0.0.1:8766`. Omitting `--socket` reads the user bridge and lists
+  every attached session. An explicit `--socket` selects one bridge. An empty
+  path is rejected. Browsing a session does not change Bridge focus. The page
+  shows live interaction only and sends explicit focus, interrupt,
+  submit_prompt, approve, and reject controls. The 能力 panel reads the
+  session catalog and sends `configure_session` for the next new turn. It
+  does not create sessions or own Agent history. The bind stays on
+  `127.0.0.1` unless `--allow-remote` is set.
 - After linking `tools/deskhelm-user-launcher` into the user's executable path,
   run these commands directly from the Agent project directory; the launcher
   preserves that directory as `--agent-workdir`.
@@ -447,6 +534,15 @@ Current commands:
   tests.test_local_voice_config tests.test_local_alpha -v`: run the focused
   managed-TUI approval, consecutive-turn, Alpha topology, TTS selection, and
   exact voice-decision regressions from the isolated runtime.
+- `PYTHONPATH=bridge python3 -m unittest tests.test_runtime_directory
+  tests.test_paths tests.test_local_alpha -v`: validate attached-runtime
+  dispatch, the user-bridge web socket, and the default Alpha join command
+  without using the operator's bridge socket.
+- `PYTHONPATH=bridge:adapters/claude:adapters/grok python3 -m unittest
+  tests.test_runtime_directory tests.test_stdio_relay tests.test_agent_streams
+  tests.test_session_catalog tests.test_bridge_e2e tests.test_web_client -v`:
+  validate relay attach, Claude and Grok normalization, session identity, and
+  the web supervision page without using the operator's bridge socket.
 
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --plain`: run the Bridge.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --max-connections 16`:
@@ -475,6 +571,11 @@ Current commands:
   tests.test_codex_app_server_fixtures -v`: validate the bounded Unix WebSocket,
   thread resume, approval-attention state, approval/input normalization, and
   versioned JSON-RPC fixtures without a model request.
+- `PYTHONPATH=bridge:adapters/codex python3 -m unittest
+  tests.test_session_catalog tests.test_control tests.test_web_client
+  tests.test_codex_app_server_adapter -v`: validate the session catalog, model
+  override, loopback web client, and synthetic Codex thread-item projection
+  without a model request.
 - `PYTHONPATH=bridge:voice python3 -m deskhelm_bridge bridge --voice-provider
   local <explicit-model-and-resource-options> [--voice-vad-provider webrtc]`:
   run the provisional local voice composition from an environment containing

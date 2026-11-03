@@ -77,6 +77,22 @@ class ControlRouterTests(unittest.TestCase):
         self.assertEqual(missing_result.code, ControlResultCode.TARGET_NOT_FOUND)
         self.assertEqual(inactive_result.code, ControlResultCode.TARGET_INACTIVE)
 
+    def test_press_ptt_requires_the_focused_target(self) -> None:
+        command = self._command("press-ptt.json")
+        dispatched: list[ControlCommand] = []
+        self.router.register_handler(ControlKind.PRESS_PTT, dispatched.append)
+
+        unfocused = self.router.route(command, now_ms=command.issued_at)
+        self.registry.focus(self.session)
+        focused = self.router.route(
+            replace(command, command_id="press-focused", idempotency_key="press-focused"),
+            now_ms=command.issued_at + 1,
+        )
+
+        self.assertEqual(unfocused.code, ControlResultCode.TARGET_NOT_FOCUSED)
+        self.assertEqual(focused.code, ControlResultCode.DISPATCHED)
+        self.assertEqual(len(dispatched), 1)
+
     def test_dispatches_to_registered_handler_and_caches_failure(self) -> None:
         command = self._command("submit-prompt.json")
         dispatched: list[ControlCommand] = []

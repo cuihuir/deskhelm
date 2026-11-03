@@ -21,6 +21,7 @@ from .audio_config import (
     test_audio_input,
 )
 from .gateway import VoiceGateway
+from .index_tts import IndexTtsProvider
 from .kokoro_tts import KokoroTtsProvider
 from .local_gateway import (
     LocalAsrProviderKind,
@@ -81,6 +82,7 @@ __all__ = [
     "FakeTtsProvider",
     "FakeVadProvider",
     "KokoroTtsProvider",
+    "IndexTtsProvider",
     "LocalAsrProviderKind",
     "LocalAudioConfig",
     "LocalTtsProviderKind",

@@ -34,6 +34,16 @@ It also verifies that proxied TUI approvals become actionable and that keyboard
 decisions clear the Control Router record.
 Schema-derived synthetic JSON-RPC fixtures for locally inspected Codex CLI
 0.149.0 live under `fixtures/adapters/codex-app-server-v2/`.
+`test_web_client.py` and the thread-item projections in
+`test_codex_app_server_adapter.py` use synthetic examples derived from the
+public Codex app-server ThreadItem documentation. They are not locally
+captured fixtures.
+`test_session_catalog.py` checks the bounded catalog normalizer.
+`configure-session.json` round-trips with the other control fixtures. The
+adapter catalog tests use a synthetic model, MCP, and skills page derived from
+the public app-server schema. Skill paths, tool schemas, and the working
+directory stay out of the public result. A model override is checked against
+that page and is sent on the next `turn/start` only.
 
 Voice tests use fake capture, ASR, TTS, and playback providers to verify PTT
 state, raw/normalized transcript separation, recoverable provider failure,

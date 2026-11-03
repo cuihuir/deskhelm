@@ -4,8 +4,10 @@ import tempfile
 from threading import Event
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from voice.deskhelm_voice import (
+    IndexTtsProvider,
     KokoroTtsProvider,
     PiperTtsProvider,
     SynthesizedAudio,
@@ -51,6 +53,14 @@ class _KokoroRuntime:
 
 
 class TtsProviderTests(unittest.TestCase):
+    def test_indextts_prefers_user_runtime_for_temporary_audio(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            "os.environ", {"XDG_RUNTIME_DIR": directory}
+        ):
+            provider = IndexTtsProvider("/model", "/voice.wav")
+
+        self.assertEqual(provider._temp_directory, directory)
+
     def test_manifest_pins_licensed_candidates_and_artifacts(self) -> None:
         manifest = TtsCandidateManifest.load(MANIFEST_PATH)
 

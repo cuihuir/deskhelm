@@ -1,0 +1,16 @@
+{
+  "fixture_schema_version": 1,
+  "adapter_id": "deskhelm-grok",
+  "format": "jsonl",
+  "runtime_name": "grok",
+  "locally_inspected_runtime_version": "1.0.60",
+  "retrieved_at": "2026-10-21",
+  "fixtures": [
+    {
+      "file": "synthetic-turn.jsonl",
+      "source_type": "synthetic",
+      "produced_locally": false,
+      "notes": "The capability tree shape was observed from a local ACP initialize result. This file is synthetic and does not contain that capture, a working directory, or a vendor session id."
+    }
+  ]
+}

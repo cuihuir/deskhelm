@@ -13,6 +13,7 @@ from typing import Any
 
 from deskhelm_bridge.control import (
     ApprovalDecisionPayload,
+    ConfigureSessionPayload,
     ControlCommand,
     ControlKind,
     InterruptPayload,
@@ -25,7 +26,13 @@ from deskhelm_bridge.interaction import (
     AttentionReason,
     InteractionEvent,
     InteractionKind,
+    MessagePayload,
+    MessagePhase,
+    MessageRole,
     TaskPayload,
+    ToolPayload,
+    ToolPhase,
+    ToolStream,
     UserInputPayload,
 )
 from deskhelm_bridge.session_registry import SessionKey
@@ -48,6 +55,13 @@ _RESUME = "resume"
 _TURN_START = "turn_start"
 _TURN_STEER = "turn_steer"
 _INTERRUPT = "interrupt"
+_CATALOG = "catalog"
+_MODEL_CACHE_SECONDS = 120.0
+_MAX_CATALOG_MODELS = 40
+_MAX_CATALOG_EFFORTS = 8
+_MAX_CATALOG_SERVERS = 24
+_MAX_CATALOG_TOOLS = 12
+_MAX_CATALOG_SKILLS = 80
 
 _COMMAND_APPROVAL_METHOD = "item/commandExecution/requestApproval"
 _FILE_APPROVAL_METHOD = "item/fileChange/requestApproval"
@@ -61,6 +75,30 @@ _USER_INPUT_PROMPT = "Codex requested user input"
 
 MAX_IDENTIFIER_CHARS = 512
 MAX_PROMPT_CHARS = 64 * 1024
+MAX_ITEM_TEXT_CHARS = 16_384
+_MAX_SUBMITTED_PROMPTS = 8
+MAX_COMMAND_CHARS = 2_000
+MAX_FILE_CHANGES = 12
+_ITEM_TEXT_MARKER = "\n…[truncated]"
+
+
+@dataclass
+class _RpcWait:
+    event: Event = field(default_factory=Event)
+    result: dict[str, Any] | None = None
+    code: str = ""
+
+    def succeed(self, result: dict[str, Any]) -> None:
+        if self.event.is_set():
+            return
+        self.result = result
+        self.event.set()
+
+    def fail(self, code: str) -> None:
+        if self.event.is_set():
+            return
+        self.code = code
+        self.event.set()
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +107,8 @@ class _ClientRequest:
     deadline: float
     command_id: str = ""
     thread_id: str = ""
+    wait: _RpcWait | None = None
+    prompt: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +185,11 @@ class CodexAppServerAdapter:
     _active_turn_id: str = field(default="", init=False)
     _active_correlation_id: str = field(default="", init=False)
     _turn_submission_pending: str = field(default="", init=False)
+    _submitted_prompts: list[str] = field(
+        default_factory=list,
+        init=False,
+        repr=False,
+    )
     _waiting_on_approval: bool = field(default=False, init=False)
     _next_request_id: int = field(default=1, init=False)
     _next_discovery_at: float = field(default=0.0, init=False)
@@ -170,6 +215,14 @@ class CodexAppServerAdapter:
         init=False,
         repr=False,
     )
+    _model_override: str = field(default="", init=False)
+    _effort_override: str = field(default="", init=False)
+    _model_cache: dict[str, tuple[str, ...]] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _model_cache_at: float = field(default=0.0, init=False)
     _pending_approvals: dict[str, _PendingApproval] = field(
         default_factory=dict,
         init=False,
@@ -273,6 +326,15 @@ class CodexAppServerAdapter:
                         self.reject,
                     )
                 )
+                unregister.append(
+                    control_router.register_handler(
+                        ControlKind.CONFIGURE_SESSION,
+                        self.configure_session,
+                    )
+                )
+                unregister.append(
+                    control_router.register_catalog_provider(self.session_catalog)
+                )
                 if self.tui_proxy_factory is not None:
                     proxy = self.tui_proxy_factory()
                 elif self.tui_proxy_socket_path is not None:
@@ -339,6 +401,7 @@ class CodexAppServerAdapter:
         if len(payload.text) > MAX_PROMPT_CHARS:
             raise ValueError("prompt exceeds app-server adapter limit")
         now_ms = int(time.time() * 1000)
+        submitted = False
         with self._lock:
             thread_id = self._require_attached_thread_locked()
             self._purge_user_inputs_locked(now_ms)
@@ -371,11 +434,10 @@ class CodexAppServerAdapter:
                     and self._active_correlation_id == self._active_turn_id
                 ):
                     self._active_correlation_id = command.command_id
-                return
-
-            if self._turn_submission_pending:
+                submitted = True
+            elif self._turn_submission_pending:
                 raise RuntimeError("a Codex turn submission is already pending")
-            if self._active_turn_id:
+            elif self._active_turn_id:
                 self._queue_request_locked(
                     "turn/steer",
                     {
@@ -386,22 +448,31 @@ class CodexAppServerAdapter:
                     _TURN_STEER,
                     command_id=command.command_id,
                     thread_id=thread_id,
+                    prompt=payload.text,
                 )
                 if self._active_correlation_id == self._active_turn_id:
                     self._active_correlation_id = command.command_id
-                return
-
-            self._queue_request_locked(
-                "turn/start",
-                {
+                submitted = True
+            else:
+                turn_params: dict[str, Any] = {
                     "threadId": thread_id,
                     "input": [{"type": "text", "text": payload.text}],
-                },
-                _TURN_START,
-                command_id=command.command_id,
-                thread_id=thread_id,
-            )
-            self._turn_submission_pending = command.command_id
+                }
+                if self._model_override:
+                    turn_params["model"] = self._model_override
+                if self._effort_override:
+                    turn_params["effort"] = self._effort_override
+                self._queue_request_locked(
+                    "turn/start",
+                    turn_params,
+                    _TURN_START,
+                    command_id=command.command_id,
+                    thread_id=thread_id,
+                )
+                self._turn_submission_pending = command.command_id
+                submitted = True
+        if submitted:
+            self._publish_submitted_prompt(command.command_id, payload.text)
 
     def interrupt(self, command: ControlCommand) -> None:
         self._validate_target(command)
@@ -428,6 +499,85 @@ class CodexAppServerAdapter:
     def reject(self, command: ControlCommand) -> None:
         self._decide_approval(command, "decline")
 
+    def configure_session(self, command: ControlCommand) -> None:
+        self._validate_target(command)
+        payload = command.payload
+        if not isinstance(payload, ConfigureSessionPayload):
+            raise ValueError("configure_session command has an invalid payload")
+        with self._lock:
+            fresh = (
+                bool(self._model_cache)
+                and time.monotonic() - self._model_cache_at <= _MODEL_CACHE_SECONDS
+            )
+            cache = dict(self._model_cache)
+            model = self._model_override
+            effort = self._effort_override
+        if not fresh:
+            raise RuntimeError("Codex model catalog is stale")
+        if payload.model_set:
+            model = payload.model
+        if payload.effort_set:
+            effort = payload.reasoning_effort
+        if model and model not in cache:
+            raise RuntimeError("Codex model is not in the catalog")
+        if effort and (not model or effort not in cache.get(model, ())):
+            raise RuntimeError("Codex reasoning effort is not supported")
+        with self._lock:
+            self._model_override = model
+            self._effort_override = effort
+
+    def session_catalog(
+        self, agent_id: str, session_id: str, project_id: str
+    ) -> dict[str, Any]:
+        if (
+            agent_id != self.session.agent_id
+            or session_id != self.session.session_id
+            or project_id != self.session.project_id
+        ):
+            return _empty_session_catalog("catalog_unavailable")
+        with self._lock:
+            ready = self._initialized and bool(self._attached_thread_id)
+            thread_id = self._attached_thread_id
+            selected_model = self._model_override
+            selected_effort = self._effort_override
+        if not ready:
+            return _empty_session_catalog("catalog_unavailable")
+        try:
+            thread_result = self._call_app_server(
+                "thread/read",
+                {"threadId": thread_id, "includeTurns": False},
+            )
+        except RuntimeError:
+            return _empty_session_catalog("catalog_failed")
+        thread = thread_result.get("thread")
+        thread_model = ""
+        cwd = ""
+        if isinstance(thread, dict):
+            if isinstance(thread.get("model"), str):
+                thread_model = _catalog_token(thread.get("model"), 128)
+            if isinstance(thread.get("cwd"), str):
+                cwd = thread["cwd"].strip()
+        models, model_cache, models_notice, models_truncated = self._read_models()
+        servers, mcp_notice, mcp_truncated = self._read_mcp(thread_id)
+        skills, skills_notice, skills_truncated = self._read_skills(cwd)
+        if models_notice == "":
+            with self._lock:
+                self._model_cache = model_cache
+                self._model_cache_at = time.monotonic()
+        return {
+            "available": True,
+            "notice": "",
+            "model": selected_model or thread_model,
+            "reasoning_effort": selected_effort,
+            "models": models,
+            "models_notice": models_notice,
+            "mcp_servers": servers,
+            "mcp_notice": mcp_notice,
+            "skills": skills,
+            "skills_notice": skills_notice,
+            "truncated": models_truncated or mcp_truncated or skills_truncated,
+        }
+
     def attached_thread_id(self) -> str:
         with self._lock:
             return self._attached_thread_id
@@ -435,6 +585,59 @@ class CodexAppServerAdapter:
     def subscribed_thread_id(self) -> str:
         with self._lock:
             return self._subscribed_thread_id
+
+    def _call_app_server(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        wait = _RpcWait()
+        with self._lock:
+            if not self._connected or not self._initialized:
+                raise RuntimeError("catalog_unavailable")
+            self._queue_request_locked(method, params, _CATALOG, wait=wait)
+        if not wait.event.wait(self.request_timeout_seconds + 0.3):
+            raise RuntimeError("catalog_failed")
+        if wait.code or not isinstance(wait.result, dict):
+            raise RuntimeError(wait.code or "catalog_failed")
+        return wait.result
+
+    def _read_models(
+        self,
+    ) -> tuple[list[dict[str, Any]], dict[str, tuple[str, ...]], str, bool]:
+        try:
+            result = self._call_app_server(
+                "model/list",
+                {"limit": _MAX_CATALOG_MODELS, "includeHidden": False},
+            )
+        except RuntimeError:
+            return [], {}, "unavailable", False
+        if not isinstance(result.get("data"), list):
+            return [], {}, "unavailable", False
+        parsed, cache, truncated = _parse_models(result)
+        return parsed, cache, "", truncated
+
+    def _read_mcp(self, thread_id: str) -> tuple[list[dict[str, Any]], str, bool]:
+        try:
+            result = self._call_app_server(
+                "mcpServerStatus/list",
+                {
+                    "limit": _MAX_CATALOG_SERVERS,
+                    "detail": "toolsAndAuthOnly",
+                    "threadId": thread_id,
+                },
+            )
+        except RuntimeError:
+            return [], "unavailable", False
+        return _parse_mcp(result)
+
+    def _read_skills(self, cwd: str) -> tuple[list[dict[str, Any]], str, bool]:
+        if not cwd or any(ord(character) < 32 for character in cwd):
+            return [], "unavailable", False
+        try:
+            result = self._call_app_server(
+                "skills/list",
+                {"cwds": [cwd], "forceReload": False},
+            )
+        except RuntimeError:
+            return [], "unavailable", False
+        return _parse_skills(result)
 
     def pending_user_input_count(self) -> int:
         with self._lock:
@@ -525,6 +728,11 @@ class CodexAppServerAdapter:
                 self._transport = None
             if self._attached_thread_id:
                 self._resume_thread_id = self._attached_thread_id
+            catalog_waiters = [
+                request.wait
+                for request in self._pending_client_requests.values()
+                if request.wait is not None
+            ]
             for request in self._pending_client_requests.values():
                 if request.command_id and request.kind in {
                     _TURN_START,
@@ -556,6 +764,8 @@ class CodexAppServerAdapter:
             self._waiting_on_approval = has_proxy_approval
             self._pending_client_requests.clear()
             self._pending_user_inputs.clear()
+            for waiter in catalog_waiters:
+                waiter.fail("catalog_unavailable")
             self._loaded_thread_candidates = ()
             self._loaded_thread_ephemeral.clear()
             self._loaded_thread_read_failures.clear()
@@ -659,6 +869,16 @@ class CodexAppServerAdapter:
             request = self._pending_client_requests.pop(request_id, None)
         if request is None:
             return
+        if request.wait is not None:
+            if "error" in message:
+                request.wait.fail("catalog_failed")
+                return
+            result = message.get("result")
+            if isinstance(result, dict):
+                request.wait.succeed(result)
+            else:
+                request.wait.fail("catalog_failed")
+            return
         if "error" in message:
             if (
                 request.kind == _RESUME
@@ -682,6 +902,13 @@ class CodexAppServerAdapter:
                 _RESUME,
             }:
                 raise RuntimeError("Codex app-server setup request failed")
+            if (
+                request.kind == _TURN_STEER
+                and request.prompt
+                and _is_idle_steer_error(message.get("error"))
+                and self._retry_idle_steer(request)
+            ):
+                return
             if request.kind == _TURN_START:
                 with self._lock:
                     if self._turn_submission_pending == request.command_id:
@@ -878,6 +1105,9 @@ class CodexAppServerAdapter:
             self._handle_thread_status(thread_id, status)
 
     def _handle_notification(self, method: str, params_value: object) -> None:
+        if method in {"item/started", "item/completed"}:
+            self._publish_thread_item(method, params_value)
+            return
         if method not in {
             "thread/status/changed",
             "turn/started",
@@ -1256,6 +1486,8 @@ class CodexAppServerAdapter:
                     internal_timeout = True
                 elif request.kind == _LOADED_READ:
                     failed_loaded_reads.append(request)
+                elif request.wait is not None:
+                    request.wait.fail("catalog_failed")
                 elif request.command_id and request.kind in {
                     _TURN_START,
                     _TURN_STEER,
@@ -1284,6 +1516,50 @@ class CodexAppServerAdapter:
             )
         return internal_timeout
 
+    def _retry_idle_steer(self, request: _ClientRequest) -> bool:
+        """Start one new turn after Codex reports the steered turn is gone."""
+        queued = False
+        with self._lock:
+            self._active_turn_id = ""
+            self._active_correlation_id = ""
+            pending = bool(self._turn_submission_pending)
+            thread_id = request.thread_id or self._attached_thread_id
+            if pending or not self._connected or not thread_id or not request.prompt:
+                queued = False
+            else:
+                turn_params: dict[str, Any] = {
+                    "threadId": thread_id,
+                    "input": [{"type": "text", "text": request.prompt}],
+                }
+                if self._model_override:
+                    turn_params["model"] = self._model_override
+                if self._effort_override:
+                    turn_params["effort"] = self._effort_override
+                try:
+                    self._queue_request_locked(
+                        "turn/start",
+                        turn_params,
+                        _TURN_START,
+                        command_id=request.command_id,
+                        thread_id=thread_id,
+                        prompt=request.prompt,
+                    )
+                except RuntimeError:
+                    queued = False
+                else:
+                    self._turn_submission_pending = request.command_id
+                    queued = True
+        if queued:
+            return True
+        if request.command_id:
+            self._publish_terminal(
+                InteractionKind.TASK_FAILED,
+                "Codex control request failed",
+                "codex_control_failed",
+                request.command_id,
+            )
+        return True
+
     def _queue_request_locked(
         self,
         method: str,
@@ -1292,6 +1568,8 @@ class CodexAppServerAdapter:
         *,
         command_id: str = "",
         thread_id: str = "",
+        wait: _RpcWait | None = None,
+        prompt: str = "",
     ) -> int:
         if not self._connected:
             raise RuntimeError("Codex app-server is not connected")
@@ -1304,6 +1582,8 @@ class CodexAppServerAdapter:
             deadline=time.monotonic() + self.request_timeout_seconds,
             command_id=command_id,
             thread_id=thread_id,
+            wait=wait,
+            prompt=prompt,
         )
         try:
             self._queue_message_locked(
@@ -1376,6 +1656,89 @@ class CodexAppServerAdapter:
             sequence = self._sequence
             self._sequence += 1
             return sequence
+
+    def _item_targets_attached_thread(self, params: dict[str, Any]) -> bool:
+        with self._lock:
+            attached = self._attached_thread_id
+        if not attached:
+            return False
+        thread_id = params.get("threadId")
+        if isinstance(thread_id, str) and thread_id.strip():
+            return thread_id == attached
+        # Public item examples omit threadId. This connection is subscribed to
+        # one attached thread, so an item without a thread id stays on it.
+        return True
+
+    def _publish_thread_item(self, method: str, params_value: object) -> None:
+        if not isinstance(params_value, dict):
+            return
+        if not self._item_targets_attached_thread(params_value):
+            return
+        item = params_value.get("item")
+        if not isinstance(item, dict):
+            return
+        try:
+            drafts = _thread_item_drafts(method, item)
+        except (TypeError, ValueError):
+            return
+        for kind, correlation_id, payload in drafts:
+            if (
+                kind is InteractionKind.MESSAGE
+                and isinstance(payload, MessagePayload)
+                and payload.role is MessageRole.USER
+                and payload.phase is MessagePhase.COMPLETE
+                and self._consume_submitted_prompt(payload.text)
+            ):
+                continue
+            try:
+                event = InteractionEvent(
+                    kind=kind,
+                    agent_id=self.session.agent_id,
+                    session_id=self.session.session_id,
+                    project_id=self.session.project_id,
+                    source=self.source,
+                    source_version=self.source_version,
+                    sequence=self._next_sequence(),
+                    correlation_id=correlation_id,
+                    payload=payload,
+                )
+            except (TypeError, ValueError):
+                continue
+            self._publish_event(event)
+
+    def _publish_submitted_prompt(self, command_id: str, text: str) -> None:
+        clipped = _clip_text(text, MAX_ITEM_TEXT_CHARS).strip()
+        if not clipped:
+            return
+        with self._lock:
+            self._submitted_prompts.append(clipped)
+            if len(self._submitted_prompts) > _MAX_SUBMITTED_PROMPTS:
+                del self._submitted_prompts[:-_MAX_SUBMITTED_PROMPTS]
+        self._publish_event(
+            InteractionEvent(
+                kind=InteractionKind.MESSAGE,
+                agent_id=self.session.agent_id,
+                session_id=self.session.session_id,
+                project_id=self.session.project_id,
+                source=self.source,
+                source_version=self.source_version,
+                sequence=self._next_sequence(),
+                correlation_id=command_id,
+                payload=MessagePayload(
+                    role=MessageRole.USER,
+                    phase=MessagePhase.COMPLETE,
+                    text=clipped,
+                ),
+            )
+        )
+
+    def _consume_submitted_prompt(self, text: str) -> bool:
+        with self._lock:
+            try:
+                self._submitted_prompts.remove(text)
+            except ValueError:
+                return False
+            return True
 
     def _publish_terminal(
         self,
@@ -1512,6 +1875,196 @@ def _deskhelm_request_id(
     return f"codex-app-server:{digest}"
 
 
+def _is_idle_steer_error(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    message = value.get("message")
+    return isinstance(message, str) and "no active turn" in message.lower()
+
+
+def _empty_session_catalog(notice: str) -> dict[str, Any]:
+    return {
+        "available": False,
+        "notice": notice,
+        "model": "",
+        "reasoning_effort": "",
+        "models": [],
+        "models_notice": "unavailable",
+        "mcp_servers": [],
+        "mcp_notice": "unavailable",
+        "skills": [],
+        "skills_notice": "unavailable",
+        "truncated": False,
+    }
+
+
+def _catalog_token(value: object, limit: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    if not text or len(text) > limit:
+        return ""
+    if any(character.isspace() or ord(character) < 32 for character in text):
+        return ""
+    return text
+
+
+def _catalog_label(value: object, limit: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = " ".join(value.replace("\n", " ").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def _parse_models(
+    result: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, tuple[str, ...]], bool]:
+    data = result.get("data")
+    if not isinstance(data, list):
+        return [], {}, False
+    models: list[dict[str, Any]] = []
+    cache: dict[str, tuple[str, ...]] = {}
+    overflow = False
+    for item in data:
+        if not isinstance(item, dict) or item.get("hidden") is True:
+            continue
+        if len(models) >= _MAX_CATALOG_MODELS:
+            overflow = True
+            break
+        model_id = _catalog_token(item.get("model"), 128) or _catalog_token(
+            item.get("id"), 128
+        )
+        if not model_id:
+            continue
+        efforts: list[dict[str, str]] = []
+        effort_ids: list[str] = []
+        raw_efforts = item.get("supportedReasoningEfforts")
+        if isinstance(raw_efforts, list):
+            for effort in raw_efforts:
+                if len(efforts) >= _MAX_CATALOG_EFFORTS:
+                    break
+                if not isinstance(effort, dict):
+                    continue
+                effort_id = _catalog_token(effort.get("reasoningEffort"), 64)
+                if not effort_id or effort_id in effort_ids:
+                    continue
+                effort_ids.append(effort_id)
+                efforts.append(
+                    {
+                        "id": effort_id,
+                        "description": _catalog_label(effort.get("description"), 240),
+                    }
+                )
+        default_effort = _catalog_token(item.get("defaultReasoningEffort"), 64)
+        if default_effort not in effort_ids:
+            default_effort = ""
+        models.append(
+            {
+                "id": model_id,
+                "name": _catalog_label(item.get("displayName"), 128) or model_id,
+                "is_default": item.get("isDefault") is True,
+                "default_effort": default_effort,
+                "efforts": efforts,
+            }
+        )
+        cache[model_id] = tuple(effort_ids)
+    cursor = result.get("nextCursor")
+    truncated = overflow or (isinstance(cursor, str) and bool(cursor))
+    return models, cache, truncated
+
+
+def _parse_mcp(result: dict[str, Any]) -> tuple[list[dict[str, Any]], str, bool]:
+    data = result.get("data")
+    if not isinstance(data, list):
+        return [], "unavailable", False
+    statuses = {
+        "notStarted",
+        "starting",
+        "connected",
+        "authenticationRequired",
+        "failed",
+        "cancelled",
+        "disabled",
+    }
+    auth_values = {"unknown", "unsupported", "notLoggedIn", "bearerToken", "oAuth"}
+    servers: list[dict[str, Any]] = []
+    overflow = False
+    for item in data:
+        if len(servers) >= _MAX_CATALOG_SERVERS:
+            overflow = True
+            break
+        if not isinstance(item, dict):
+            continue
+        name = _catalog_token(item.get("name"), 128)
+        if not name:
+            continue
+        status = item.get("runtimeStatus")
+        auth = item.get("authStatus")
+        tools: list[str] = []
+        raw_tools = item.get("tools")
+        if isinstance(raw_tools, dict):
+            for tool_name in raw_tools:
+                if len(tools) >= _MAX_CATALOG_TOOLS:
+                    break
+                token = _catalog_token(tool_name, 128)
+                if token:
+                    tools.append(token)
+        servers.append(
+            {
+                "name": name,
+                "status": status if isinstance(status, str) and status in statuses else "unknown",
+                "auth": auth if isinstance(auth, str) and auth in auth_values else "",
+                "tools": tools,
+            }
+        )
+    cursor = result.get("nextCursor")
+    truncated = overflow or (isinstance(cursor, str) and bool(cursor))
+    return servers, "", truncated
+
+
+def _parse_skills(result: dict[str, Any]) -> tuple[list[dict[str, Any]], str, bool]:
+    data = result.get("data")
+    if not isinstance(data, list):
+        return [], "unavailable", False
+    scopes = {"user", "repo", "system", "admin"}
+    skills: list[dict[str, Any]] = []
+    overflow = False
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        raw_skills = entry.get("skills")
+        if not isinstance(raw_skills, list):
+            continue
+        for item in raw_skills:
+            if len(skills) >= _MAX_CATALOG_SKILLS:
+                overflow = True
+                break
+            if not isinstance(item, dict) or not isinstance(item.get("enabled"), bool):
+                continue
+            name = _catalog_token(item.get("name"), 128)
+            scope = item.get("scope")
+            if not name or scope not in scopes:
+                continue
+            description = item.get("shortDescription")
+            if not isinstance(description, str) or not description.strip():
+                description = item.get("description")
+            skills.append(
+                {
+                    "name": name,
+                    "description": _catalog_label(description, 240),
+                    "scope": scope,
+                    "enabled": item["enabled"],
+                }
+            )
+        if overflow:
+            break
+    cursor = result.get("nextCursor")
+    truncated = overflow or (isinstance(cursor, str) and bool(cursor))
+    return skills, "", truncated
+
+
 def _rpc_id(value: object) -> str | int:
     if isinstance(value, bool) or not isinstance(value, (str, int)):
         raise ValueError("app-server request id must be a string or integer")
@@ -1538,6 +2091,237 @@ def _is_missing_rollout_error(value: object) -> bool:
         isinstance(message, str)
         and "no rollout found for thread id" in message.lower()
     )
+
+
+def _clip_text(value: object, limit: int) -> str:
+    if not isinstance(value, str) or limit < 1:
+        return ""
+    if len(value) <= limit:
+        return value
+    keep = max(0, limit - len(_ITEM_TEXT_MARKER))
+    return value[:keep] + _ITEM_TEXT_MARKER
+
+
+def _thread_item_drafts(
+    method: str, item: dict[str, Any]
+) -> list[tuple[InteractionKind, str, MessagePayload | ToolPayload]]:
+    """Map one public app-server ThreadItem into interaction drafts.
+
+    The shape comes from the public app-server item documentation. Callers
+    pass synthetic or live items; this function does not claim a fixture was
+    captured locally. Reasoning content is omitted. Working directories and
+    tool arguments are omitted.
+    """
+    if method not in {"item/started", "item/completed"}:
+        return []
+    item_type = item.get("type")
+    item_id = item.get("id")
+    if (
+        not isinstance(item_type, str)
+        or not isinstance(item_id, str)
+        or not item_id.strip()
+        or len(item_id) > MAX_IDENTIFIER_CHARS
+    ):
+        return []
+    started = method == "item/started"
+    if item_type == "userMessage":
+        text = _user_item_text(item)
+        if not text:
+            return []
+        return [
+            (
+                InteractionKind.MESSAGE,
+                item_id,
+                MessagePayload(
+                    role=MessageRole.USER,
+                    phase=MessagePhase.COMPLETE,
+                    text=text,
+                ),
+            )
+        ]
+    if item_type in {"agentMessage", "plan"}:
+        text = _clip_text(item.get("text"), MAX_ITEM_TEXT_CHARS).strip()
+        if not text:
+            return []
+        phase = MessagePhase.DELTA if started else MessagePhase.COMPLETE
+        return [
+            (
+                InteractionKind.MESSAGE,
+                item_id,
+                MessagePayload(
+                    role=MessageRole.ASSISTANT,
+                    phase=phase,
+                    text=text,
+                ),
+            )
+        ]
+    if item_type == "exitedReviewMode":
+        if started:
+            return []
+        text = _clip_text(item.get("review"), MAX_ITEM_TEXT_CHARS).strip()
+        if not text:
+            return []
+        return [
+            (
+                InteractionKind.MESSAGE,
+                item_id,
+                MessagePayload(
+                    role=MessageRole.ASSISTANT,
+                    phase=MessagePhase.COMPLETE,
+                    text=text,
+                ),
+            )
+        ]
+    if item_type == "commandExecution":
+        return _command_drafts(item, item_id, started=started)
+    if item_type == "fileChange":
+        return _file_drafts(item, item_id, started=started)
+    if item_type == "webSearch":
+        query = _clip_text(item.get("query"), 240).strip()
+        name = f"web search: {query}" if query else "web search"
+        return _tool_lifecycle(item_id, name, started=started, output="")
+    if item_type == "mcpToolCall":
+        tool = item.get("tool") if isinstance(item.get("tool"), str) else ""
+        server = item.get("server") if isinstance(item.get("server"), str) else ""
+        name = _clip_text(f"{server} {tool}".strip() or "mcp", 240)
+        output = ""
+        stream = ToolStream.STDOUT
+        if not started:
+            error = item.get("error")
+            result = item.get("result")
+            if isinstance(error, str) and error.strip():
+                output = _clip_text(error, MAX_ITEM_TEXT_CHARS)
+                stream = ToolStream.STDERR
+            elif isinstance(result, str) and result.strip():
+                output = _clip_text(result, MAX_ITEM_TEXT_CHARS)
+        return _tool_lifecycle(
+            item_id,
+            name,
+            started=started,
+            output=output,
+            stream=stream,
+        )
+    return []
+
+
+def _user_item_text(item: dict[str, Any]) -> str:
+    content = item.get("content")
+    parts: list[str] = []
+    entries = [content] if isinstance(content, str) else content
+    if not isinstance(entries, list):
+        return ""
+    for entry in entries:
+        if isinstance(entry, str) and entry.strip():
+            parts.append(entry)
+        elif isinstance(entry, dict):
+            if entry.get("type") == "text" and isinstance(entry.get("text"), str):
+                parts.append(entry["text"])
+            elif entry.get("type") in {"image", "localImage"}:
+                parts.append("[image]")
+    text = "\n".join(part for part in parts if part.strip())
+    return _clip_text(text, MAX_ITEM_TEXT_CHARS).strip()
+
+
+def _command_drafts(
+    item: dict[str, Any], item_id: str, *, started: bool
+) -> list[tuple[InteractionKind, str, ToolPayload]]:
+    command = item.get("command")
+    if isinstance(command, list):
+        command = " ".join(part for part in command if isinstance(part, str))
+    if not isinstance(command, str) or not command.strip():
+        name = "command"
+    else:
+        name = _clip_text(command.strip(), MAX_COMMAND_CHARS)
+    if started:
+        return [_tool(item_id, name, ToolPhase.START)]
+    output = item.get("aggregatedOutput")
+    text = _clip_text(output, MAX_ITEM_TEXT_CHARS) if isinstance(output, str) else ""
+    if not text.strip():
+        status = item.get("status")
+        if status in {"failed", "declined"}:
+            text = str(status)
+        else:
+            text = ""
+    return _tool_lifecycle(item_id, name, started=False, output=text, exit_code=_exit_code(item))
+
+
+def _file_drafts(
+    item: dict[str, Any], item_id: str, *, started: bool
+) -> list[tuple[InteractionKind, str, ToolPayload]]:
+    changes = item.get("changes")
+    names: list[str] = []
+    lines: list[str] = []
+    if isinstance(changes, list):
+        for change in changes[:MAX_FILE_CHANGES]:
+            if not isinstance(change, dict):
+                continue
+            path = change.get("path") if isinstance(change.get("path"), str) else "file"
+            kind = change.get("kind") if isinstance(change.get("kind"), str) else "change"
+            names.append(path.strip() or "file")
+            lines.append(f"{kind} {path.strip() or 'file'}")
+            diff = change.get("diff")
+            if isinstance(diff, str) and diff.strip():
+                lines.append(_clip_text(diff, MAX_ITEM_TEXT_CHARS))
+        if len(changes) > MAX_FILE_CHANGES:
+            lines.append(_ITEM_TEXT_MARKER.strip())
+    name = _clip_text(", ".join(names) or "file change", MAX_COMMAND_CHARS)
+    output = _clip_text("\n".join(lines), MAX_ITEM_TEXT_CHARS) if not started else ""
+    return _tool_lifecycle(item_id, name, started=started, output=output)
+
+
+def _tool_lifecycle(
+    item_id: str,
+    name: str,
+    *,
+    started: bool,
+    output: str,
+    exit_code: int | None = None,
+    stream: ToolStream = ToolStream.STDOUT,
+) -> list[tuple[InteractionKind, str, ToolPayload]]:
+    if started:
+        return [_tool(item_id, name, ToolPhase.START)]
+    drafts = []
+    if output.strip():
+        drafts.append(
+            _tool(
+                item_id,
+                name,
+                ToolPhase.OUTPUT,
+                text=output,
+                stream=stream,
+            )
+        )
+    drafts.append(_tool(item_id, name, ToolPhase.COMPLETE, exit_code=exit_code))
+    return drafts
+
+
+def _tool(
+    item_id: str,
+    name: str,
+    phase: ToolPhase,
+    text: str = "",
+    stream: ToolStream | None = None,
+    exit_code: int | None = None,
+) -> tuple[InteractionKind, str, ToolPayload]:
+    return (
+        InteractionKind.TOOL,
+        item_id,
+        ToolPayload(
+            tool_call_id=item_id,
+            name=name or "tool",
+            phase=phase,
+            text=text,
+            stream=stream,
+            exit_code=exit_code,
+        ),
+    )
+
+
+def _exit_code(item: dict[str, Any]) -> int | None:
+    value = item.get("exitCode")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
 
 
 def _bounded_string(value: object, name: str) -> str:

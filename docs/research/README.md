@@ -13,6 +13,8 @@
 
 ## Software Research
 
+- [`2026-09-04-voicestudio-review.md`](2026-09-04-voicestudio-review.md) —
+  VoiceStudio 的 ASR/TTS 选型、运行时隔离、部署和本地语音协议经验。
 - [`2026-08-14-local-voice-stack.md`](2026-08-14-local-voice-stack.md) — Linux
   本地语音栈与 Voice Gateway 调研。
 - [`2026-08-17-agent-io-design-lessons.md`](2026-08-17-agent-io-design-lessons.md)

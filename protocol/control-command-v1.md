@@ -75,6 +75,22 @@ source material and must not enter ordinary logs.
 Payload field `reason` is an optional string for local UI context. The command
 targets the current interruptible work owned by the named session.
 
+### `configure_session`
+
+| Field | Type | Requirement |
+|---|---|---|
+| `model` | string or null | Optional. A string sets the override. Null clears it. |
+| `reasoning_effort` | string or null | Optional. A string sets the override. Null clears it. |
+
+At least one field is required. An omitted field leaves that override
+unchanged. Strings are single tokens: model at most 128 characters, reasoning
+effort at most 64, with no whitespace or control characters. The handler must
+return without vendor I/O. For the Codex app-server adapter, the choice is
+checked against the model list cached by the latest session catalog read and
+is sent on the next `turn/start` only. It does not write Codex configuration
+and does not change an active turn. The catalog query is defined by
+[`session-catalog-v1.md`](session-catalog-v1.md).
+
 ### `approve` and `reject`
 
 | Field | Type | Requirement |
@@ -133,8 +149,9 @@ record and risking a duplicate side effect.
 Idempotency does not authorize automatic retry:
 
 - `submit_prompt` and `speak` may retry only with the same command identity.
-- `focus`, `interrupt`, and `stop_speaking` require Bridge deduplication before
-  repeated dispatch.
+- `focus`, `interrupt`, `stop_speaking`, and `configure_session` require Bridge
+  deduplication before repeated dispatch. `configure_session` is not retried
+  automatically.
 - `press_ptt` and `release_ptt` are not automatically retried; an exact
   retransmission may use the retained router result after the client reconnects.
 - `approve` and `reject` never retry automatically.

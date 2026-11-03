@@ -233,21 +233,24 @@ def discover_pipewire_audio(
         raise RuntimeError("PipeWire discovery returned invalid data") from error
     if not isinstance(objects, list) or len(objects) > MAX_AUDIO_NODES * 8:
         raise RuntimeError("PipeWire discovery returned invalid data")
-    sources = []
-    sinks = []
+    sources_by_name: dict[str, AudioNode] = {}
+    sinks_by_name: dict[str, AudioNode] = {}
     for item in objects:
         node = _parse_node(item)
         if node is None:
             continue
         if node.kind is AudioNodeKind.SOURCE:
-            sources.append(node)
+            # WirePlumber can briefly expose two virtual nodes with the same
+            # stable name while a network sink is being refreshed. Keep the
+            # last snapshot entry rather than failing the whole audio path.
+            sources_by_name[node.name] = node
         else:
-            sinks.append(node)
-        if len(sources) + len(sinks) > MAX_AUDIO_NODES:
+            sinks_by_name[node.name] = node
+        if len(sources_by_name) + len(sinks_by_name) > MAX_AUDIO_NODES:
             raise RuntimeError("PipeWire audio node limit exceeded")
     return PipeWireAudioInventory(
-        sources=tuple(sorted(sources, key=lambda node: node.name)),
-        sinks=tuple(sorted(sinks, key=lambda node: node.name)),
+        sources=tuple(sorted(sources_by_name.values(), key=lambda node: node.name)),
+        sinks=tuple(sorted(sinks_by_name.values(), key=lambda node: node.name)),
         default_source_name=_parse_default_name(source_text, "source"),
         default_sink_name=_parse_default_name(sink_text, "sink"),
     )

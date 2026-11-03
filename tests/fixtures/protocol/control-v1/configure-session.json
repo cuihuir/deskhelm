@@ -1,0 +1,17 @@
+{
+  "protocol_version": 1,
+  "message_type": "control_command",
+  "command_id": "command-configure-1",
+  "kind": "configure_session",
+  "agent_id": "codex",
+  "session_id": "session-42",
+  "project_id": "deskhelm",
+  "issued_by": "deskhelm-web",
+  "issued_at": 1786935103000,
+  "expires_at": 1786935113000,
+  "idempotency_key": "configure-session-42-1",
+  "payload": {
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium"
+  }
+}

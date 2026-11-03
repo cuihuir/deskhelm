@@ -101,6 +101,10 @@ class AdapterRegistry:
         with self._lock:
             return self._records.get(session)
 
+    def snapshot(self) -> tuple[AdapterSessionRecord, ...]:
+        with self._lock:
+            return tuple(self._records.values())
+
     def _register(
         self,
         owner_id: str,

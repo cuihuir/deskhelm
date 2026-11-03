@@ -60,14 +60,15 @@ revision and the official 600 ms chunk configuration. `sensevoice.py` provides
 the second, final-only ASR baseline through a compact INT8 sherpa-onnx runtime.
 These providers are not selected by the Voice Gateway yet. Paraformer and
 SenseVoice remain candidates, not production ASR for mixed coding commands.
-`piper_tts.py` and
-`kokoro_tts.py` provide lazy, bounded streaming TTS adapters. Piper Chaowen is
-the initial low-latency notification baseline; Kokoro remains the
-quality-oriented candidate and is now selectable by the Alpha artifact
-directory. Kokoro uses female voice `zf_xiaobei` for Chinese or mixed text and
-female voice `af_heart` for English-only text. Neither is selected as production
-TTS. Keep model weights and provider-specific heavyweight dependencies outside
-the repository and Bridge.
+`piper_tts.py`, `kokoro_tts.py`, and `index_tts.py` provide lazy, bounded TTS
+adapters. Alpha prefers an IndexTTS-2.5 directory when its model config and
+`voice.wav` speaker reference are present, then falls back to Piper; Kokoro
+remains available through explicit provider selection. Alpha uses the
+repository's `tools/run-index-tts25` stdin wrapper for the 2.5 API; its
+Python/CUDA runtime stays outside the DeskHelm voice runtime. Keep model
+weights, reference audio, and provider dependencies outside the repository
+and Bridge. Temporary IndexTTS WAV output prefers `$XDG_RUNTIME_DIR` so a full
+system `/tmp` quota does not turn successful synthesis into `voice_output_failed`.
 
 `whisper_cpp.py` provides an explicit fallback provider that loads a
 DeskHelm-specific shared-library shim and model path lazily. It accepts only
@@ -79,8 +80,8 @@ dependency to Bridge. See
 [`native/whisper-cpp-shim/README.md`](native/whisper-cpp-shim/README.md).
 
 `local_gateway.py` provides the first opt-in application composition. It
-preflights PipeWire selection plus required Paraformer and selected Piper or
-Kokoro artifact files, then constructs lazy model providers without opening
+preflights PipeWire selection plus required Paraformer and selected IndexTTS,
+Piper, or Kokoro artifact files, then constructs lazy model providers without opening
 audio or loading weights.
 The Gateway can attach optional advisory WebRTC VAD to the frame-positioned
 stream. It publishes only bounded speech start/end frame positions and a fixed

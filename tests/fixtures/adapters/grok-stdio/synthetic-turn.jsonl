@@ -1,0 +1,8 @@
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"embeddedContext":true},"sessionCapabilities":{"list":{}},"auth":{},"_meta":{"secret":true}}}}
+{"jsonrpc":"2.0","id":2,"result":{"sessionId":"vendor-session","models":{"currentModelId":"example-model","availableModels":[{"modelId":"example-model","name":"Example"}]}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"hidden thought"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"pong"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"tool-1","title":"Read","rawInput":{"path":"secret-argument"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-1","status":"completed","content":{"type":"text","text":"file text"}}}}
+{"jsonrpc":"2.0","id":10,"result":{"stopReason":"end_turn"}}
+{"jsonrpc":"2.0","id":7,"method":"session/request_permission","params":{"toolCall":{"title":"Bash"},"options":[{"optionId":"allow-once","kind":"allow_once"},{"optionId":"reject-once","kind":"reject_once"}]}}

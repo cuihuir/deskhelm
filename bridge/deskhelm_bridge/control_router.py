@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from threading import RLock
 import time
+from typing import Any
 
 from .control import ApprovalDecisionPayload, ControlCommand, ControlKind
 from .control_result import (
@@ -17,6 +18,7 @@ from .session_registry import SessionKey, SessionLifecycleState, SessionRegistry
 
 
 ControlHandler = Callable[[ControlCommand], None]
+CatalogProvider = Callable[[str, str, str], Mapping[str, Any]]
 IdempotencyScope = tuple[str, str]
 
 
@@ -53,6 +55,9 @@ class ControlRouter:
     _decided_approvals: dict[str, int] = field(
         default_factory=dict, init=False, repr=False
     )
+    _catalog_provider: CatalogProvider | None = field(
+        default=None, init=False, repr=False
+    )
     _lock: RLock = field(default_factory=RLock, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -83,6 +88,27 @@ class ControlRouter:
                     del self._handlers[kind]
 
         return unregister
+
+    def register_catalog_provider(
+        self, provider: CatalogProvider
+    ) -> Callable[[], None]:
+        if not callable(provider):
+            raise ValueError("catalog provider must be callable")
+        with self._lock:
+            if self._catalog_provider is not None:
+                raise ValueError("catalog provider is already registered")
+            self._catalog_provider = provider
+
+        def unregister() -> None:
+            with self._lock:
+                if self._catalog_provider is provider:
+                    self._catalog_provider = None
+
+        return unregister
+
+    def catalog_provider(self) -> CatalogProvider | None:
+        with self._lock:
+            return self._catalog_provider
 
     def observe_interaction(self, event: InteractionEvent) -> None:
         if event.kind is not InteractionKind.APPROVAL_REQUEST:
@@ -155,6 +181,13 @@ class ControlRouter:
             if record.state is not SessionLifecycleState.ACTIVE:
                 return self._rejected(
                     command, ControlResultCode.TARGET_INACTIVE, timestamp
+                )
+            if (
+                command.kind is ControlKind.PRESS_PTT
+                and self.session_registry.focused_session() != session
+            ):
+                return self._rejected(
+                    command, ControlResultCode.TARGET_NOT_FOCUSED, timestamp
                 )
 
             approval_error = self._validate_approval(command, session, timestamp)

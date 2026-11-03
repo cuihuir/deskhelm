@@ -89,3 +89,38 @@ advisory and leaving the production default unselected.
 selects the experimental Codex app-server Unix WebSocket protocol for an
 Alpha-only bidirectional manual-session adapter with bounded thread discovery,
 privacy-safe notifications, and exact-phrase voice approval decisions.
+
+[`0035-bridge-native-tui-dashboard.md`](0035-bridge-native-tui-dashboard.md)
+defines the TUI Dashboard as a replaceable Bridge client, separates cursor,
+selection, focus, and attention, and defers PTY ownership and remote session
+supervision to later versioned capabilities.
+
+[`0036-local-loopback-web-client.md`](0036-local-loopback-web-client.md)
+adds a loopback Codex-layout web client that fans one state subscription and
+one interaction subscription out to browsers. Selecting a thread does not
+focus it, and the page does not create sessions or replay history.
+
+[`0037-session-catalog-and-model-selection.md`](0037-session-catalog-and-model-selection.md)
+adds a read-only session catalog for models, MCP status, and skill names, plus
+a `configure_session` control that applies on the next new Codex turn.
+
+[`0038-shared-user-bridge-attached-sessions.md`](0038-shared-user-bridge-attached-sessions.md)
+puts every default Alpha session on one user bridge. Web and later clients
+attach once. Explicit `--socket` stays a private bridge. This slice does not
+add a remote app or an IM channel.
+
+[`0039-observe-right-alt-without-grabbing.md`](0039-observe-right-alt-without-grabbing.md)
+keeps right-Alt PTT on keyd's virtual keyboard and stops the exclusive grab.
+One listener is a flock. The desktop keeps every other key.
+
+[`0040-transparent-agent-supervision.md`](0040-transparent-agent-supervision.md)
+puts Codex, Claude, and Grok on one bridge. Session query and the catalog
+carry each runtime's capabilities, and every client reads the same fields.
+
+[`0041-vendor-thread-follow.md`](0041-vendor-thread-follow.md)
+starts one new Codex turn when steer reports that no turn is active. The
+page stays on the existing interaction pipe.
+
+[`0042-one-user-message-per-prompt.md`](0042-one-user-message-per-prompt.md)
+publishes each accepted prompt once on the interaction plane. A vendor echo
+of that same text is not published again.

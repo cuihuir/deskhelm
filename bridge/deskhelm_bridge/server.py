@@ -7,7 +7,7 @@ import select
 import socket
 from threading import Event, Lock, RLock, Semaphore
 import time
-from typing import BinaryIO, Callable, TextIO
+from typing import Any, BinaryIO, Callable, TextIO
 import uuid
 
 from .agent_gateway import AgentGateway, AgentProvider
@@ -25,8 +25,11 @@ from .display import SlotPanel
 from .event import AgentEvent, PROTOCOL_VERSION, ProtocolError
 from .interaction import INTERACTION_MESSAGE_TYPE, InteractionEvent
 from .interaction_subscription import InteractionHub, InteractionSubscriberQueue
+from .paths import deskhelm_runtime_directory
 from .project_registry import ProjectWorkingDirectoryRegistry
-from .session_registry import SessionRegistry
+from .runtime_directory import AgentRuntimeDirectory, RuntimeAttachSpec
+from .session_catalog import resolve_session_catalog
+from .session_registry import SessionKey, SessionLifecycleState, SessionRegistry
 from .state_store import StateStore
 from .subscription import StateSubscriberQueue
 from .transport import (
@@ -35,6 +38,19 @@ from .transport import (
     AGENT_EVENT_V1_CAPABILITY,
     CLIENT_HELLO_MESSAGE_TYPE,
     CONTROL_COMMAND_V1_CAPABILITY,
+    FOCUS_QUERY_MESSAGE_TYPE,
+    FOCUS_QUERY_RESULT_MESSAGE_TYPE,
+    SESSION_QUERY_MESSAGE_TYPE,
+    SESSION_QUERY_RESULT_MESSAGE_TYPE,
+    AGENT_RUNTIME_ATTACH_MESSAGE_TYPE,
+    AGENT_RUNTIME_ATTACH_RESULT_MESSAGE_TYPE,
+    AGENT_RUNTIME_ATTACH_V1_CAPABILITY,
+    AGENT_RUNTIME_DETACH_MESSAGE_TYPE,
+    AGENT_RUNTIME_DETACH_RESULT_MESSAGE_TYPE,
+    AGENT_RUNTIME_DIRECTORY_QUERY_MESSAGE_TYPE,
+    AGENT_RUNTIME_DIRECTORY_STATUS_MESSAGE_TYPE,
+    SESSION_CATALOG_QUERY_MESSAGE_TYPE,
+    SESSION_CATALOG_RESULT_MESSAGE_TYPE,
     INTERACTION_EVENT_V1_CAPABILITY,
     INTERACTION_SUBSCRIPTION_V1_CAPABILITY,
     MAX_FRAME_BYTES,
@@ -88,6 +104,7 @@ class _BridgeRuntime:
     subscriber_permits: Semaphore
     agent_gateway: AgentGateway | None = None
     agent_runtime: AgentRuntime | None = None
+    runtime_directory: AgentRuntimeDirectory | None = None
     voice_gateway: VoiceGateway | None = None
     voice_integration: VoiceBridgeIntegration | None = None
     stop: Event = field(default_factory=Event)
@@ -123,6 +140,38 @@ class _BridgeRuntime:
             self.stream.flush()
 
 
+def _session_query_sessions(runtime: _BridgeRuntime) -> list[dict[str, Any]]:
+    """Project registry rows plus the adapter identity clients need."""
+    adapters = {
+        record.session: record for record in runtime.adapter_registry.snapshot()
+    }
+    sessions: list[dict[str, Any]] = []
+    for record in runtime.session_registry.snapshot():
+        adapter = adapters.get(record.session)
+        sessions.append(
+            {
+                "agent_id": record.session.agent_id,
+                "session_id": record.session.session_id,
+                "project_id": record.session.project_id,
+                "slot": record.slot,
+                "state": record.state.value,
+                "registered_at": record.registered_at,
+                "updated_at": record.updated_at,
+                "disconnected_at": record.disconnected_at,
+                "adapter_id": "" if adapter is None else adapter.adapter_id,
+                "adapter_version": "" if adapter is None else adapter.adapter_version,
+                "runtime_name": "" if adapter is None else adapter.runtime_name,
+                "runtime_version": "" if adapter is None else adapter.runtime_version,
+                "capabilities": (
+                    []
+                    if adapter is None
+                    else [item.value for item in adapter.capabilities]
+                ),
+            }
+        )
+    return sessions
+
+
 def run_bridge(
     socket_path: Path,
     slot_count: int,
@@ -143,6 +192,7 @@ def run_bridge(
     agent_max_active_runs: int = 4,
     agent_session_records: int = 64,
     agent_runtime: AgentRuntime | None = None,
+    runtime_directory_factory: Callable[[RuntimeAttachSpec], AgentRuntime] | None = None,
     voice_gateway: VoiceGateway | None = None,
     voice_turn_timing_sink: Callable[[VoiceAgentTurnTiming], None] | None = None,
 ) -> int:
@@ -179,6 +229,12 @@ def run_bridge(
         )
     if agent_provider is not None and agent_runtime is not None:
         raise ValueError("agent_provider and agent_runtime cannot be combined")
+    if runtime_directory_factory is not None and (
+        agent_provider is not None or agent_runtime is not None
+    ):
+        raise ValueError(
+            "agent runtime directory cannot be combined with a single agent provider or runtime"
+        )
 
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     socket_path.unlink(missing_ok=True)
@@ -229,6 +285,15 @@ def run_bridge(
                 runtime.process_interaction,
                 control_router,
             )
+        if runtime_directory_factory is not None:
+            runtime.runtime_directory = AgentRuntimeDirectory(
+                control_router=control_router,
+                factory=runtime_directory_factory,
+                runtime_root=deskhelm_runtime_directory(),
+                bridge_socket=socket_path,
+                voice_enabled=lambda: runtime.voice_gateway is not None,
+            )
+            runtime.runtime_directory.install()
         if voice_gateway is not None:
             runtime.voice_gateway = voice_gateway
             runtime.voice_integration = VoiceBridgeIntegration(
@@ -251,6 +316,8 @@ def run_bridge(
             runtime.agent_gateway.close()
         if runtime.agent_runtime is not None:
             runtime.agent_runtime.close()
+        if runtime.runtime_directory is not None:
+            runtime.runtime_directory.close()
         raise
     permits = Semaphore(max_connections)
     active_connections: set[socket.socket] = set()
@@ -308,6 +375,8 @@ def run_bridge(
                     runtime.agent_gateway.close()
                 if runtime.agent_runtime is not None:
                     runtime.agent_runtime.close()
+                if runtime.runtime_directory is not None:
+                    runtime.runtime_directory.close()
                 executor.shutdown(wait=True, cancel_futures=True)
     finally:
         socket_path.unlink(missing_ok=True)
@@ -411,7 +480,13 @@ def _handle_negotiated_connection(
                     "capability_unavailable",
                     "controller must request control_command_v1",
                 )
-            accepted_capabilities = (CONTROL_COMMAND_V1_CAPABILITY,)
+            accepted = [CONTROL_COMMAND_V1_CAPABILITY]
+            if (
+                runtime.runtime_directory is not None
+                and AGENT_RUNTIME_ATTACH_V1_CAPABILITY in hello.capabilities
+            ):
+                accepted.append(AGENT_RUNTIME_ATTACH_V1_CAPABILITY)
+            accepted_capabilities = tuple(accepted)
         else:
             raise _NegotiationError(
                 "role_unavailable", f"{hello.role.value} connections are not enabled yet"
@@ -466,7 +541,13 @@ def _handle_negotiated_connection(
 
     if hello.role is ClientRole.CONTROLLER:
         connection.settimeout(None)
-        _handle_controller(connection, reader, runtime, hello.client_id)
+        _handle_controller(
+            connection,
+            reader,
+            runtime,
+            hello.client_id,
+            frozenset(accepted_capabilities),
+        )
         return
 
     connection.settimeout(None)
@@ -572,6 +653,7 @@ def _handle_controller(
     reader: BinaryIO,
     runtime: _BridgeRuntime,
     client_id: str,
+    accepted_capabilities: frozenset[str],
 ) -> None:
     while not runtime.stop.is_set():
         try:
@@ -579,9 +661,81 @@ def _handle_controller(
             if frame is None:
                 return
             value = decode_json_object(frame)
-            if value.get("message_type") != CONTROL_COMMAND_MESSAGE_TYPE:
+            message_type = value.get("message_type")
+            if message_type == FOCUS_QUERY_MESSAGE_TYPE:
+                if value.get("protocol_version") != PROTOCOL_VERSION:
+                    raise ProtocolError("focus query protocol version is invalid")
+                focused = runtime.session_registry.focused_session()
+                result = {
+                    "protocol_version": PROTOCOL_VERSION,
+                    "message_type": FOCUS_QUERY_RESULT_MESSAGE_TYPE,
+                    "stream_id": runtime.stream_id,
+                    "focused_session": (
+                        None
+                        if focused is None
+                        else {
+                            "agent_id": focused.agent_id,
+                            "session_id": focused.session_id,
+                            "project_id": focused.project_id,
+                        }
+                    ),
+                }
+                connection.settimeout(CONTROLLER_WRITE_TIMEOUT_SECONDS)
+                try:
+                    connection.sendall(encode_frame(result))
+                finally:
+                    connection.settimeout(None)
+                continue
+            if message_type == SESSION_QUERY_MESSAGE_TYPE:
+                if value.get("protocol_version") != PROTOCOL_VERSION:
+                    raise ProtocolError("session query protocol version is invalid")
+                focused = runtime.session_registry.focused_session()
+                result = {
+                    "protocol_version": PROTOCOL_VERSION,
+                    "message_type": SESSION_QUERY_RESULT_MESSAGE_TYPE,
+                    "stream_id": runtime.stream_id,
+                    "focused_session": (
+                        None
+                        if focused is None
+                        else {
+                            "agent_id": focused.agent_id,
+                            "session_id": focused.session_id,
+                            "project_id": focused.project_id,
+                        }
+                    ),
+                    "sessions": _session_query_sessions(runtime),
+                }
+                connection.settimeout(CONTROLLER_WRITE_TIMEOUT_SECONDS)
+                try:
+                    connection.sendall(encode_frame(result))
+                finally:
+                    connection.settimeout(None)
+                continue
+            if message_type == SESSION_CATALOG_QUERY_MESSAGE_TYPE:
+                result = _session_catalog_result(runtime, value)
+                connection.settimeout(CONTROLLER_WRITE_TIMEOUT_SECONDS)
+                try:
+                    connection.sendall(encode_frame(result))
+                finally:
+                    connection.settimeout(None)
+                continue
+            if message_type in {
+                AGENT_RUNTIME_DIRECTORY_QUERY_MESSAGE_TYPE,
+                AGENT_RUNTIME_ATTACH_MESSAGE_TYPE,
+                AGENT_RUNTIME_DETACH_MESSAGE_TYPE,
+            }:
+                result = _runtime_directory_result(
+                    runtime, value, message_type, accepted_capabilities
+                )
+                connection.settimeout(CONTROLLER_WRITE_TIMEOUT_SECONDS)
+                try:
+                    connection.sendall(encode_frame(result))
+                finally:
+                    connection.settimeout(None)
+                continue
+            if message_type != CONTROL_COMMAND_MESSAGE_TYPE:
                 raise ProtocolError(
-                    f"controller cannot send message_type {value.get('message_type')}"
+                    f"controller cannot send message_type {message_type}"
                 )
             command = ControlCommand.from_dict(value)
             result = runtime.control_router.route(
@@ -597,6 +751,115 @@ def _handle_controller(
             return
         except TimeoutError:
             return
+
+
+def _runtime_directory_result(
+    runtime: _BridgeRuntime,
+    value: dict[str, object],
+    message_type: object,
+    accepted_capabilities: frozenset[str],
+) -> dict[str, object]:
+    if AGENT_RUNTIME_ATTACH_V1_CAPABILITY not in accepted_capabilities:
+        raise ProtocolError("controller did not negotiate agent_runtime_attach_v1")
+    if runtime.runtime_directory is None:
+        raise ProtocolError("agent runtime directory is unavailable")
+    directory = runtime.runtime_directory
+    if message_type == AGENT_RUNTIME_DIRECTORY_QUERY_MESSAGE_TYPE:
+        if value.get("protocol_version") != PROTOCOL_VERSION:
+            raise ProtocolError(
+                "agent runtime directory query protocol version is invalid"
+            )
+        status = directory.status()
+        return {
+            "protocol_version": PROTOCOL_VERSION,
+            "message_type": AGENT_RUNTIME_DIRECTORY_STATUS_MESSAGE_TYPE,
+            "enabled": status.enabled,
+            "voice_enabled": status.voice_enabled,
+            "capacity": status.capacity,
+            "attached": status.attached,
+        }
+    if message_type == AGENT_RUNTIME_ATTACH_MESSAGE_TYPE:
+        result_type = AGENT_RUNTIME_ATTACH_RESULT_MESSAGE_TYPE
+        result_status = directory.attach_frame(value, runtime.process_interaction)
+    else:
+        result_type = AGENT_RUNTIME_DETACH_RESULT_MESSAGE_TYPE
+        result_status = directory.detach_frame(value)
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "message_type": result_type,
+        "agent_id": _public_identity(value, "agent_id"),
+        "session_id": _public_identity(value, "session_id"),
+        "project_id": _public_identity(value, "project_id"),
+        "status": result_status,
+    }
+
+
+def _public_identity(value: dict[str, object], field_name: str) -> str:
+    field_value = value.get(field_name)
+    if not isinstance(field_value, str) or not field_value.strip():
+        return ""
+    if len(field_value) > 512 or any(
+        character.isspace() or ord(character) < 32 for character in field_value
+    ):
+        return ""
+    return field_value
+
+
+def _session_catalog_result(
+    runtime: _BridgeRuntime, value: dict[str, object]
+) -> dict[str, object]:
+    if value.get("protocol_version") != PROTOCOL_VERSION:
+        raise ProtocolError("session catalog query protocol version is invalid")
+    agent_id = _catalog_identity(value, "agent_id")
+    session_id = _catalog_identity(value, "session_id")
+    project_id = _catalog_identity(value, "project_id")
+    record = runtime.session_registry.record_for(
+        SessionKey(agent_id, session_id, project_id)
+    )
+    if record is None:
+        body = resolve_session_catalog(
+            found=False, active=False, raw=None, failed=False
+        )
+    elif record.state is not SessionLifecycleState.ACTIVE:
+        body = resolve_session_catalog(
+            found=True, active=False, raw=None, failed=False
+        )
+    else:
+        provider = runtime.control_router.catalog_provider()
+        if provider is None:
+            body = resolve_session_catalog(
+                found=True, active=True, raw=None, failed=False
+            )
+        else:
+            try:
+                raw = provider(agent_id, session_id, project_id)
+            except Exception:
+                body = resolve_session_catalog(
+                    found=True, active=True, raw=None, failed=True
+                )
+            else:
+                body = resolve_session_catalog(
+                    found=True, active=True, raw=raw, failed=False
+                )
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "message_type": SESSION_CATALOG_RESULT_MESSAGE_TYPE,
+        "agent_id": agent_id,
+        "session_id": session_id,
+        "project_id": project_id,
+        **body,
+    }
+
+
+def _catalog_identity(value: dict[str, object], field_name: str) -> str:
+    field_value = value.get(field_name)
+    if not isinstance(field_value, str) or not field_value.strip():
+        raise ProtocolError(f"{field_name} must not be empty")
+    if len(field_value) > 512 or any(
+        character.isspace() or ord(character) < 32 for character in field_value
+    ):
+        raise ProtocolError(f"{field_name} is invalid")
+    return field_value
 
 
 def _handle_state_subscriber(

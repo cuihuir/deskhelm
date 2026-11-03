@@ -25,6 +25,7 @@ class ControlResultCode(StrEnum):
     IDEMPOTENCY_CAPACITY = "idempotency_capacity"
     TARGET_NOT_FOUND = "target_not_found"
     TARGET_INACTIVE = "target_inactive"
+    TARGET_NOT_FOCUSED = "target_not_focused"
     HANDLER_UNAVAILABLE = "handler_unavailable"
     DISPATCH_FAILED = "dispatch_failed"
     APPROVAL_NOT_FOUND = "approval_not_found"

@@ -11,6 +11,7 @@ from .audio_config import (
     ResolvedAudioSelection,
 )
 from .gateway import VoiceGateway
+from .index_tts import IndexTtsProvider
 from .kokoro_tts import KokoroTtsProvider
 from .paraformer import ParaformerStreamingAsrProvider
 from .piper_tts import PiperTtsProvider
@@ -24,6 +25,7 @@ class LocalAsrProviderKind(StrEnum):
 class LocalTtsProviderKind(StrEnum):
     PIPER = "piper"
     KOKORO = "kokoro"
+    INDEXTTS = "indextts"
 
 
 class LocalVadProviderKind(StrEnum):
@@ -46,6 +48,8 @@ class LocalVoiceConfig:
     tts_model_path: Path
     tts_config_path: Path
     tts_resource_directory: Path
+    tts_voice_path: Path | None = None
+    tts_executable: str = "indextts2"
     cpu_threads: int = 4
     max_capture_seconds: float = 30.0
     max_capture_bytes: int = 1 << 20
@@ -72,6 +76,11 @@ class LocalVoiceConfig:
         ):
             if not isinstance(path, Path) or not str(path):
                 raise ValueError(f"{name} is invalid")
+        if self.tts_provider is LocalTtsProviderKind.INDEXTTS:
+            if not isinstance(self.tts_voice_path, Path) or not str(self.tts_voice_path):
+                raise ValueError("IndexTTS voice path is invalid")
+            if not isinstance(self.tts_executable, str) or not self.tts_executable:
+                raise ValueError("IndexTTS executable is invalid")
         if (
             not isinstance(self.cpu_threads, int)
             or isinstance(self.cpu_threads, bool)
@@ -166,6 +175,10 @@ class LocalVoiceConfig:
                     f"Piper {relative}",
                 )
             return
+        if self.tts_provider is LocalTtsProviderKind.INDEXTTS:
+            _require_directory(self.tts_model_path, "IndexTTS model directory")
+            _require_file(self.tts_voice_path, "IndexTTS speaker reference")
+            return
         _require_file(self.tts_model_path, "Kokoro model")
         _require_file(self.tts_config_path, "Kokoro config")
         _require_directory(
@@ -180,13 +193,20 @@ class LocalVoiceConfig:
 
     def _create_tts_provider(
         self,
-    ) -> PiperTtsProvider | KokoroTtsProvider:
+    ) -> PiperTtsProvider | KokoroTtsProvider | IndexTtsProvider:
         if self.tts_provider is LocalTtsProviderKind.PIPER:
             return PiperTtsProvider(
                 str(self.tts_model_path),
                 str(self.tts_config_path),
                 str(self.tts_resource_directory),
                 cpu_threads=self.cpu_threads,
+                max_output_bytes=16 << 20,
+            )
+        if self.tts_provider is LocalTtsProviderKind.INDEXTTS:
+            return IndexTtsProvider(
+                str(self.tts_model_path),
+                str(self.tts_voice_path),
+                executable=self.tts_executable,
                 max_output_bytes=16 << 20,
             )
         return KokoroTtsProvider(

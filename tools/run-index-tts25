@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "$0")/.." && pwd)"
+exec "$repo_root/references/vendor/index-tts-runtime/.venv/bin/python" \
+  "$repo_root/tools/run-index-tts25.py" "$@"

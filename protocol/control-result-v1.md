@@ -42,6 +42,7 @@ Accepted codes are `focused` and `dispatched`. Current rejection codes are:
 - `idempotency_capacity`
 - `target_not_found`
 - `target_inactive`
+- `target_not_focused`
 - `handler_unavailable`
 - `dispatch_failed`
 - `approval_not_found`

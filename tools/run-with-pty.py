@@ -80,6 +80,7 @@ class _TuiInputFilter:
         self._buffer = b""
         self._sequence_deadline: float | None = None
         self._ctrl_c_armed_until: float | None = None
+        self._forwarded_ctrl_c = False
 
     def feed(self, data: bytes, *, now: float | None = None) -> bytes:
         self._buffer += data
@@ -93,6 +94,11 @@ class _TuiInputFilter:
 
     def pending_deadline(self) -> float | None:
         return self._sequence_deadline
+
+    def take_forwarded_ctrl_c(self) -> bool:
+        forwarded = self._forwarded_ctrl_c
+        self._forwarded_ctrl_c = False
+        return forwarded
 
     def _drain(self, now: float, *, final: bool) -> bytes:
         output = bytearray()
@@ -146,6 +152,7 @@ class _TuiInputFilter:
             and now <= self._ctrl_c_armed_until
         ):
             self._ctrl_c_armed_until = None
+            self._forwarded_ctrl_c = True
             return original
         self._ctrl_c_armed_until = now + self._confirm_seconds
         return clear_input
@@ -265,11 +272,22 @@ def _relay(
         if sys.stdin.fileno() in ready_read:
             data = os.read(sys.stdin.fileno(), BUFFER_SIZE)
             if data:
-                input_buffer += (
-                    input_filter.feed(data)
-                    if input_filter is not None
-                    else data
-                )
+                if input_filter is not None:
+                    filtered = input_filter.feed(data)
+                    if input_filter.take_forwarded_ctrl_c():
+                        # The pty slave may have ISIG disabled by a full-screen
+                        # TUI. Deliver the confirmed interrupt to its process
+                        # group explicitly instead of relying on line
+                        # discipline to turn the byte into SIGINT.
+                        try:
+                            os.killpg(child_pid, signal.SIGINT)
+                        except ProcessLookupError:
+                            pass
+                        filtered = filtered.replace(RAW_CTRL_C, b"")
+                        filtered = filtered.replace(KITTY_CTRL_C, b"")
+                    input_buffer += filtered
+                else:
+                    input_buffer += data
             else:
                 stdin_open = False
                 if input_filter is not None:

@@ -158,9 +158,9 @@ Then start DeskHelm from any project directory without a repository-specific
 command:
 
 ```bash
-deskhelm alpha --check
-deskhelm alpha --tui
-deskhelm alpha --tui --voice
+deskhelm codex --check
+deskhelm codex --tui
+deskhelm codex --tui --voice
 ```
 
 The default CLI path needs only the synchronized root environment and Codex.

@@ -23,6 +23,7 @@ class ControlKind(StrEnum):
     STOP_SPEAKING = "stop_speaking"
     PRESS_PTT = "press_ptt"
     RELEASE_PTT = "release_ptt"
+    CONFIGURE_SESSION = "configure_session"
 
 
 class SpeechPriority(StrEnum):
@@ -129,6 +130,30 @@ class ReleasePttPayload:
         return {"press_command_id": self.press_command_id}
 
 
+@dataclass(frozen=True, slots=True)
+class ConfigureSessionPayload:
+    model_set: bool
+    model: str
+    effort_set: bool
+    reasoning_effort: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.model_set, bool) or not isinstance(self.effort_set, bool):
+            raise ProtocolError("configure_session flags must be boolean")
+        if not self.model_set and not self.effort_set:
+            raise ProtocolError("configure_session requires model or reasoning_effort")
+        _validate_config_value(self.model, "model", 128)
+        _validate_config_value(self.reasoning_effort, "reasoning_effort", 64)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if self.model_set:
+            payload["model"] = self.model or None
+        if self.effort_set:
+            payload["reasoning_effort"] = self.reasoning_effort or None
+        return payload
+
+
 ControlPayload = (
     FocusPayload
     | SubmitPromptPayload
@@ -138,6 +163,7 @@ ControlPayload = (
     | StopSpeakingPayload
     | PressPttPayload
     | ReleasePttPayload
+    | ConfigureSessionPayload
 )
 
 
@@ -190,6 +216,7 @@ class ControlCommand:
             ControlKind.STOP_SPEAKING: StopSpeakingPayload,
             ControlKind.PRESS_PTT: PressPttPayload,
             ControlKind.RELEASE_PTT: ReleasePttPayload,
+            ControlKind.CONFIGURE_SESSION: ConfigureSessionPayload,
         }[self.kind]
         if not isinstance(self.payload, expected_payload):
             raise ProtocolError(
@@ -286,6 +313,15 @@ def _payload_from_dict(kind: ControlKind, value: dict[str, Any]) -> ControlPaylo
         return StopSpeakingPayload(speech_id=_optional_string(value, "speech_id"))
     if kind is ControlKind.PRESS_PTT:
         return PressPttPayload()
+    if kind is ControlKind.CONFIGURE_SESSION:
+        model_set, model = _config_setting(value, "model", 128)
+        effort_set, effort = _config_setting(value, "reasoning_effort", 64)
+        return ConfigureSessionPayload(
+            model_set=model_set,
+            model=model,
+            effort_set=effort_set,
+            reasoning_effort=effort,
+        )
     return ReleasePttPayload(
         press_command_id=_required_string(value, "press_command_id")
     )
@@ -328,6 +364,32 @@ def _required_boolean(value: dict[str, Any], field_name: str) -> bool:
     if not isinstance(field_value, bool):
         raise ProtocolError(f"{field_name} must be a boolean")
     return field_value
+
+
+def _config_setting(
+    value: dict[str, Any], field_name: str, limit: int
+) -> tuple[bool, str]:
+    if field_name not in value:
+        return False, ""
+    field_value = value[field_name]
+    if field_value is None:
+        return True, ""
+    if not isinstance(field_value, str):
+        raise ProtocolError(f"{field_name} must be a string")
+    text = field_value.strip()
+    _validate_config_value(text, field_name, limit)
+    if not text:
+        raise ProtocolError(f"{field_name} must not be empty")
+    return True, text
+
+
+def _validate_config_value(value: object, field_name: str, limit: int) -> None:
+    if not isinstance(value, str):
+        raise ProtocolError(f"{field_name} must be a string")
+    if len(value) > limit:
+        raise ProtocolError(f"{field_name} is too long")
+    if any(character.isspace() or ord(character) < 32 for character in value):
+        raise ProtocolError(f"{field_name} must be a single token")
 
 
 def _validate_non_empty_string(value: object, field_name: str) -> None:

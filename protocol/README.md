@@ -42,8 +42,13 @@ Required fields are `agent_id`, `slot`, and `state`. Valid states are:
 - [`interaction-event-v1.md`](interaction-event-v1.md) defines session-scoped
   message, tool, approval, input, completion, and failure events.
 - [`control-command-v1.md`](control-command-v1.md) defines targeted, expiring,
-  idempotent focus, prompt, interruption, approval, speech, and correlated PTT
-  controls.
+  idempotent focus, prompt, interruption, approval, session configuration,
+  speech, and correlated PTT controls.
+- [`session-catalog-v1.md`](session-catalog-v1.md) defines the read-only model,
+  MCP, skills, and vendor-declared capability catalog for one active session.
+- [`agent-runtime-attach-v1.md`](agent-runtime-attach-v1.md) defines how one
+  controller attaches or detaches a Codex, Claude, or Grok runtime on the
+  shared user bridge.
 - [`control-result-v1.md`](control-result-v1.md) defines correlated accepted,
   rejected, and duplicate outcomes without private command content.
 - [`state-subscription-v1.md`](state-subscription-v1.md) defines atomic state

@@ -1,0 +1,16 @@
+{
+  "fixture_schema_version": 1,
+  "adapter_id": "deskhelm-claude",
+  "format": "jsonl",
+  "runtime_name": "claude-code",
+  "locally_inspected_runtime_version": "2.1.285",
+  "retrieved_at": "2026-10-21",
+  "fixtures": [
+    {
+      "file": "synthetic-turn.jsonl",
+      "source_type": "synthetic",
+      "produced_locally": false,
+      "notes": "Init key names were observed from a local stream-json system/init. This file is synthetic and does not contain that capture, a working directory, a vendor session id, or a vendor error string."
+    }
+  ]
+}

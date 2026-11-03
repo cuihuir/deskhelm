@@ -16,9 +16,11 @@ from deskhelm_bridge.agent_gateway import (
     AgentRunResult,
     AgentRunStatus,
 )
-from deskhelm_bridge.adapter import AdapterSessionEvent
+from deskhelm_bridge.adapter import AdapterCapability, AdapterSessionAction, AdapterSessionEvent
 from deskhelm_bridge.client import (
     AdapterSessionPublisher,
+    get_focused_session,
+    get_session_snapshot,
     send_event,
     send_negotiated_event,
 )
@@ -32,6 +34,7 @@ from deskhelm_bridge.interaction import (
 )
 from deskhelm_bridge.project_registry import ProjectWorkingDirectoryRegistry
 from deskhelm_bridge.server import run_bridge
+from deskhelm_bridge.session_registry import SessionKey
 from deskhelm_bridge.transport import INTERACTION_EVENT_V1_CAPABILITY
 
 
@@ -41,6 +44,46 @@ FAKE_CODEX = ROOT / "tests" / "helpers" / "fake_codex_cli.py"
 
 
 class BridgeEndToEndTests(unittest.TestCase):
+    def test_controller_session_snapshot_exposes_complete_identity_and_focus(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = Path(directory) / "bridge.sock"
+            bridge, _ = self._start_bridge(socket_path)
+            publisher = AdapterSessionPublisher(
+                socket_path,
+                client_id="dashboard-session-publisher",
+                additional_capabilities=("agent_event_v1",),
+            )
+            try:
+                publisher.connect()
+                register = publisher.publish(
+                    AdapterSessionEvent(
+                        action=AdapterSessionAction.REGISTER,
+                        adapter_id="test-adapter",
+                        adapter_version="1",
+                        runtime_name="test-runtime",
+                        runtime_version="1",
+                        agent_id="codex",
+                        session_id="session-dashboard",
+                        project_id="deskhelm",
+                        capabilities=(AdapterCapability.STATE_EVENTS,),
+                        occurred_at=int(time.time() * 1000),
+                    )
+                )
+                self.assertEqual(register.session_id, "session-dashboard")
+                result = get_session_snapshot(
+                    socket_path, client_id="dashboard-query"
+                )
+                self.assertEqual(result["focused_session"], None)
+                self.assertEqual(result["sessions"][0]["session_id"], "session-dashboard")
+                self.assertEqual(result["sessions"][0]["project_id"], "deskhelm")
+                self.assertEqual(result["sessions"][0]["adapter_id"], "test-adapter")
+                self.assertEqual(result["sessions"][0]["runtime_name"], "test-runtime")
+                self.assertEqual(result["sessions"][0]["runtime_version"], "1")
+                self.assertEqual(result["sessions"][0]["capabilities"], ["state_events"])
+            finally:
+                publisher.close()
+                self._stop_bridge(bridge)
+
     def test_emit_updates_bridge_slot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             socket_path = Path(directory) / "bridge.sock"
@@ -381,6 +424,9 @@ class BridgeEndToEndTests(unittest.TestCase):
                     },
                 )
                 json.loads(controller_reader.readline())
+                self.assertIsNone(
+                    get_focused_session(socket_path, client_id="focus-query")
+                )
 
                 self._send_json(
                     controller,
@@ -388,6 +434,10 @@ class BridgeEndToEndTests(unittest.TestCase):
                 )
                 focused = json.loads(controller_reader.readline())
                 self.assertEqual(focused["code"], "focused")
+                self.assertEqual(
+                    get_focused_session(socket_path, client_id="focus-query"),
+                    SessionKey("codex", "session-42", "deskhelm"),
+                )
 
                 self._send_json(publisher, self._adapter_session("disconnect"))
                 disconnected = json.loads(publisher_reader.readline())

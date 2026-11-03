@@ -73,6 +73,25 @@ class AudioConfigTests(unittest.TestCase):
         tone = create_test_tone()
         self.assertIn("sink.internal", playback.command(tone))
 
+    def test_discovery_deduplicates_transient_virtual_node_names(self) -> None:
+        base_runner = self._runner()
+
+        def duplicate_runner(command: tuple[str, ...]) -> str:
+            result = base_runner(command)
+            if command[0] != "pw-dump":
+                return result
+            objects = json.loads(result)
+            duplicate = dict(objects[2])
+            duplicate["info"] = dict(duplicate["info"])
+            duplicate["info"]["props"] = dict(duplicate["info"]["props"])
+            duplicate["info"]["props"]["node.description"] = "Refreshed sink"
+            objects.append(duplicate)
+            return json.dumps(objects)
+
+        inventory = discover_pipewire_audio(command_runner=duplicate_runner)
+        self.assertEqual(len(inventory.sinks), 1)
+        self.assertEqual(inventory.sinks[0].description, "Refreshed sink")
+
     def test_input_test_discards_pcm_and_reports_signal_only(self) -> None:
         audio = CapturedAudio(
             b"\x00\x00\x00\x40\x00\xc0\xff\x7f",

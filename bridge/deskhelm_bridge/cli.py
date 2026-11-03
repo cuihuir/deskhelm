@@ -11,9 +11,12 @@ from threading import Thread
 import time
 from typing import Any
 
-from .client import send_event
+from .client import send_control_command, send_event
+from .control import ControlCommand, ControlKind, FocusPayload
+from .control_result import ControlResultStatus
 from .event import AgentEvent, AgentState, ProtocolError
-from .paths import default_socket_path
+from .paths import default_socket_path, resolve_web_socket
+from .runtime_directory import RuntimeAttachSpec
 from .project_registry import (
     DEFAULT_MAX_PROJECT_WORKING_DIRECTORIES,
     MAX_PROJECT_WORKING_DIRECTORIES,
@@ -23,8 +26,15 @@ from .server import run_bridge
 from .session_registry import SessionKey
 
 
-def add_socket_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--socket", type=Path, default=default_socket_path())
+def add_socket_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: Path | None = None,
+    implicit: bool = True,
+) -> None:
+    if implicit and default is None:
+        default = default_socket_path()
+    parser.add_argument("--socket", type=Path, default=default)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,6 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("none", "codex", "codex-app-server"),
         default="none",
         help="enable a text-only Agent provider",
+    )
+    bridge.add_argument(
+        "--agent-runtime-directory",
+        action="store_true",
+        help="accept attached Alpha sessions instead of one baked-in runtime",
     )
     bridge.add_argument("--agent-id", default="codex")
     bridge.add_argument("--agent-session-id")
@@ -98,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bridge.add_argument(
         "--voice-tts-provider",
-        choices=("piper", "kokoro"),
+        choices=("piper", "kokoro", "indextts"),
         default="piper",
     )
     bridge.add_argument(
@@ -113,6 +128,16 @@ def build_parser() -> argparse.ArgumentParser:
     bridge.add_argument("--voice-tts-model", type=Path)
     bridge.add_argument("--voice-tts-config", type=Path)
     bridge.add_argument("--voice-tts-resource-directory", type=Path)
+    bridge.add_argument(
+        "--voice-tts-voice",
+        type=Path,
+        help="IndexTTS speaker reference audio",
+    )
+    bridge.add_argument(
+        "--voice-tts-executable",
+        default="indextts2",
+        help="IndexTTS CLI executable",
+    )
     bridge.add_argument("--voice-cpu-threads", type=int, default=4)
     bridge.add_argument("--voice-max-capture-seconds", type=float, default=30.0)
     bridge.add_argument("--voice-max-capture-bytes", type=int, default=1 << 20)
@@ -173,36 +198,76 @@ def build_parser() -> argparse.ArgumentParser:
     ptt = subparsers.add_parser("ptt", help="run the explicit right-Alt PTT controller")
     add_socket_argument(ptt)
     ptt.add_argument("--input-device", type=Path, required=True)
-    ptt.add_argument("--agent-id", required=True)
-    ptt.add_argument("--session-id", required=True)
-    ptt.add_argument("--project-id", required=True)
+    ptt.add_argument("--agent-id")
+    ptt.add_argument("--session-id")
+    ptt.add_argument("--project-id")
     ptt.add_argument("--client-id", default="deskhelm-right-alt-ptt")
-
-    alpha = subparsers.add_parser(
-        "alpha",
-        help="run the single-project managed Codex CLI profile",
+    ptt.add_argument(
+        "--focused",
+        action="store_true",
+        help="resolve the PTT target from the Bridge's current focus at press time",
     )
-    add_socket_argument(alpha)
-    alpha.add_argument(
+
+    focus = subparsers.add_parser(
+        "focus", help="set the Bridge's current focused session"
+    )
+    add_socket_argument(focus)
+    focus.add_argument("--agent-id", required=True)
+    focus.add_argument("--session-id", required=True)
+    focus.add_argument("--project-id", required=True)
+    focus.add_argument("--client-id", default="deskhelm-focus")
+
+    dashboard = subparsers.add_parser(
+        "dashboard", help="run the local multi-session TUI dashboard"
+    )
+    add_socket_argument(dashboard)
+    dashboard.add_argument("--client-id", default="deskhelm-dashboard")
+
+    web = subparsers.add_parser(
+        "web", help="run the local Codex-style web client"
+    )
+    add_socket_argument(web, implicit=False)
+    web.add_argument("--client-id", default="deskhelm-web")
+    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument("--port", type=int, default=8766)
+    web.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help="allow a non-loopback bind; the page can show interaction content",
+    )
+
+    agent = subparsers.add_parser(
+        "agent",
+        help="attach a Claude or Grok session to the bridge",
+    )
+    agent.add_argument("runtime", choices=("claude", "grok"))
+    add_socket_argument(agent)
+    agent.add_argument("--project-id")
+    agent.add_argument("--session-id")
+    agent.add_argument("--client-id", default="deskhelm-agent")
+
+    managed = argparse.ArgumentParser(add_help=False)
+    add_socket_argument(managed, implicit=False)
+    managed.add_argument(
         "--input-device",
         type=Path,
         default=Path("/dev/input/deskhelm-ptt-kbd"),
     )
-    alpha.add_argument("--agent-workdir", type=Path, default=Path.cwd())
-    alpha.add_argument("--agent-id", default="codex")
-    alpha.add_argument("--session-id", default="local-alpha")
-    alpha.add_argument("--project-id")
-    alpha.add_argument("--client-id", default="deskhelm-local-alpha")
-    alpha.add_argument("--runtime-project", type=Path)
-    alpha.add_argument("--uv-executable", default="uv")
-    alpha.add_argument("--codex-executable", default="codex")
-    alpha.add_argument("--codex-app-server-socket", type=Path)
-    alpha.add_argument(
+    managed.add_argument("--agent-workdir", type=Path, default=Path.cwd())
+    managed.add_argument("--agent-id", default="codex")
+    managed.add_argument("--session-id", default="local-alpha")
+    managed.add_argument("--project-id")
+    managed.add_argument("--client-id", default="deskhelm-local-alpha")
+    managed.add_argument("--runtime-project", type=Path)
+    managed.add_argument("--uv-executable", default="uv")
+    managed.add_argument("--codex-executable", default="codex")
+    managed.add_argument("--codex-app-server-socket", type=Path)
+    managed.add_argument(
         "--codex-sandbox",
         choices=("read-only", "workspace-write"),
         default="read-only",
     )
-    alpha.add_argument(
+    managed.add_argument(
         "--yolo",
         action="store_true",
         help=(
@@ -210,34 +275,39 @@ def build_parser() -> argparse.ArgumentParser:
             "extremely dangerous"
         ),
     )
-    alpha.add_argument(
+    managed.add_argument(
         "--tui",
         action="store_true",
         help="launch the Codex remote TUI in the current terminal",
     )
-    alpha.add_argument(
+    managed.add_argument(
         "--voice",
         action="store_true",
         help="add local voice and right-Alt PTT to the core CLI profile",
     )
-    alpha.add_argument(
+    managed.add_argument(
         "--voice-source",
         help=(
             "stable PipeWire source name; overrides "
             "DESKHELM_ALPHA_VOICE_SOURCE"
         ),
     )
-    alpha.add_argument("--voice-sink")
-    alpha.add_argument(
+    managed.add_argument("--voice-sink")
+    managed.add_argument(
         "--voice-pw-cat-command-prefix",
         default="pw-cat",
         metavar="COMMAND",
     )
-    alpha.add_argument("--voice-turn-timing", action="store_true")
-    alpha.add_argument(
+    managed.add_argument("--voice-turn-timing", action="store_true")
+    managed.add_argument(
         "--check",
         action="store_true",
-        help="validate the profile without opening audio or starting the Alpha",
+        help="validate the profile without opening audio or starting Codex",
+    )
+    subparsers.add_parser(
+        "codex",
+        parents=[managed],
+        help="start the managed Codex session for this directory",
     )
     return parser
 
@@ -337,15 +407,39 @@ def simulate(args: argparse.Namespace) -> None:
 
 
 def ptt_command(args: argparse.Namespace) -> None:
-    from .client import iter_voice_status_messages, send_control_command
+    from .client import (
+        get_focused_session,
+        iter_voice_status_messages,
+        send_control_command,
+    )
     from .control_result import ControlResultStatus
     from .evdev_ptt import run_right_alt_listener
     from .ptt import RightAltPttController
+
+    focused_mode = bool(getattr(args, "focused", False))
+    target_values = (args.agent_id, args.session_id, args.project_id)
+    if not focused_mode and any(value is None for value in target_values):
+        raise ValueError(
+            "ptt requires --agent-id, --session-id, and --project-id unless --focused is set"
+        )
 
     def dispatch(command) -> bool:
         return send_control_command(
             command, args.socket, client_id=args.client_id
         ).status is ControlResultStatus.ACCEPTED
+
+    target_resolver = None
+    if getattr(args, "focused", False):
+        def target_resolver():
+            try:
+                focused = get_focused_session(
+                    args.socket, client_id=f"{args.client_id}-focus"
+                )
+            except (ConnectionError, ProtocolError, OSError):
+                return None
+            if focused is None:
+                return None
+            return focused.agent_id, focused.session_id, focused.project_id
 
     stop = Event()
 
@@ -354,9 +448,9 @@ def ptt_command(args: argparse.Namespace) -> None:
             for message in iter_voice_status_messages(
                 args.socket,
                 client_id=f"{args.client_id}-status",
-                agent_id=args.agent_id,
-                session_id=args.session_id,
-                project_id=args.project_id,
+                agent_id=None if focused_mode else args.agent_id,
+                session_id=None if focused_mode else args.session_id,
+                project_id=None if focused_mode else args.project_id,
                 stop=stop,
             ):
                 print(f"deskhelm: {message}", file=sys.stderr)
@@ -369,14 +463,36 @@ def ptt_command(args: argparse.Namespace) -> None:
         run_right_alt_listener(
             args.input_device,
             RightAltPttController(
-                args.agent_id, args.session_id, args.project_id, dispatch,
+                args.agent_id or "", args.session_id or "", args.project_id or "", dispatch,
                 issued_by=args.client_id,
+                target_resolver=target_resolver,
             ),
         )
     except KeyboardInterrupt:
         return
     finally:
         stop.set()
+
+
+def focus_command(args: argparse.Namespace) -> None:
+    issued_at = int(time.time() * 1000)
+    command = ControlCommand(
+        kind=ControlKind.FOCUS,
+        agent_id=args.agent_id,
+        session_id=args.session_id,
+        project_id=args.project_id,
+        issued_by=args.client_id,
+        issued_at=issued_at,
+        expires_at=issued_at + 5_000,
+        idempotency_key=f"focus:{args.agent_id}:{args.session_id}:{issued_at}",
+        payload=FocusPayload(),
+    )
+    result = send_control_command(
+        command, args.socket, client_id=args.client_id
+    )
+    if result.status is not ControlResultStatus.ACCEPTED:
+        raise RuntimeError(f"focus was rejected ({result.code.value})")
+    print(result.to_json())
 
 
 def audio_command(args: argparse.Namespace) -> None:
@@ -597,6 +713,8 @@ def _compose_local_voice(args: argparse.Namespace, *, inventory=None):
         tts_model_path=args.voice_tts_model,
         tts_config_path=args.voice_tts_config,
         tts_resource_directory=args.voice_tts_resource_directory,
+        tts_voice_path=args.voice_tts_voice,
+        tts_executable=args.voice_tts_executable,
         vad_provider=LocalVadProviderKind(args.voice_vad_provider),
         cpu_threads=args.voice_cpu_threads,
         max_capture_seconds=args.voice_max_capture_seconds,
@@ -612,8 +730,17 @@ def _compose_local_voice(args: argparse.Namespace, *, inventory=None):
     return config.compose(inventory)
 
 
+def normalize_command_argv(argv: list[str] | None = None) -> list[str]:
+    """Accept the old alpha subcommand as codex. Help does not list it."""
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and argv[0] == "alpha":
+        return ["codex", *argv[1:]]
+    return list(argv)
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    args = build_parser().parse_args(normalize_command_argv(argv))
     try:
         if args.command == "bridge":
             if args.slots < 1:
@@ -634,8 +761,16 @@ def main(argv: list[str] | None = None) -> int:
                         max_projects=args.agent_project_records,
                     )
                 )
+            if args.agent_runtime_directory and args.agent_provider != "none":
+                raise ValueError(
+                    "--agent-runtime-directory cannot be combined with --agent-provider"
+                )
             if args.voice_turn_timing and (
-                args.voice_provider == "none" or args.agent_provider == "none"
+                args.voice_provider == "none"
+                or (
+                    args.agent_provider == "none"
+                    and not args.agent_runtime_directory
+                )
             ):
                 raise ValueError(
                     "--voice-turn-timing requires Voice and Agent providers"
@@ -733,6 +868,11 @@ def main(argv: list[str] | None = None) -> int:
                     agent_max_active_runs=args.agent_max_active_runs,
                     agent_session_records=args.agent_session_records,
                     agent_runtime=agent_runtime,
+                    runtime_directory_factory=(
+                        _attached_runtime
+                        if args.agent_runtime_directory
+                        else None
+                    ),
                     voice_gateway=(
                         voice_composition.gateway
                         if voice_composition is not None
@@ -760,7 +900,28 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "ptt":
             ptt_command(args)
             return 0
-        if args.command == "alpha":
+        if args.command == "focus":
+            focus_command(args)
+            return 0
+        if args.command == "dashboard":
+            from .dashboard import run_dashboard
+
+            return run_dashboard(args.socket, client_id=args.client_id)
+        if args.command == "web":
+            from .web_client import run_web_client
+
+            return run_web_client(
+                resolve_web_socket(args.socket),
+                host=args.host,
+                port=args.port,
+                client_id=args.client_id,
+                allow_remote=args.allow_remote,
+            )
+        if args.command == "agent":
+            from .agent_session import run_agent_session
+
+            return run_agent_session(args)
+        if args.command == "codex":
             from .alpha import run_local_alpha
 
             return run_local_alpha(args)
@@ -770,6 +931,45 @@ def main(argv: list[str] | None = None) -> int:
         print(f"deskhelm: {error}", file=sys.stderr)
         return 1
     return 2
+
+
+def _attached_runtime(spec: RuntimeAttachSpec):
+    if spec.runtime_kind == "codex_app_server":
+        return _attached_codex_runtime(spec)
+    if spec.runtime_kind == "claude_stream":
+        _ensure_adapter_path("claude")
+        from deskhelm_claude_adapter.runtime import ClaudeRelayRuntime
+
+        return ClaudeRelayRuntime(spec)
+    if spec.runtime_kind == "grok_stdio":
+        _ensure_adapter_path("grok")
+        from deskhelm_grok_adapter.runtime import GrokRelayRuntime
+
+        return GrokRelayRuntime(spec)
+    raise RuntimeError("runtime kind is unavailable")
+
+
+def _ensure_adapter_path(kind: str) -> None:
+    root = Path(__file__).resolve().parents[2]
+    adapter = root / "adapters" / kind
+    if adapter.is_dir() and str(adapter) not in sys.path:
+        sys.path.insert(0, str(adapter))
+
+
+def _attached_codex_runtime(spec: RuntimeAttachSpec):
+    try:
+        from deskhelm_codex_adapter import CodexAppServerAdapter
+    except ModuleNotFoundError as error:
+        if error.name != "deskhelm_codex_adapter":
+            raise
+        from adapters.codex.deskhelm_codex_adapter import CodexAppServerAdapter
+
+    return CodexAppServerAdapter(
+        socket_path=spec.app_server_socket,
+        tui_proxy_socket_path=spec.tui_proxy_socket,
+        session=spec.session,
+        source_version=spec.source_version,
+    )
 
 
 def _print_voice_turn_timing(result) -> None:

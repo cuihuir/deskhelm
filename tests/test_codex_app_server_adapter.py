@@ -3,11 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Event, Lock
+import json
 import time
 import unittest
 
 from deskhelm_bridge.control import (
     ApprovalDecisionPayload,
+    ConfigureSessionPayload,
     ControlCommand,
     ControlKind,
     SubmitPromptPayload,
@@ -20,7 +22,11 @@ from deskhelm_bridge.interaction import (
     AttentionReason,
     InteractionEvent,
     InteractionKind,
+    MessagePhase,
+    MessageRole,
     TaskPayload,
+    ToolPhase,
+    ToolStream,
     UserInputPayload,
 )
 from deskhelm_bridge.session_registry import SessionKey, SessionRegistry
@@ -36,6 +42,21 @@ except ModuleNotFoundError as error:
         CodexAppServerAdapter,
         ProxiedApprovalRequest,
     )
+try:
+    from deskhelm_codex_adapter.app_server import (
+        MAX_ITEM_TEXT_CHARS,
+        _thread_item_drafts,
+    )
+except ModuleNotFoundError as error:
+    if error.name not in {
+        "deskhelm_codex_adapter",
+        "deskhelm_codex_adapter.app_server",
+    }:
+        raise
+    from adapters.codex.deskhelm_codex_adapter.app_server import (
+        MAX_ITEM_TEXT_CHARS,
+        _thread_item_drafts,
+    )
 
 
 class _FakeAppServerTransport:
@@ -50,6 +71,10 @@ class _FakeAppServerTransport:
         self.resume_error_message = ""
         self.resume_turn_id = ""
         self.resume_status: dict | None = None
+        self.thread_cwd = "/tmp/deskhelm-catalog"
+        self.thread_model = "gpt-6.1-sol"
+        self.steer_error = ""
+        self.fail_methods: set[str] = set()
         self._lock = Lock()
 
     def connect(self) -> None:
@@ -87,11 +112,19 @@ class _FakeAppServerTransport:
                         "thread": {
                             "id": thread_id,
                             "ephemeral": self.thread_ephemeral[thread_id],
+                            "cwd": self.thread_cwd,
+                            "model": self.thread_model,
                             "turns": [],
                         }
                     },
                 }
             )
+        elif method == "model/list":
+            self._catalog_reply(request_id, method, self._model_list_result())
+        elif method == "mcpServerStatus/list":
+            self._catalog_reply(request_id, method, self._mcp_result())
+        elif method == "skills/list":
+            self._catalog_reply(request_id, method, self._skills_result())
         elif method == "thread/resume":
             thread_id = message["params"]["threadId"]
             if self.resume_missing_rollout:
@@ -154,7 +187,20 @@ class _FakeAppServerTransport:
                     },
                 }
             )
-        elif method in {"turn/steer", "turn/interrupt"}:
+        elif method == "turn/steer":
+            if self.steer_error:
+                self.incoming.put(
+                    {
+                        "id": request_id,
+                        "error": {
+                            "code": -32600,
+                            "message": self.steer_error,
+                        },
+                    }
+                )
+            else:
+                self.incoming.put({"id": request_id, "result": {}})
+        elif method == "turn/interrupt":
             self.incoming.put({"id": request_id, "result": {}})
 
     def receive_message(self, timeout_seconds: float) -> dict | None:
@@ -173,6 +219,92 @@ class _FakeAppServerTransport:
 
     def inject(self, message: object) -> None:
         self.incoming.put(message)
+
+    def _catalog_reply(self, request_id: object, method: str, result: dict) -> None:
+        if method in self.fail_methods:
+            self.incoming.put(
+                {
+                    "id": request_id,
+                    "error": {"code": -32000, "message": "private catalog error"},
+                }
+            )
+            return
+        self.incoming.put({"id": request_id, "result": result})
+
+    def _model_list_result(self) -> dict:
+        return {
+            "data": [
+                {
+                    "id": "hidden-model",
+                    "model": "hidden-model",
+                    "hidden": True,
+                    "displayName": "Hidden",
+                    "isDefault": False,
+                    "defaultReasoningEffort": "low",
+                    "supportedReasoningEfforts": [
+                        {"reasoningEffort": "low", "description": "hidden effort"}
+                    ],
+                },
+                {
+                    "id": "gpt-6.1-sol",
+                    "model": "gpt-6.1-sol",
+                    "hidden": False,
+                    "displayName": "Sol",
+                    "isDefault": True,
+                    "defaultReasoningEffort": "medium",
+                    "supportedReasoningEfforts": [
+                        {"reasoningEffort": "low", "description": "faster"},
+                        {"reasoningEffort": "medium", "description": "balanced"},
+                    ],
+                },
+            ],
+            "nextCursor": "more",
+        }
+
+    def _mcp_result(self) -> dict:
+        return {
+            "data": [
+                {
+                    "name": "docs",
+                    "runtimeStatus": "connected",
+                    "authStatus": "oAuth",
+                    "tools": {
+                        "search": {
+                            "inputSchema": {
+                                "type": "object",
+                                "secret": "do-not-leak",
+                            }
+                        },
+                        "read": {},
+                    },
+                    "resources": [{"uri": "file:///secret"}],
+                    "resourceTemplates": [],
+                    "httpOrigin": "https://example.invalid",
+                    "toolsError": "private tool error",
+                }
+            ],
+            "nextCursor": None,
+        }
+
+    def _skills_result(self) -> dict:
+        return {
+            "data": [
+                {
+                    "cwd": self.thread_cwd,
+                    "errors": ["private skill error"],
+                    "skills": [
+                        {
+                            "name": "review",
+                            "description": "long description that stays internal",
+                            "shortDescription": "Review a change",
+                            "path": "/home/secret/skills/review/SKILL.md",
+                            "scope": "repo",
+                            "enabled": True,
+                        }
+                    ],
+                }
+            ]
+        }
 
     def messages(self, predicate) -> list[dict]:
         with self._lock:
@@ -280,7 +412,7 @@ class CodexAppServerAdapterTests(unittest.TestCase):
                 },
             }
         )
-        terminal = self.events.get(timeout=1)
+        terminal = self._take(InteractionKind.TASK_COMPLETED)
 
         self.assertEqual(result.code, ControlResultCode.DISPATCHED)
         self.assertIs(terminal.kind, InteractionKind.TASK_COMPLETED)
@@ -293,6 +425,8 @@ class CodexAppServerAdapterTests(unittest.TestCase):
             turn_start["params"]["input"],
             [{"type": "text", "text": "continue with the tests"}],
         )
+        self.assertNotIn("model", turn_start["params"])
+        self.assertNotIn("effort", turn_start["params"])
 
     def test_second_prompt_starts_a_new_turn_after_first_completion(self) -> None:
         first = self._prompt("first voice turn", "first-turn")
@@ -318,7 +452,7 @@ class CodexAppServerAdapterTests(unittest.TestCase):
                 },
             }
         )
-        first_terminal = self.events.get(timeout=1)
+        first_terminal = self._take(InteractionKind.TASK_COMPLETED)
 
         second = self._prompt("second voice turn", "second-turn")
         second_result = self.router.route(second, now_ms=second.issued_at)
@@ -343,7 +477,7 @@ class CodexAppServerAdapterTests(unittest.TestCase):
                 },
             }
         )
-        second_terminal = self.events.get(timeout=1)
+        second_terminal = self._take(InteractionKind.TASK_COMPLETED)
 
         self.assertEqual(first_result.code, ControlResultCode.DISPATCHED)
         self.assertEqual(second_result.code, ControlResultCode.DISPATCHED)
@@ -437,7 +571,7 @@ class CodexAppServerAdapterTests(unittest.TestCase):
                 },
             }
         )
-        terminal = self.events.get(timeout=1)
+        terminal = self._take(InteractionKind.TASK_COMPLETED)
 
         self.assertEqual(result.code, ControlResultCode.DISPATCHED)
         self.assertIs(terminal.kind, InteractionKind.TASK_COMPLETED)
@@ -1046,6 +1180,430 @@ class CodexAppServerAdapterTests(unittest.TestCase):
             [],
         )
 
+    def test_catalog_lists_model_mcp_and_skills_without_private_fields(self) -> None:
+        catalog = self.adapter.session_catalog(
+            self.session.agent_id,
+            self.session.session_id,
+            self.session.project_id,
+        )
+
+        self.assertTrue(catalog["available"])
+        self.assertEqual(catalog["notice"], "")
+        self.assertEqual(catalog["model"], "gpt-6.1-sol")
+        self.assertEqual(catalog["reasoning_effort"], "")
+        self.assertEqual([item["id"] for item in catalog["models"]], ["gpt-6.1-sol"])
+        self.assertEqual(catalog["models"][0]["default_effort"], "medium")
+        self.assertEqual(catalog["mcp_servers"][0]["name"], "docs")
+        self.assertEqual(catalog["mcp_servers"][0]["status"], "connected")
+        self.assertEqual(catalog["mcp_servers"][0]["auth"], "oAuth")
+        self.assertEqual(catalog["mcp_servers"][0]["tools"], ["search", "read"])
+        self.assertEqual(catalog["skills"][0]["name"], "review")
+        self.assertEqual(catalog["skills"][0]["description"], "Review a change")
+        self.assertEqual(catalog["skills"][0]["scope"], "repo")
+        self.assertNotIn("path", catalog["skills"][0])
+        self.assertTrue(catalog["truncated"])
+        blob = json.dumps(catalog)
+        for private in (
+            "do-not-leak",
+            "SKILL.md",
+            "private tool error",
+            "private skill error",
+            "/tmp/deskhelm-catalog",
+            "file:///secret",
+            "example.invalid",
+            "hidden-model",
+        ):
+            self.assertNotIn(private, blob)
+        self.assertNotIn("cwd", catalog)
+        model_request = self.transport.messages(
+            lambda message: message.get("method") == "model/list"
+        )[-1]
+        self.assertEqual(
+            model_request["params"],
+            {"limit": 40, "includeHidden": False},
+        )
+        mcp_request = self.transport.messages(
+            lambda message: message.get("method") == "mcpServerStatus/list"
+        )[-1]
+        self.assertEqual(
+            mcp_request["params"],
+            {
+                "limit": 24,
+                "detail": "toolsAndAuthOnly",
+                "threadId": "thread-1",
+            },
+        )
+        skill_request = self.transport.messages(
+            lambda message: message.get("method") == "skills/list"
+        )[-1]
+        self.assertEqual(skill_request["params"]["cwds"], ["/tmp/deskhelm-catalog"])
+        self.assertIs(skill_request["params"]["forceReload"], False)
+        other = self.adapter.session_catalog("codex", "other-session", "deskhelm")
+        self.assertEqual(other["notice"], "catalog_unavailable")
+        self.assertFalse(other["available"])
+
+    def test_skill_lookup_skips_a_control_character_working_directory(self) -> None:
+        self.transport.thread_cwd = "bad\npath"
+
+        catalog = self.adapter.session_catalog(
+            self.session.agent_id,
+            self.session.session_id,
+            self.session.project_id,
+        )
+
+        self.assertTrue(catalog["available"])
+        self.assertEqual(catalog["skills_notice"], "unavailable")
+        self.assertEqual(catalog["skills"], [])
+        self.assertEqual(catalog["models_notice"], "")
+        self.assertFalse(
+            self.transport.messages(
+                lambda message: message.get("method") == "skills/list"
+            )
+        )
+        self.assertNotIn("bad", json.dumps(catalog))
+
+    def test_catalog_section_failure_does_not_fail_the_turn(self) -> None:
+        self.transport.fail_methods.add("skills/list")
+
+        catalog = self.adapter.session_catalog(
+            self.session.agent_id,
+            self.session.session_id,
+            self.session.project_id,
+        )
+
+        self.assertTrue(catalog["available"])
+        self.assertEqual(catalog["skills_notice"], "unavailable")
+        self.assertEqual(catalog["models"][0]["id"], "gpt-6.1-sol")
+        self.assertEqual(catalog["mcp_notice"], "")
+        self.assertFalse(self._task_failures())
+
+    def test_model_override_applies_on_the_next_new_turn_only(self) -> None:
+        stale = self._configure("missing-model", "low", "stale-model")
+        stale_result = self.router.route(stale, now_ms=stale.issued_at)
+        self.assertEqual(stale_result.code, ControlResultCode.DISPATCH_FAILED)
+
+        catalog = self.adapter.session_catalog(
+            self.session.agent_id,
+            self.session.session_id,
+            self.session.project_id,
+        )
+        self.assertTrue(catalog["available"])
+        unknown = self._configure("not-a-model", "medium", "unknown-model")
+        unknown_result = self.router.route(unknown, now_ms=unknown.issued_at)
+        self.assertEqual(unknown_result.code, ControlResultCode.DISPATCH_FAILED)
+
+        chosen = self._configure("gpt-6.1-sol", "medium", "chosen-model")
+        chosen_result = self.router.route(chosen, now_ms=chosen.issued_at)
+        self.assertEqual(chosen_result.code, ControlResultCode.DISPATCHED)
+        command = self._prompt("use the selected model", "catalog-turn")
+        self.router.route(command, now_ms=command.issued_at)
+        self._wait_for(
+            lambda: bool(
+                self.transport.messages(
+                    lambda message: message.get("method") == "turn/start"
+                )
+            )
+        )
+        turn_start = self.transport.messages(
+            lambda message: message.get("method") == "turn/start"
+        )[-1]
+        self.assertEqual(turn_start["params"]["model"], "gpt-6.1-sol")
+        self.assertEqual(turn_start["params"]["effort"], "medium")
+        self._wait_for(lambda: self.transport.incoming.empty())
+        time.sleep(0.05)
+        steered = self._prompt("keep the current turn", "catalog-steer")
+        self.router.route(steered, now_ms=steered.issued_at)
+        self._wait_for(
+            lambda: bool(
+                self.transport.messages(
+                    lambda message: message.get("method") == "turn/steer"
+                )
+            )
+        )
+        steer = self.transport.messages(
+            lambda message: message.get("method") == "turn/steer"
+        )[-1]
+        self.assertNotIn("model", steer["params"])
+        self.assertNotIn("effort", steer["params"])
+        self.transport.inject(
+            {
+                "method": "turn/completed",
+                "params": {
+                    "threadId": "thread-1",
+                    "turn": {
+                        "id": "turn-deskhelm",
+                        "items": [],
+                        "status": "completed",
+                    },
+                },
+            }
+        )
+        self._wait_for(lambda: self.transport.incoming.empty())
+        time.sleep(0.05)
+        cleared = self._configure("", "", "clear-model")
+        cleared_result = self.router.route(cleared, now_ms=cleared.issued_at)
+        self.assertEqual(cleared_result.code, ControlResultCode.DISPATCHED)
+        again = self._prompt("back to the thread model", "catalog-cleared")
+        self.router.route(again, now_ms=again.issued_at)
+        self._wait_for(
+            lambda: len(
+                self.transport.messages(
+                    lambda message: message.get("method") == "turn/start"
+                )
+            )
+            >= 2
+        )
+        cleared_start = self.transport.messages(
+            lambda message: message.get("method") == "turn/start"
+        )[-1]
+        self.assertNotIn("model", cleared_start["params"])
+        self.assertNotIn("effort", cleared_start["params"])
+
+    def test_steer_with_no_active_turn_starts_one_new_turn(self) -> None:
+        self._start_remembered_turn("first prompt", "idle-first")
+        self.transport.steer_error = "no active turn to steer"
+        self._drain_events()
+        again = self._prompt("next prompt", "idle-next")
+        self.router.route(again, now_ms=again.issued_at)
+        self._wait_for(
+            lambda: len(
+                self.transport.messages(
+                    lambda message: message.get("method") == "turn/start"
+                )
+            )
+            >= 2
+        )
+        started = self.transport.messages(
+            lambda message: message.get("method") == "turn/start"
+        )
+        self.assertEqual(started[-1]["params"]["input"][0]["text"], "next prompt")
+        self.assertEqual(
+            len(
+                self.transport.messages(
+                    lambda message: message.get("method") == "turn/steer"
+                )
+            ),
+            1,
+        )
+        self._wait_for(lambda: self.transport.incoming.empty())
+        time.sleep(0.05)
+        self.assertEqual(
+            len(
+                self.transport.messages(
+                    lambda message: message.get("method") == "turn/start"
+                )
+            ),
+            2,
+        )
+        self.assertFalse(self._task_failures())
+
+    def test_other_steer_errors_do_not_start_a_turn(self) -> None:
+        self._start_remembered_turn("first prompt", "review-first")
+        self.transport.steer_error = "cannot steer a review turn"
+        self._drain_events()
+        starts_before = len(
+            self.transport.messages(
+                lambda message: message.get("method") == "turn/start"
+            )
+        )
+        again = self._prompt("next prompt", "review-next")
+        self.router.route(again, now_ms=again.issued_at)
+        failed = self._wait_for_task_failure()
+        self.assertEqual(failed.payload.error_code, "codex_control_failed")
+        self.assertEqual(
+            len(
+                self.transport.messages(
+                    lambda message: message.get("method") == "turn/start"
+                )
+            ),
+            starts_before,
+        )
+
+    def test_submitted_prompt_is_one_user_message(self) -> None:
+        first = self._prompt("first instruction", "user-first")
+        self.router.route(first, now_ms=first.issued_at)
+        self._wait_for(
+            lambda: bool(
+                self.transport.messages(
+                    lambda message: message.get("method") == "turn/start"
+                )
+            )
+        )
+        self._wait_for(lambda: self.transport.incoming.empty())
+        time.sleep(0.05)
+        first_message = self._take(InteractionKind.MESSAGE)
+        self.transport.inject(
+            {
+                "method": "turn/completed",
+                "params": {
+                    "threadId": "thread-1",
+                    "turn": {
+                        "id": "turn-deskhelm",
+                        "items": [],
+                        "status": "completed",
+                    },
+                },
+            }
+        )
+        self._wait_for(lambda: self.transport.incoming.empty())
+        time.sleep(0.05)
+        second = self._prompt("second instruction", "user-second")
+        self.router.route(second, now_ms=second.issued_at)
+        second_message = self._take(InteractionKind.MESSAGE)
+
+        self.assertEqual(first_message.correlation_id, first.command_id)
+        self.assertEqual(second_message.correlation_id, second.command_id)
+        self.assertIs(first_message.payload.role, MessageRole.USER)
+        self.assertEqual(first_message.payload.phase, MessagePhase.COMPLETE)
+        self.assertEqual(first_message.payload.text, "first instruction")
+        self.assertEqual(second_message.payload.text, "second instruction")
+        self.assertNotEqual(
+            first_message.correlation_id,
+            second_message.correlation_id,
+        )
+
+        self.transport.inject(
+            {
+                "method": "item/completed",
+                "params": {
+                    "threadId": "thread-1",
+                    "item": {
+                        "id": "vendor-echo",
+                        "type": "userMessage",
+                        "content": [{"type": "text", "text": "second instruction"}],
+                    },
+                },
+            }
+        )
+        self.transport.inject(
+            {
+                "method": "item/completed",
+                "params": {
+                    "threadId": "thread-1",
+                    "item": {
+                        "id": "typed-in-tui",
+                        "type": "userMessage",
+                        "content": [{"type": "text", "text": "typed in the terminal"}],
+                    },
+                },
+            }
+        )
+        echoed = self._take(InteractionKind.MESSAGE)
+        self._wait_for(lambda: self.transport.incoming.empty())
+        time.sleep(0.05)
+
+        self.assertEqual(echoed.payload.text, "typed in the terminal")
+        self.assertEqual(echoed.correlation_id, "typed-in-tui")
+        self.assertFalse(
+            any(
+                event.kind is InteractionKind.MESSAGE
+                for event in self._pending_events()
+            )
+        )
+
+    def test_idle_steer_publishes_the_prompt_once(self) -> None:
+        self._start_remembered_turn("first prompt", "idle-once")
+        self._drain_events()
+        self.transport.steer_error = "no active turn to steer"
+        again = self._prompt("next prompt", "idle-once-next")
+        self.router.route(again, now_ms=again.issued_at)
+        self._wait_for(
+            lambda: len(
+                self.transport.messages(
+                    lambda message: message.get("method") == "turn/start"
+                )
+            )
+            >= 2
+        )
+        self._wait_for(lambda: self.transport.incoming.empty())
+        time.sleep(0.05)
+        messages = [
+            event
+            for event in self._pending_events()
+            if event.kind is InteractionKind.MESSAGE
+        ]
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].payload.text, "next prompt")
+        self.assertEqual(messages[0].correlation_id, again.command_id)
+
+    def _start_remembered_turn(self, text: str, suffix: str) -> None:
+        command = self._prompt(text, suffix)
+        self.router.route(command, now_ms=command.issued_at)
+        self._wait_for(
+            lambda: bool(
+                self.transport.messages(
+                    lambda message: message.get("method") == "turn/start"
+                )
+            )
+        )
+        self._wait_for(lambda: self.transport.incoming.empty())
+        time.sleep(0.05)
+
+    def _take(self, kind: InteractionKind) -> InteractionEvent:
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            try:
+                event = self.events.get(timeout=0.05)
+            except Empty:
+                continue
+            if event.kind is kind:
+                return event
+        raise AssertionError(f"{kind.value} was not published")
+
+    def _pending_events(self) -> list[InteractionEvent]:
+        found: list[InteractionEvent] = []
+        while True:
+            try:
+                found.append(self.events.get_nowait())
+            except Empty:
+                return found
+
+    def _wait_for_task_failure(self) -> InteractionEvent:
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            try:
+                event = self.events.get(timeout=0.05)
+            except Empty:
+                continue
+            if (
+                event.kind is InteractionKind.TASK_FAILED
+                and isinstance(event.payload, TaskPayload)
+                and event.payload.error_code == "codex_control_failed"
+            ):
+                return event
+        raise AssertionError("Codex control failure was not published")
+
+    def _configure(self, model: str, effort: str, suffix: str) -> ControlCommand:
+        now_ms = int(time.time() * 1000)
+        return ControlCommand(
+            command_id=f"command-{suffix}",
+            kind=ControlKind.CONFIGURE_SESSION,
+            agent_id=self.session.agent_id,
+            session_id=self.session.session_id,
+            project_id=self.session.project_id,
+            issued_by="test-controller",
+            issued_at=now_ms,
+            expires_at=now_ms + 10_000,
+            idempotency_key=f"idempotency-{suffix}",
+            payload=ConfigureSessionPayload(
+                model_set=True,
+                model=model,
+                effort_set=True,
+                reasoning_effort=effort,
+            ),
+        )
+
+    def _task_failures(self) -> list[InteractionEvent]:
+        found: list[InteractionEvent] = []
+        while True:
+            try:
+                event = self.events.get_nowait()
+            except Empty:
+                return found
+            if event.kind is InteractionKind.TASK_FAILED:
+                found.append(event)
+
     def _prompt(self, text: str, suffix: str) -> ControlCommand:
         now_ms = int(time.time() * 1000)
         return ControlCommand(
@@ -1092,6 +1650,73 @@ class CodexAppServerAdapterTests(unittest.TestCase):
         self.router.observe_interaction(event)
         self.events.put(event)
 
+    def test_attached_thread_item_completion_publishes_transcript_only(self) -> None:
+        self._drain_events()
+        connect_count = self.transport.connect_count
+        self.transport.inject({"method": "item/completed", "params": {"item": "bad"}})
+        self.transport.inject({
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-other",
+                "item": {
+                    "type": "agentMessage",
+                    "id": "other-1",
+                    "text": "other thread",
+                },
+            },
+        })
+        self.transport.inject({
+            "method": "item/completed",
+            "params": {
+                "item": {
+                    "type": "reasoning",
+                    "id": "reason-1",
+                    "summary": "hidden thought",
+                    "content": "hidden thought",
+                },
+            },
+        })
+        self.transport.inject({
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-1",
+                "item": {
+                    "type": "agentMessage",
+                    "id": "visible-1",
+                    "text": "visible reply",
+                },
+            },
+        })
+        collected: list[InteractionEvent] = []
+        seen = False
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            try:
+                collected.append(self.events.get(timeout=0.05))
+            except Empty:
+                if seen:
+                    break
+                continue
+            seen = any(
+                getattr(event.payload, "text", "") == "visible reply"
+                for event in collected
+            )
+        self.assertTrue(seen)
+        blob = "".join(event.to_json() for event in collected)
+        self.assertIn("visible reply", blob)
+        self.assertNotIn("hidden thought", blob)
+        self.assertNotIn("other thread", blob)
+        self.assertEqual(self.transport.connect_count, connect_count)
+        self.assertEqual(self.adapter.attached_thread_id(), "thread-1")
+
+    def _drain_events(self) -> None:
+        deadline = time.monotonic() + 0.05
+        while time.monotonic() < deadline:
+            try:
+                self.events.get_nowait()
+            except Empty:
+                time.sleep(0.01)
+
     @staticmethod
     def _wait_for(predicate) -> None:
         deadline = time.monotonic() + 1
@@ -1100,6 +1725,147 @@ class CodexAppServerAdapterTests(unittest.TestCase):
                 return
             time.sleep(0.01)
         raise AssertionError("condition was not met")
+
+
+def _draft_blob(drafts: list) -> str:
+    return json.dumps([
+        {
+            "kind": kind.value,
+            "id": correlation_id,
+            "payload": payload.to_dict(),
+        }
+        for kind, correlation_id, payload in drafts
+    ])
+
+
+class ThreadItemProjectionTests(unittest.TestCase):
+    """Synthetic public-schema examples, not a local app-server capture."""
+
+    def test_user_assistant_command_file_and_mcp_items_are_bounded(self) -> None:
+        user = _thread_item_drafts("item/completed", {
+            "type": "userMessage",
+            "id": "user-1",
+            "content": [
+                {"type": "text", "text": "look"},
+                {"type": "localImage", "path": "/secret/shot.png"},
+                {"type": "image", "url": "data:image/png;base64,AAAA"},
+            ],
+        })
+        self.assertEqual(user[0][2].role, MessageRole.USER)
+        self.assertEqual(user[0][2].phase, MessagePhase.COMPLETE)
+        self.assertEqual(user[0][2].text, "look\n[image]\n[image]")
+        self.assertNotIn("/secret/shot.png", _draft_blob(user))
+        self.assertNotIn("base64", _draft_blob(user))
+
+        started = _thread_item_drafts("item/started", {
+            "type": "agentMessage",
+            "id": "agent-1",
+            "text": "partial",
+        })
+        completed = _thread_item_drafts("item/completed", {
+            "type": "agentMessage",
+            "id": "agent-1",
+            "text": "final reply",
+        })
+        self.assertEqual(started[0][2].phase, MessagePhase.DELTA)
+        self.assertEqual(completed[0][2].phase, MessagePhase.COMPLETE)
+        self.assertEqual(completed[0][2].text, "final reply")
+
+        command = _thread_item_drafts("item/completed", {
+            "type": "commandExecution",
+            "id": "cmd-1",
+            "command": ["pytest", "-q"],
+            "cwd": "/secret/workdir",
+            "aggregatedOutput": "ok\n",
+            "exitCode": 0,
+        })
+        self.assertEqual(command[0][2].name, "pytest -q")
+        self.assertEqual(command[0][2].phase, ToolPhase.OUTPUT)
+        self.assertEqual(command[0][2].stream, ToolStream.STDOUT)
+        self.assertEqual(command[1][2].phase, ToolPhase.COMPLETE)
+        self.assertEqual(command[1][2].exit_code, 0)
+        self.assertNotIn("/secret/workdir", _draft_blob(command))
+        self.assertEqual(
+            _thread_item_drafts("item/completed", {
+                "type": "commandExecution",
+                "id": "cmd-2",
+                "command": "false",
+                "exitCode": True,
+            })[0][2].exit_code,
+            None,
+        )
+
+        file_change = _thread_item_drafts("item/completed", {
+            "type": "fileChange",
+            "id": "file-1",
+            "changes": [{"path": "app.py", "kind": "update", "diff": "+added\n-removed\n"}],
+            "status": "completed",
+        })
+        self.assertIn("+added", file_change[0][2].text)
+        self.assertIn("app.py", file_change[0][2].name)
+
+        mcp = _thread_item_drafts("item/completed", {
+            "type": "mcpToolCall",
+            "id": "mcp-1",
+            "server": "desk",
+            "tool": "read",
+            "arguments": {"path": "/secret/file"},
+            "error": "tool failed",
+        })
+        self.assertEqual(mcp[0][2].stream, ToolStream.STDERR)
+        self.assertEqual(mcp[0][2].text, "tool failed")
+        self.assertNotIn("/secret/file", _draft_blob(mcp))
+
+        search = _thread_item_drafts("item/started", {
+            "type": "webSearch",
+            "id": "search-1",
+            "query": "deskhelm",
+        })
+        self.assertEqual(search[0][2].name, "web search: deskhelm")
+        self.assertEqual(search[0][2].phase, ToolPhase.START)
+
+        review = _thread_item_drafts("item/completed", {
+            "type": "exitedReviewMode",
+            "id": "review-1",
+            "review": "no blocking issues",
+        })
+        self.assertEqual(review[0][2].text, "no blocking issues")
+        self.assertEqual(_thread_item_drafts("item/started", {
+            "type": "exitedReviewMode",
+            "id": "review-1",
+            "review": "no blocking issues",
+        }), [])
+
+        long_text = "a" * (MAX_ITEM_TEXT_CHARS + 50)
+        clipped = _thread_item_drafts("item/completed", {
+            "type": "plan",
+            "id": "plan-1",
+            "text": long_text,
+        })
+        self.assertIn("[truncated]", clipped[0][2].text)
+        self.assertLessEqual(len(clipped[0][2].text), MAX_ITEM_TEXT_CHARS)
+
+    def test_reasoning_and_unknown_items_publish_nothing(self) -> None:
+        self.assertEqual(_thread_item_drafts("item/completed", {
+            "type": "reasoning",
+            "id": "reason-1",
+            "summary": "hidden thought",
+            "content": "hidden thought",
+        }), [])
+        self.assertEqual(_thread_item_drafts("item/completed", {
+            "type": "imageView",
+            "id": "image-1",
+        }), [])
+        self.assertEqual(_thread_item_drafts("item/completed", {
+            "type": "agentMessage",
+            "id": " ",
+            "text": "nope",
+        }), [])
+        self.assertEqual(_thread_item_drafts("item/delta", {
+            "type": "agentMessage",
+            "id": "agent-1",
+            "text": "token",
+        }), [])
 
 
 if __name__ == "__main__":

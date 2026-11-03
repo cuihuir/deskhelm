@@ -1,10 +1,404 @@
 # Handoff
 
-Date: 2026-09-02
+Date: 2026-11-03
 
 Project: DeskHelm
 
 Repository: <https://github.com/cuihuir/deskhelm>
+
+## Latest Phase: Architecture Redesign Proposal
+
+Status: proposal written on 2026-11-03. No code was changed. No bridge, web,
+or agent process was started.
+
+- `docs/architecture/target-architecture.md` holds the diagnosis, the target
+  design, conflicts with existing ADRs, and a five-phase migration plan. It is
+  not accepted. Decisions D1–D4 in its §8 are open.
+- Sources: read-only reviews of the Bridge core, the runtime adapters, and
+  voice, surfaces, and clients, plus a governance review. Compared with
+  `pingdotgg/t3code` (MIT), shallow-cloned and ignored at
+  `references/vendor/t3code`, commit `997e3f3`. It was not built or run.
+- Highest risk, verified in code, not reproduced: `ControlRouter.route` calls
+  handlers under its lock, handlers publish under `_event_lock`, and the
+  publish path takes the router lock under `_event_lock`. An approval request
+  concurrent with a prompt can deadlock the whole user bridge.
+- Other open findings that phase 0 fixes on the current code:
+  - Grok approval can choose `allow_always`. t3code's live Grok 1.0.41
+    recordings list it first in 3 of 4 requests; our fixture has two options.
+  - Grok uses the ACP title, which carries commands and paths, as the tool
+    name and approval summary, contrary to ADR 0040.
+  - `deskhelm web` `/api/control` checks no token, Host, Origin, or
+    Content-Type. Exploitation is inferred, not tested.
+  - An undelivered approval is still consumed.
+  - Dashboard truncates approval summaries to 160 characters; the router
+    requires an exact match.
+  - Voice approval phrases fall through to a prompt when nothing is pending.
+  - Unverified: Grok sends `session/cancel` as a request, not a notification.
+- About 14k lines since 2026-09-02 are uncommitted. A baseline commit before
+  refactoring needs operator approval.
+- Next: the operator answers D1–D4 and the baseline-commit question. Phase 0
+  does not depend on D1–D4.
+
+## Previous Phase: Web Port 8766
+
+Status: changed on 2026-10-26. The process listening on 8765 was left running.
+
+- `deskhelm web` now defaults to `http://127.0.0.1:8766`. Port 8765 is held by
+  an unrelated local `tools.probe_monitor` process. `--port` still overrides
+  the default.
+- No web server was started. The user bridge was not restarted.
+
+## Previous Phase: Live Grok Session
+
+Status: verified on 2026-10-22. The user bridge and one Grok agent are still
+running. No voice, TUI, or keyboard grab was started. Unrelated Grok and
+Codex processes were left alone.
+
+- The previous `bridge.sock` had no listener. A user bridge was started with
+  `--agent-runtime-directory`, 32 slots, and 64 connections. `deskhelm agent
+  grok` then attached from this repository.
+- Session `grok` / `local-d38af4745134` / `next_keyboard` is active. Adapter
+  `deskhelm-grok`. Runtime `grok 1.0.60 (01a8e1c591c0)`. Current model
+  `grok-4.7`.
+- A bounded prompt was accepted. The interaction plane published one user
+  message for that command, the assistant reply, and `task_completed`. No
+  tool event was published. The prompt was not logged.
+- `deskhelm web` uses this same bridge. It shows activity after the page
+  connects, so these verification turns are not replayed.
+- Bridge pid 180537, agent pid 180548, Grok child pid 180581. The agent did
+  not change repository files.
+
+## Previous Phase: One User Message per Prompt
+
+Status: implemented on 2026-10-22. No DeskHelm process was running, so none
+was stopped. The system Codex app-server daemon was left running.
+
+- ADR 0042. Codex, Claude, and Grok publish each accepted prompt once as a
+  user message on the existing interaction plane. The correlation id is the
+  control command id, so later prompts no longer replace earlier ones.
+- A vendor echo of that same text is not published again. Codex keeps the
+  last eight accepted texts. Claude and Grok keep the latest one. A different
+  vendor user item is still published with its own id.
+- The session list shows the latest visible line from events the page already
+  has. Claude and Grok empty states no longer say the older dialogue is in
+  Codex. The Codex empty state keeps that sentence.
+- No transcript query, poll, or rollout read was added. A running adapter
+  keeps the old behavior until that session is restarted. Restart
+  `deskhelm web` to load the new page assets.
+- Validation passed: `PYTHONPATH=bridge:adapters/codex:adapters/claude:adapters/grok
+  python3 -m unittest tests.test_codex_app_server_adapter
+  tests.test_agent_streams tests.test_web_client -q` (50 tests),
+  `node --check bridge/deskhelm_bridge/web-assets/app.js`, and
+  `git diff --check` on the touched files. No browser pass. No bridge, web,
+  or agent process was started.
+
+## Previous Phase: Idle Codex Steer Starts One Turn
+
+Status: implemented on 2026-10-22. No bridge, web client, or Codex session
+was restarted.
+
+- ADR 0041. When Codex rejects `turn/steer` because no turn is active, the
+  adapter clears that remembered turn and sends the same prompt once as
+  `turn/start`. A review steer, a compact steer, and any other steer error
+  still publish `codex_control_failed` and do not start a turn.
+- No second transcript channel was added. Codex, Claude, and Grok output
+  stays on the existing interaction events. The page does not poll a vendor
+  thread or read rollout files.
+- The already running Codex session still has the old adapter. Web and voice
+  prompts to that session keep steering until the operator restarts it.
+  Restart is an operator action.
+- Validation passed: `PYTHONPATH=bridge:adapters/codex python3 -m unittest
+  tests.test_codex_app_server_adapter tests.test_runtime_directory
+  tests.test_web_client tests.test_session_catalog -q` (50 tests) and
+  `git diff --check` on the touched files.
+
+## Previous Phase: Stale Codex Steer Rejection
+
+Status: diagnosed on 2026-10-21. The running session was left in place.
+
+- Session `local-5f4d195c798d` / `fedora_enhance` was online. Its Codex turn
+  had already completed. The next two DeskHelm prompts were sent as
+  `turn/steer` with no parent turn. Codex did not start a turn. DeskHelm
+  published `codex_control_failed`, and voice spoke the fixed line for that
+  code. The page showed that failure twice and kept both optimistic prompts.
+- That process still has the old adapter. ADR 0041 applies only after the
+  operator starts a new DeskHelm session for the directory.
+
+## Previous Phase: Codex Command Name
+
+Status: the managed Codex startup command is `deskhelm codex`. Checked on
+2026-10-21. No Codex process was started.
+
+- `deskhelm codex --tui` is the public command. `deskhelm alpha` still parses
+  and the user launcher still preserves the working directory for both names.
+  `deskhelm --help` lists `codex` and hides `alpha`.
+- Web empty-state copy uses the new command. Internal profile code stays in
+  `alpha.py`.
+- Validation passed: `bash -n tools/deskhelm-user-launcher`,
+  `PYTHONPATH=bridge python3 -m unittest tests.test_local_alpha -q`
+  (22 tests), and `git diff --check` on the touched files. Top-level help
+  lists `codex` and does not list `alpha`.
+
+## Previous Phase: Transparent Multi-Agent Supervision
+
+Status: Claude, Codex, and Grok can share one bridge, and the loopback page
+shows each runtime's capabilities and output. Checked on 2026-10-21 against a
+private bridge. The user's bridge, private Alphas, and port 8765 were not
+touched. No browser pass; the page was read over loopback HTTP.
+
+- ADR 0040. `deskhelm agent claude` and `deskhelm agent grok` own the vendor
+  process in the project directory and attach a relay socket. Codex stays on
+  `deskhelm alpha --tui`. The attach frame still carries no working directory.
+- Session queries now include adapter identity, runtime name, runtime version,
+  and the existing capability list. The catalog adds `agent_capabilities` for
+  vendor-declared tokens. The page shows those tokens as muted 声明 lines and
+  shows the runtime on each session. Dashboard reads the same fields.
+- Live check on a temporary `XDG_RUNTIME_DIR`: three active sessions,
+  `claude-code`, `grok`, and `codex-cli`. Grok answered the bounded prompt.
+  Claude published the user message, its model, 15 skills, and its declared
+  capability tokens; that configured model did not finish the turn inside the
+  wait. Codex attached and listed its control capabilities. Without a TUI
+  thread its model catalog stays unavailable, which is the existing rule.
+  The user bridge inode and mtime were unchanged.
+- A bridge process started before this factory cannot attach Claude or Grok,
+  and it still has the old Codex symlink check. The operator restarts that
+  bridge. Do not kill it from this workspace. The next voice PTT loads ADR
+  0039 without that restart; do not start `--voice` until the operator asks.
+- Validation: `PYTHONPATH=bridge:adapters/claude:adapters/grok python3 -m
+  unittest tests.test_runtime_directory tests.test_stdio_relay
+  tests.test_agent_streams tests.test_session_catalog tests.test_bridge_e2e
+  tests.test_web_client -q` passed, 48 tests. `git diff --check` passed for
+  the touched files.
+
+## Previous Phase: Right Alt Without a Keyboard Grab
+
+Status: PTT no longer calls `EVIOCGRAB`. Checked on 2026-10-21. No voice
+Alpha was started, and no real input device was opened.
+
+- The whole-keyboard outage was `run_right_alt_listener` grabbing
+  `/dev/input/deskhelm-ptt-kbd`. That symlink is event256, `keyd virtual
+  keyboard`, which is the desktop keyboard. The right-Alt filter runs after
+  the grab, so every other key was swallowed. The kill command only stopped
+  the process; it did not cause the grab.
+- ADR 0039. The listener reads right Alt and ignores other events. One
+  listener is `deskhelm_runtime_directory()/ptt.lock`. A second listener
+  still fails closed. Right Alt still reaches the compositor.
+- The running user bridge does not need a restart for this change. The next
+  `alpha --voice` starts a new PTT process and loads this listener. Do not
+  start that until the bridge itself is one the operator means to use.
+- Validation: `PYTHONPATH=bridge python3 -m unittest tests.test_right_alt_ptt -v`
+  passed, 9 tests. `git diff --check` passed for the touched files.
+
+## Previous Phase: Shared User Bridge
+
+Status: default Alpha joins one user bridge. Checked on 2026-10-21. The
+user's running Alpha processes and `deskhelm web` were not restarted.
+
+- ADR 0038. Omitting `--socket` attaches the session to `bridge.sock`. Web
+  and the dashboard read that same socket, so every attached DeskHelm session
+  is on one control plane. Explicit `--socket` still starts a private bridge.
+- The bridge hosts at most 32 runtimes. Attach names directory-scoped Codex
+  sockets and carries no working directory. Exit detaches this session and
+  does not stop the user bridge. The launcher does not inject a private
+  socket and does not signal the user bridge.
+- The first `alpha --voice` must start the user bridge. A bridge already
+  running without voice stays that way until it is stopped.
+- This slice does not add a remote app or an IM channel. Agents DeskHelm did
+  not start stay off the page.
+- Existing per-directory Alphas stay on their old sockets until those
+  processes are restarted. Restart `deskhelm web` so it attaches to
+  `bridge.sock` and loads the current page assets.
+- A manual `deskhelm bridge` does not take `bridge.sock.start.lock`. Two
+  starters can still race across the bind-unlink window. Alpha's own starter
+  holds that lock.
+- Codex app-server publishes its listen path as a symlink to
+  `/tmp/codex-daemon-<uid>/`. Attach confines the parent directory and allows
+  that final symlink. The user bridge process that is already running still
+  has the old check; restart it before the next `alpha --voice`.
+- Validation: `bash -n tools/deskhelm-user-launcher` passed.
+  `PYTHONPATH=bridge python3 -m unittest tests.test_runtime_directory
+  tests.test_paths tests.test_local_alpha -v` passed, 31 tests.
+  `PYTHONPATH=bridge python3 -m unittest tests.test_bridge_e2e
+  tests.test_web_client tests.test_transport -v` passed, 35 tests.
+  `git diff --check` passed.
+
+## Previous Phase: Web Composer Layout
+
+Status: composer dock and popovers implemented and checked on 2026-10-20.
+The user's running web process was not restarted.
+
+- The transcript stays clear. An empty page centers one status line, and the
+  history note lives there instead of under the header. The review rail stays
+  closed until 审查 is opened.
+- Model and reasoning open upward from the composer. Skills and MCP open from
+  能力. Only one popover is open. Choosing a model or effort sends
+  `configure_session` for the next new turn. 不覆盖 clears both. The choice
+  does not write Codex configuration, and the current turn keeps its model.
+- The page fetches the catalog when the selected session changes, and again
+  on open if it is missing, or on refresh. It does not poll.
+- Each skill is one line, the name only. Each MCP server is one line, the
+  name plus a short status. Descriptions, scope, and tool lists stay off the
+  page.
+- Detail pass: a popover steps the empty stage back, and the capability
+  header stays put while its list scrolls. Skill and MCP names share one
+  edge. Long model names stay on one line. The narrow 会话 control stays
+  one line.
+- Restart `deskhelm web` and refresh the page. This phase only changes static
+  assets. Restart Alpha only if that process is still older than the catalog
+  provider.
+- Validation: `PYTHONPATH=bridge:adapters/codex python3 -m unittest
+  tests.test_session_catalog tests.test_control tests.test_web_client
+  tests.test_codex_app_server_adapter -v` passed, 55 tests, before the last
+  empty-state paint fix. After that fix, the page-byte test, `node --check
+  bridge/deskhelm_bridge/web-assets/app.js`, and `git diff --check` passed.
+- Browser check at 1280×800 and 390×800 used a temporary server on
+  127.0.0.1:40731 with a missing socket. The empty stage was centered, 能力
+  and the model popover opened above the composer, Escape and an outside
+  click closed them, and 审查 opened the rail. Focus, interrupt, send, and
+  approval were not clicked. A later stub catalog on that isolated server
+  showed one name per skill and one MCP line with a short status. Clicking
+  a skill inserted `$review ` and left the popover open. The check did not
+  attach to the live Alpha socket.
+
+## Previous Phase: Session Catalog and Model Selection
+
+Status: model, MCP, and skills catalog implemented and checked on 2026-10-20.
+The composer layout above replaces the stacked panel.
+
+- ADR 0037. A controller sends `session_catalog_query` for one active session.
+  Bridge checks the session, then calls the Codex adapter outside the router
+  lock. The public result is models, MCP status, tool names, and skill names.
+  Working directories, skill paths, tool schemas, and vendor errors stay out.
+- `configure_session` stores a model and reasoning override after a catalog
+  read from the last 120 seconds. The next `turn/start` sends it. `turn/steer`
+  does not. Codex configuration is not written. An active turn keeps its model.
+- The first page put the catalog in a panel above the composer. It fetched on
+  open or refresh. 不覆盖 clears the override. A skill click inserts `$name`
+  into the composer.
+- `/compact`, `/plan`, `/fast`, `/status`, `/goal`, and `/rename` stay deferred.
+- Restart both processes before expecting live data. Restart Alpha so the
+  adapter registers the catalog provider, then restart `deskhelm web` and
+  refresh `http://127.0.0.1:8765`. Restarting only the page shows the button
+  and `catalog_unavailable`.
+- Validation: `PYTHONPATH=bridge:adapters/codex python3 -m unittest
+  tests.test_session_catalog tests.test_control tests.test_web_client
+  tests.test_codex_app_server_adapter -v` passed, 55 tests. `git diff
+  --check` and `node --check bridge/deskhelm_bridge/web-assets/app.js` passed.
+- Browser check at 1280×800: the 能力 button opened the panel, the empty page
+  said 先选择一个会话, 应用到下一轮 stayed disabled, and Escape closed the
+  panel while 审查 stayed open. Model, MCP, and skill rows were not clicked
+  because this check had no Codex catalog provider.
+
+## Previous Phase: Local Loopback Web Client
+
+Status: dependency-free Codex-layout page implemented and checked on
+2026-10-20. No live Alpha session was opened.
+
+- ADR 0036. `deskhelm web` is a replaceable Bridge client. One state
+  subscription and one interaction subscription feed a loopback SSE page.
+  Short controller connections send `session_query` and `control_command_v1`.
+  The page does not own Agent processes, read transcript files, or send
+  `focus` when a thread is selected.
+- The layout follows the Codex page: project sidebar, transcript, composer,
+  and review rail. The product name is DeskHelm. Operator copy is Chinese.
+- The composer sends a normal `submit_prompt`. `user_input_required` stays in
+  the Codex TUI. Approve and reject copy the stored request id, summary, and
+  expiry. Status-derived attention is not an actionable approval.
+- The page shows activity from the moment it connects. Earlier thread history
+  stays in Codex. Item text appears when an item starts or completes.
+- Subscription sockets are read without a buffered reader. Every complete
+  NDJSON frame from one `recv` is applied before the loop waits again.
+- Run `PYTHONPATH=bridge python3 -m deskhelm_bridge web`, then open
+  <http://127.0.0.1:8765>. Omitting `--socket` uses this directory's Alpha
+  socket or the only running Alpha bridge. The default bind is `127.0.0.1`.
+  Any other host needs `--allow-remote`.
+- An active Alpha session showed “离线” because the page treated Bridge's
+  initial `slot-N` offline placeholder as the session's agent state. The page
+  now ignores a state event whose `agent_id` does not match the session, so
+  this connected session shows “在线”. Codex app-server still does not publish
+  thinking, idle, or tool states. Restart the web process to load the change.
+- A page with no sessions was traced to `deskhelm web --socket ''` while
+  `deskhelm alpha --tui` for `/home/tope/project/luna_niao` was serving one
+  active `local-alpha` session on its own socket. The empty path now fails
+  immediately, and a missing flag follows that Alpha bridge. The already
+  running web process still has the empty path until it is restarted.
+- Changed files: `docs/decisions/0036-local-loopback-web-client.md`,
+  `docs/decisions/README.md`, `docs/architecture/multimodal-agent-console.md`,
+  `AGENTS.md`, `bridge/README.md`, `bridge/deskhelm_bridge/cli.py`,
+  `bridge/deskhelm_bridge/web_client.py`, `bridge/deskhelm_bridge/web-assets/`,
+  `adapters/codex/deskhelm_codex_adapter/app_server.py`,
+  `tests/test_web_client.py`, `tests/test_codex_app_server_adapter.py`,
+  `tests/README.md`, and `pyproject.toml`.
+- Validation: `PYTHONPATH=bridge:adapters/codex python3 -m unittest
+  tests.test_web_client tests.test_codex_app_server_adapter -v` passed,
+  32 tests. A second `tests.test_web_client` run with `ResourceWarning`
+  treated as an error passed, 9 tests. `git diff --check` and `node --check
+  bridge/deskhelm_bridge/web-assets/app.js` passed.
+- Browser check: a 1280×800 headless Chrome session reached `已连接`, showed
+  the empty session, transcript, and review copy, switched the theme to
+  light, and closed then reopened the review rail. Focus, interrupt, the
+  composer, and approval buttons were not clicked because no session was
+  registered. Those controls are covered by `tests/test_web_client.py`.
+- Residual risk: the TUI dashboard still reads one buffered frame for each
+  `select` wake, so a burst can delay its second interaction event. The web
+  client does not.
+
+## Earlier Phase: TUI Dashboard Concept
+
+Status: first dependency-free prototype implemented and regression-verified on
+2026-09-21.
+
+- ADR 0035 defines the Dashboard as an optional, replaceable Bridge client
+  using separate state subscription, interaction subscription, and controller
+  connections.
+- Cursor, selected session, Bridge focus, and attention are distinct. Browsing
+  never redirects PTT or physical controls; only an explicit targeted `focus`
+  command changes the Bridge-authoritative target.
+- `deskhelm dashboard` now renders a responsive multi-session list plus bounded
+  live detail, explicit focus, targeted interrupt controls, and bounded `a`/`r`
+  approval/rejection controls. Approval metadata is copied exactly and routed
+  through the existing Bridge correlation/expiry rules. It does not persist
+  transcripts or own Agent processes.
+- A bounded read-only `session_query` controller frame maps `AgentEvent v1`
+  slots to complete session identities for local dashboards. Existing clients
+  remain compatible.
+- Attach/detach, PTY pooling, resume, termination, remote sessions, and durable
+  history remain future supervisor capabilities requiring separate decisions.
+- Changed documentation: `docs/decisions/0035-bridge-native-tui-dashboard.md`,
+  `docs/decisions/README.md`,
+  `docs/architecture/multimodal-agent-console.md`, and
+  `docs/software/no-hardware-roadmap.md`.
+- `git diff --check` passes. Focused Dashboard, transport, Bridge end-to-end,
+  control, and display tests pass; the full repository suite passes `356 tests`.
+  A real PTY smoke test starts Dashboard, consumes a state snapshot, and exits
+  with `q` successfully.
+- Dashboard approval command construction has a regression test, complemented
+  by the live managed-Alpha approval checks below.
+- Live managed Alpha/Codex validation is now complete: Dashboard approval
+  returned `approve: dispatched`, a repeated decision returned
+  `approval_already_decided`, and Dashboard rejection returned
+  `reject: dispatched`. The real app-server proxy, Bridge correlation, expiry
+  and duplicate-decision path have been exercised without changing private
+  approval content.
+- Voice preflight was checked against the current workstation on 2026-09-22.
+  The encrypted model/runtime configuration and `/dev/input/deskhelm-ptt-kbd`
+  are available, but the configured `DESKHELM_ALPHA_VOICE_SOURCE` names a
+  missing PipeWire source. Explicitly selecting the current source
+  `alsa_input.pci-0000_00_1f.3.analog-stereo` and sink
+  `alsa_output.pci-0000_00_1f.3.analog-stereo` makes `deskhelm alpha --check
+  --voice` pass. Live PTT/ASR/TTS verification now requires operator speech and
+  listening; no Alpha process is currently running.
+- A USB microphone is now present as
+  `alsa_input.usb-C-Media_Electronics_Inc._USB_PnP_Sound_Device-00.analog-mono`.
+  With that source and the current internal sink explicitly selected,
+  `deskhelm alpha --check --voice` passes. The project environment was then
+  updated to use these current stable names by default.
+- The default profile now stores both stable audio names in the encrypted
+  project environment: `DESKHELM_ALPHA_VOICE_SOURCE` for the USB microphone
+  and `DESKHELM_ALPHA_VOICE_SINK` for the internal sink. Alpha CLI flags remain
+  explicit overrides. A no-override `deskhelm alpha --check --voice` passes;
+  source or sink changes can now be made in the project environment without
+  editing launch commands.
 
 ## Current Objective and Status
 
@@ -19,7 +413,371 @@ Bridge state and sessions
   -> physical controls
 ```
 
-### Latest Phase: Resume-Aware Voice Thread Targeting
+### Session Wrap-up: 2026-09-04
+
+Status: implementation and offline validation complete; live Alpha is stopped
+cleanly and no DeskHelm process or socket is currently running.
+
+- The `next_keyboard` Alpha was stopped after the TTS fix so a future launch
+  will load the `$XDG_RUNTIME_DIR` temporary-audio change and the new IndexTTS
+  WAV writer. Only its confirmed process groups were targeted; other project
+  instances were not changed.
+- Ownerless residual sockets were removed after `fuser` confirmed no process
+  held them. The per-user DeskHelm socket directory is currently empty.
+- The focused PTT and TTS changes remain uncommitted alongside the repository's
+  existing user work. `git diff --check` passes; the previously completed
+  no-hardware regression suite remains 352/352.
+- Live audio playback, focused/no-focus PTT routing, focus switching, and
+  second-listener rejection still need one fresh Alpha launch for end-to-end
+  confirmation. The next operator can run `deskhelm alpha --tui --voice`
+  from this checkout, then use `deskhelm focus` before `deskhelm ptt --focused`.
+
+### Latest Phase: Focused PTT Routing
+
+Status: implemented and regression-verified on 2026-09-04.
+
+- PTT presses now resolve the Bridge's explicit `focused_session` through a
+  bounded read-only focus query instead of always using the listener's startup
+  target.
+- Bridge routing rejects `press_ptt` for an active but unfocused session with
+  `target_not_focused`; release remains bound to the target accepted at press.
+- Alpha voice startup explicitly focuses its registered session, while
+  approval/attention events remain notification-only and never steal focus.
+- Added `deskhelm focus` as the reference UI/client action for selecting the
+  visible session. `deskhelm ptt --focused` no longer needs a static target and
+  avoids binding its status stream to one startup session.
+- Focus-aware PTT, control-router, Alpha, Bridge end-to-end, and full
+  no-hardware regressions pass (352 tests, including the new focus CLI/status
+  coverage). Live end-to-end routing still needs a fresh Alpha launch.
+
+### Focused PTT Handoff
+
+- The product rule is fixed: only the explicitly focused active session may
+  receive a PTT press; approval/attention never changes focus.
+- A UI must issue a targeted `focus` control when the visible session changes.
+  `deskhelm focus ...` is the reference terminal path.
+- Current Alpha instances use per-directory Bridges, so focus is not global
+  across independent Alpha windows. Do not claim cross-window routing until a
+  shared Bridge or user-level focus/PTT broker is implemented.
+- Next live check: restart one authorized Alpha, verify focused/no-focus PTT,
+  focus changes, and exclusive listener behavior. Do not terminate the other
+  running Alpha instances.
+
+### Latest Phase: TTS Silence Diagnosis and Fix
+
+Status: root cause identified and fixed on 2026-09-04; live Alpha restart still
+required.
+
+- The running Alpha has local voice enabled with Paraformer and IndexTTS-2.5;
+  model/config/reference assets and audio preflight all pass.
+- IndexTTS inference completed, but its temporary WAV was created under `/tmp`,
+  where the user's tmpfs quota is exhausted (`Errno 122 Disk quota exceeded`).
+  Bridge consequently reported the privacy-safe `voice_output_failed` event.
+- IndexTTS now prefers `$XDG_RUNTIME_DIR` for temporary output, and the wrapper
+  uses a standard-library PCM16 WAV writer instead of the failing
+  torchaudio/libsndfile save boundary. A fixed-phrase synthesis produced a
+  valid mono 22.05 kHz WAV and exited successfully; the temporary file was
+  removed without playback.
+- Full no-hardware regression passes 352/352 when its temporary directory is
+  placed on the project filesystem; the system `/tmp` quota remains exhausted
+  and is not modified by this task.
+- Current notification-only semantics remain: assistant response text is
+  silent; only completion, failure, approval, and required-input categories are
+  spoken. A fresh Alpha launch is required to load and exercise this fix.
+
+### Latest Phase: Exclusive PTT Device Ownership
+
+Status: fixed and unit-verified on 2026-09-04.
+
+- Multiple voice-enabled Alpha instances were all reading the same
+  `/dev/input/deskhelm-ptt-kbd`, so one right-Alt edge was dispatched to every
+  configured session.
+- The evdev listener now takes an exclusive device grab and releases it during
+  cleanup. A second listener fails closed with a fixed "already owned" error.
+- The focused right-Alt, Alpha, and Voice integration suite passes 37/37.
+- The prior live Alpha has now been stopped; one active PTT owner must be
+  selected before the next live check.
+
+### Latest Phase: VoiceStudio External Project Review
+
+Status: public upstream review and documentation completed on 2026-09-04.
+Per operator request, no tests were run. No DeskHelm source, dependency, model,
+runtime, or live Alpha process was changed.
+
+- VoiceStudio is an active local speech platform with a Tauri desktop shell,
+  FastAPI backend, model/engine catalog, OpenAI-compatible HTTP, WebSocket,
+  MCP, and native dictation-control surfaces. The public repository metadata
+  currently reports 1,907 commits, 16,306 stars, and AGPL-3.0 application code.
+- Reusable ideas for DeskHelm are true streaming Sherpa-ONNX ASR models,
+  explicit engine jobs and acceptance criteria, lazy/warm model lifecycle,
+  bounded crash-isolated sidecars, first-audio/RTF measurements, and a split
+  capture/data plane versus target-control plane.
+- Do not adopt VoiceStudio's OmniVoice default or PocketTTS as the DeskHelm
+  default: OmniVoice's model/tokenizer terms include CC-BY-NC and separate
+  community terms, while PocketTTS is gated and does not cover Chinese. Keep
+  the existing Piper/Kokoro/IndexTTS decision and evaluate Sherpa bilingual
+  streaming ASR as an additional candidate rather than replacing it blindly.
+- VoiceStudio's Docker and remote-worker deployment is useful for a future
+  headless GPU service, but direct PTT/PipeWire capture should remain host-side;
+  no VoiceStudio dependency or AGPL code is to be copied into DeskHelm.
+
+Sources: <https://github.com/debpalash/VoiceStudio>,
+<https://github.com/debpalash/VoiceStudio/blob/main/docs/speech-platform.md>,
+<https://github.com/debpalash/VoiceStudio/blob/main/docs/engines/sherpa-onnx-asr.md>,
+<https://github.com/debpalash/VoiceStudio/blob/main/docs/engine-acceptance.md>,
+<https://github.com/debpalash/VoiceStudio/blob/main/docs/install/docker.md>.
+
+Detailed notes: `docs/research/2026-09-04-voicestudio-review.md`.
+
+### Latest Phase: IndexTTS-2.5 Deployment
+
+Status: runtime, auxiliary models, and first protected smoke synthesis
+completed on 2026-09-03. No Alpha process was changed.
+
+- The complete `indextts` source needed by `infer_v2_5.IndexTTS2` is present
+  under ignored `references/vendor/index-tts-src/`.
+- An isolated Python 3.11 `uv` runtime is synchronized under ignored
+  `references/vendor/index-tts-runtime/`, using the dedicated
+  `/home/tope/.cache/deskhelm-index-tts` cache and CUDA 12.8 wheels.
+- `tools/run-index-tts25.py` is a bounded stdin-based wrapper matching the
+  DeskHelm external TTS provider contract. Alpha auto-selects this wrapper
+  whenever the configured TTS directory has `config.yaml` and `voice.wav`;
+  Kokoro remains selected until the model/reference files arrive.
+- Alpha also discovers a marked IndexTTS child directory (such as
+  `indextts-2.5/`) beneath a directory that still contains Kokoro/Piper assets,
+  so the model download does not overwrite existing voice files.
+- ModelScope's main `IndexTeam/IndexTTS-2.5` checkpoint (about 5.2 GiB) is in
+  the encrypted TTS resource directory's `indextts-2.5/` subdirectory. A
+  public demo `voice_01.wav` is installed there as temporary `voice.wav` for
+  smoke testing; replace it with an authorized reference before normal use.
+- The first smoke synthesis downloaded the official auxiliary `w2v-bert` and
+  feature resources, loaded on the RTX 5060, and produced
+  `/tmp/deskhelm-index-tts-smoke.wav` (mono PCM16, 22.05 kHz, 101,932 bytes).
+  The file was played once through the current PipeWire default sink.
+- `deskhelm alpha --check --voice` passes with the IndexTTS directory selected;
+  a manual `deskhelm alpha --tui --voice` audition remains operator-driven.
+
+### Latest Phase: Alpha Stale Socket Cleanup
+
+Status: fixed and verified on 2026-09-03.
+
+- A prior `wechat_miniprogram` TUI exit left the Codex app-server process
+  group alive on the derived `-codex-upstream.sock`, while the main Bridge
+  socket had already disappeared. The launcher therefore killed too narrow a
+  process set and the next launch failed at app-server startup.
+- The launcher now collects owners from the Bridge, TUI-proxy, and upstream
+  sockets, terminates their complete process groups, escalates after a bounded
+  wait, and removes only ownerless remnants after explicit rebuild
+  confirmation.
+- The orphaned `wechat_miniprogram` app-server/PTT groups were stopped and all
+  three derived sockets are currently clear. Other Alpha instances were not
+  changed.
+
+### Latest Phase: Managed TUI Ctrl-C Exit
+
+Status: fixed and unit-verified on 2026-09-03.
+
+- Full-screen Codex can disable pty line-discipline `ISIG`, so forwarding a
+  confirmed raw/Kitty Ctrl-C byte did not always terminate the managed TUI.
+- `run-with-pty.py` now sends the confirmed second Ctrl-C directly to the
+  child process group and suppresses the duplicate byte/Kitty sequence. The
+  first press remains clear-input only, with the existing bounded window.
+- `tests.test_run_with_pty` passes with the new confirmation-forwarding check;
+  an interactive Alpha exit should be manually rechecked once.
+
+### Latest Phase: PipeWire Duplicate-Name Preflight
+
+Status: fixed and verified on 2026-09-03.
+
+- WirePlumber exposed two transient RAOP sink objects with the same stable
+  `node.name`, causing inventory validation to reject the entire audio path
+  before Alpha startup.
+- Audio discovery now deduplicates repeated source/sink names within a fresh
+  snapshot, retaining the last object, while still rejecting malformed or
+  ambiguous defaults.
+- `audio status --list` and `deskhelm alpha --check --voice` now pass with the
+  current Fedora audio graph; no running Alpha process was changed.
+
+### Previous Phase: Alpha TTS Silence Diagnosis
+
+Status: diagnosed on 2026-09-03; no process was terminated and no source
+change was required.
+
+- The new `wechat_miniprogram` Alpha is running with `--voice-provider local`,
+  Paraformer ASR, and the Kokoro artifact directory. Its process tree confirms
+  the Voice Gateway/PTT path is enabled, but the current encrypted TTS
+  directory does not contain the IndexTTS marker layout, so provider selection
+  remains Kokoro.
+- DeskHelm voice output is notification-only by design: it speaks fixed,
+  privacy-safe completion, failure, approval-attention, and input-required
+  notices. It does not synthesize every Agent assistant response. In `--yolo`
+  mode approval notices are also not expected.
+- If a qualifying notification occurred but no audio was heard, inspect the
+  Alpha terminal for the fixed `voice_output_failed` event and verify the
+  selected PipeWire sink; the TTS worker reports failures without exposing
+  text/audio content.
+
+### Previous Phase: Automatic Per-Directory Alpha Sockets
+
+Status: implemented and shell-verified on 2026-09-03; no process was
+terminated.
+
+- A live Alpha stack is still running from 2026-09-02 15:13:42. Its Bridge
+  process is PID 702178, the PTT child is PID 702197, and the Codex app-server
+  processes are PIDs 702115/702122.
+- The process was launched from the DeskHelm checkout
+  `/home/tope/project/next_keyboard` but its Agent working directory is
+  `/home/tope/Documents/fedora_enhance`. It owns the default user socket
+  `/run/user/1000/deskhelm/bridge.sock` and the derived Codex sockets.
+- Alpha intentionally rejects an existing default socket, so two instances
+  using the default endpoint cannot run concurrently. Multiple isolated Alpha
+  instances are supported by giving each a unique `--socket`; the derived
+  app-server/proxy socket names then remain separate. Use unique session and
+  client IDs as well, and avoid sharing one physical PTT listener between
+  instances.
+- `tools/deskhelm-user-launcher` now derives a stable per-launch-directory
+  socket under the user runtime directory when `--socket` is omitted. If that
+  socket already exists, an interactive terminal asks whether to interrupt the
+  owning process and rebuild; non-interactive startup fails closed. Existing
+  TUI instances are not auto-attached because the proxy cannot safely share a
+  primary frontend.
+- Core `deskhelm alpha` now uses the same directory-scoped default when invoked
+  directly, while `deskhelm bridge` retains the shared `bridge.sock` endpoint.
+
+### Previous Phase: IndexTTS-2.5 Preferred TTS
+
+Status: implemented and software-verified on 2026-09-03; no model/audio test
+was run.
+
+- Alpha's code-level fallback is Piper `zh_CN-chaowen-medium`; when the
+  configured TTS directory contains Kokoro, provider detection selects Kokoro
+  instead. The current encrypted default is documented as Kokoro-82M with
+  `zf_xiaobei` for Chinese/mixed text and `af_heart` for English-only text.
+- The committed Piper/Kokoro benchmark measured Piper as the low-latency
+  baseline (cold load 1.99 s, synthesis p50 174 ms, peak RSS 1.01 GiB) and
+  Kokoro as the quality-oriented candidate (cold load 3.36 s, p50 1,090 ms,
+  peak RSS 2.52 GiB). The run did not include human listening, so it is not a
+  naturalness verdict.
+- IndexTTS-2.5 is a separate zero-shot voice-cloning TTS model (0.8B listed in
+  its upstream evaluation), with stronger expressive/emotion and pronunciation
+  controls than the current fixed voices. Upstream does not publish a single
+  minimum-VRAM number; its stack is materially heavier than Kokoro and should
+  be treated as an opt-in experiment until manually measured.
+- IndexTTS-2.5 requires a reference speaker audio and uses the restrictive
+  bilibili Model Use License. It should not replace the default notification
+  path without a license review, bounded latency/cancellation integration, and
+  human listening evaluation.
+- Alpha now detects a standard IndexTTS directory (`config.yaml` plus
+  `voice.wav`) before Piper. If IndexTTS artifacts are absent, Piper is the
+  automatic fallback; explicit Kokoro CLI selection remains compatible.
+- Added a bounded external-CLI `IndexTtsProvider` that sends synthesis text via
+  stdin, writes only to a temporary WAV, enforces mono S16LE/output/time limits,
+  and terminates its process group on cancellation or timeout. The IndexTTS
+  Python/CUDA environment remains external to `voice/runtime`; the executable
+  can be replaced with an operator-provided IndexTTS-2.5 wrapper when using the
+  repository's `indextts2` CLI entry point is not suitable for the 2.5 release.
+
+### Previous Phase: Unified ASR/TTS Model Research
+
+Status: official upstream research completed on 2026-09-03; no model,
+runtime, audio configuration, or application source was changed.
+
+- `Qwen3-ASR-0.6B` is ASR-only. Its upstream model family provides language
+  identification, offline/streaming transcription, and forced alignment; it
+  does not include a speech decoder or TTS path.
+- The user's remembered “index2” is `IndexTTS-2` (the repository now advertises
+  `IndexTTS-2.5`). It is a zero-shot, reference-audio voice-cloning TTS system,
+  not ASR and not a unified speech-to-speech model. The published 2.5 model is
+  listed as 0.8B and supports Chinese, English, Japanese, Spanish, and Arabic,
+  with emotion, speed, and pronunciation controls. Its model license is the
+  bilibili Model Use License, not Apache/MIT; retain the license and review its
+  redistribution and commercial-use restrictions before bundling.
+- `Qwen3-Omni-30B-A3B-Instruct` is a genuine Thinker-Talker model with audio
+  input and text/audio output (19 speech-input languages, 10 output languages).
+  Official BF16 minimum-memory estimates are 78.85 GB for a 15-second video
+  input (including the talker); disabling the talker saves about 10 GB. It is
+  therefore not viable on the local RTX 5060 8 GB GPU.
+- `MiniCPM-o 4.5` is another genuine bilingual (Chinese/English) end-to-end
+  speech model with voice cloning and full-duplex streaming. The official demo
+  asks for at least 28 GB Nvidia GPU memory; its quantized llama.cpp-omni path
+  is a separate edge experiment and still needs integration work.
+- `GLM-4-Voice-9B` is an end-to-end Chinese/English spoken-chat stack composed
+  of a 9B chat model plus tokenizer and streaming speech decoder. Upstream
+  provides BF16 and Int4 launch modes but no reliable minimum-VRAM figure;
+  treat it as a multi-component experiment, not an 8 GB production choice.
+- `Step-Audio` is conceptually unified, but its open `Step-Audio-Chat` model is
+  130B with a stated 265 GB minimum, while `Step-Audio-TTS-3B` (8 GB minimum)
+  is TTS-only. It is not suitable for this workstation.
+- `Moshi` is a 7B full-duplex speech-text dialogue model with a stated 24 GB
+  GPU requirement for the PyTorch path. Its weights are CC-BY 4.0, but it is
+  not a practical Chinese DeskHelm candidate.
+- Recommendation: keep DeskHelm's modular ASR -> Agent -> TTS boundary. For
+  this 8 GB machine, evaluate Qwen3-ASR and a small standalone TTS separately;
+  consider MiniCPM-o/GLM-4-Voice only as opt-in research branches, never as a
+  default replacement. No further benchmark was run because the operator
+  requested manual testing.
+
+Sources: <https://github.com/QwenLM/Qwen3-ASR>,
+<https://github.com/index-tts/index-tts>,
+<https://github.com/QwenLM/Qwen3-Omni>,
+<https://github.com/OpenBMB/MiniCPM-o>,
+<https://github.com/THUDM/GLM-4-Voice>,
+<https://github.com/stepfun-ai/Step-Audio>,
+<https://github.com/kyutai-labs/moshi>.
+
+### Previous Phase: Local ASR Replacement Research
+
+Status: GitHub research completed on 2026-09-02; no model, runtime, audio
+configuration, or application source was changed.
+
+- The current Paraformer experience is reported as weak on Mandarin-English
+  code switching and does not supply the punctuation required for voice coding
+  prompts.
+- FireRedASR2S is the leading evaluation candidate because its upstream README
+  explicitly claims Chinese/English code-switch ASR and ships a separate
+  Chinese/English punctuation model. Its all-in-one composition requires a
+  new optional PyTorch runtime and model-license verification.
+- SenseVoiceSmall can emit punctuation and ITN through its `use_itn=True`
+  path and has an ONNX/GGUF CPU route, but its upstream materials do not make
+  the same explicit code-switching claim. It remains the low-footprint
+  candidate.
+- Whisper `large-v3-turbo` has a mature local `whisper.cpp` route already
+  reflected in the repository boundary and is a 809M multilingual model with
+  an upstream approximate 6 GB VRAM requirement. It remains the practical
+  general multilingual baseline. Qwen3-ASR offers 0.6B/1.7B local GPU models
+  and vLLM-only streaming. Its official ModelScope artifacts are 1.876 GB
+  BF16 for 0.6B and 4.698 GB BF16 for 1.7B before runtime/KV-cache overhead;
+  on the local 8 GB GPU, test 0.6B alone first and do not combine 1.7B with
+  the optional 0.6B forced aligner.
+- A bounded two-track feasibility run completed. `whisper.cpp` v1.9.2 built
+  CPU-only with four jobs and without CUDA/Vulkan, but the official 547 MiB
+  `large-v3-turbo-q5_0` mirror timed out before transfer; no Whisper
+  transcription result is claimed. The temporary no-model build remains under
+  `/tmp` because the environment disallowed its removal.
+- FireRedPunc completed from an external cache: 2.288 s CPU load and 0.060 s
+  for three public Chinese-English technical texts. It restored sentence
+  punctuation but lowercased identifiers and changed `README.md` to
+  `readme. Md`; it cannot be applied blindly to coding commands. The FireRed
+  AED checkpoint is 4,731,558,506 bytes. Its isolated CUDA 12.8/PyTorch
+  runtime did not finish its 600 s protected synchronization deadline, so no
+  AED weight transferred and no GPU ASR result is claimed.
+- Qwen3-ASR-0.6B was evaluated in a separate Python 3.12 / CUDA 13 runtime
+  using an isolated `UV_CACHE_DIR`; this avoided the active Alpha process's
+  shared-cache lock without interrupting it. The official 1.876 GB BF16 model
+  loaded successfully on the local RTX 5060 8 GB GPU. Process memory measured
+  by `nvidia-smi` was 1,980 MiB (PyTorch peak allocation 1,789.2 MiB).
+- The official Chinese and English files decoded correctly in 1.033 s and
+  0.576 s respectively after a 0.942 s model load. A 19.255 s sequential
+  Chinese-then-English composition decoded in 3.024 s, emitted punctuation,
+  but labeled the complete clip English and converted most of its Chinese
+  prefix to English-like text. This is evidence that the 0.6B model fits the
+  hardware and handles each language, not evidence that it meets code-switch
+  accuracy requirements.
+- Next, only on operator request: use a separately authorized and versioned
+  natural Mandarin-English coding corpus to measure ASR, symbols, and
+  punctuation. Keep audio, weights, results, and model artifacts outside Git.
+
+### Previous Phase: Resume-Aware Voice Thread Targeting
 
 Status: implemented and software-verified on 2026-09-02; restart Alpha before
 using voice after a resumed session.
@@ -1717,9 +2475,10 @@ seconds, and `git diff --check` passed.
 
 ## Remaining Work
 
-1. Restart the currently running Alpha, then live-verify first and second voice
-   approvals, a second voice-started turn after the first completes, and Kokoro
-   female notification playback on the same managed thread.
+1. Ensure exactly one voice-enabled Alpha owns the shared PTT input, then live-
+   verify that only the focused session receives PTT, followed by first and
+   second voice approvals, a second voice-started turn, the selected
+   notification voice, and complete cleanup.
 2. Confirm complete process and socket cleanup after exiting that restarted TUI.
 3. Add a controlled normalized-gain AMI variant and a licensed Chinese
    conversational set before selecting a production VAD default.
@@ -1817,10 +2576,11 @@ seconds, and `git diff --check` passed.
 
 ## Next Step
 
-After the user stops the currently running pre-change Alpha, start `deskhelm
-alpha --tui --voice` again and verify two consecutive approvals, one later
-voice-started turn, the Kokoro female notification voice, and complete cleanup
-after exiting the TUI.
+After selecting one Alpha to own the shared PTT device, stop/restart only that
+instance as needed and verify that PTT follows its explicit focus, then verify
+two consecutive approvals, one later voice-started turn, the selected
+notification voice, and complete cleanup after exiting the TUI. A second
+voice-enabled Alpha must fail closed rather than receive the same PTT input.
 
 ## Phase History
 
