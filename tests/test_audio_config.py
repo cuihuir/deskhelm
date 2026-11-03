@@ -2,7 +2,7 @@ import json
 from threading import Event
 import unittest
 
-from deskhelm_bridge.cli import build_parser
+from deskhelm_cli.audio import build_parser
 from voice.deskhelm_voice.audio_config import (
     AudioNode,
     AudioNodeKind,
@@ -127,7 +127,6 @@ class AudioConfigTests(unittest.TestCase):
 
         args = build_parser().parse_args(
             [
-                "audio",
                 "status",
                 "--source",
                 "source.usb",
@@ -138,7 +137,6 @@ class AudioConfigTests(unittest.TestCase):
                 "host-spawn -no-pty pw-cat",
             ]
         )
-        self.assertEqual(args.command, "audio")
         self.assertEqual(args.audio_command, "status")
         self.assertEqual(args.source, "source.usb")
         self.assertTrue(args.json)

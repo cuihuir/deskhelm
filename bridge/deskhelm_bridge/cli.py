@@ -740,14 +740,7 @@ def normalize_command_argv(argv: list[str] | None = None) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    argv = normalize_command_argv(argv)
-    # Since the switch-over these commands run on protocol v2.
-    from deskhelm_cli import main as v2_main
-
-    routed = v2_main(argv)
-    if routed is not None:
-        return routed
-    args = build_parser().parse_args(argv)
+    args = build_parser().parse_args(normalize_command_argv(argv))
     try:
         if args.command == "bridge":
             if args.slots < 1:

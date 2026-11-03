@@ -10,10 +10,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]
-deskhelm = "deskhelm_bridge.cli:main"
-deskhelm-codex-hook = "deskhelm_bridge.codex_hook:main"
-agent-io = "deskhelm_bridge.cli:main"
-agent-io-codex-hook = "deskhelm_bridge.codex_hook:main"
+deskhelm = "deskhelm_cli:main"
 
 [project.optional-dependencies]
 ptt = [

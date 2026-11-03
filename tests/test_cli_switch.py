@@ -19,8 +19,7 @@ CODEX = TESTS.parent / "adapters" / "codex"
 if str(CODEX) not in sys.path:
     sys.path.insert(0, str(CODEX))
 
-from deskhelm_bridge.cli import main as deskhelm_main  # noqa: E402
-from deskhelm_cli import _options_first, main as switch_main  # noqa: E402
+from deskhelm_cli import USAGE, _options_first, main as deskhelm_main  # noqa: E402
 from deskhelm_codex_adapter.host import redaction_arguments  # noqa: E402
 from deskhelm_core.server import BridgeServer  # noqa: E402
 from deskhelm_host import BridgeLink  # noqa: E402
@@ -96,7 +95,7 @@ class SwitchOverTests(unittest.TestCase):
             self.assertEqual(default_socket_path(), self.directory / "deskhelm" / "bridge.sock")
         self.assertEqual(DEFAULT_PORT, 8766)
 
-    def test_switched_commands_run_on_v2_and_the_rest_stay_with_v1(self) -> None:
+    def test_commands_run_the_v2_hosts_and_surfaces(self) -> None:
         self._bridge_with_session()
         listed = _run(deskhelm_main, ["sessions", "--socket", str(self.path)])
         focused = _run(deskhelm_main, ["focus", "--socket", str(self.path), "--agent-id", "fake",
@@ -105,8 +104,11 @@ class SwitchOverTests(unittest.TestCase):
         self.assertEqual(listed[0], 0)
         self.assertIn("fake/session-1/demo", listed[1])
         self.assertEqual((focused[0], focused[1].strip()), (0, "已聚焦这个会话"))
-        self.assertIsNone(switch_main(["ptt", "--help"]))
-        self.assertIsNone(switch_main([]))
+        self.assertEqual(_run(deskhelm_main, ["--help"])[:2], (0, USAGE))
+        self.assertEqual(_run(deskhelm_main, [])[0], 2)
+        unknown = _run(deskhelm_main, ["ptt"])
+        self.assertEqual(unknown[0], 2)
+        self.assertIn("unknown command 'ptt'", unknown[2])
         self.assertEqual(_options_first("focus", ["--agent-id", "a", "--socket", "/s"]),
                          ["--socket", "/s", "focus", "--agent-id", "a"])
 
