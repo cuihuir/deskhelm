@@ -158,7 +158,8 @@ def _read_interaction(reader: BinaryIO, state: _DashboardState) -> None:
         summary = payload.get("summary")
         expires_at = payload.get("expires_at")
         if isinstance(request_id, str) and isinstance(summary, str) and isinstance(expires_at, int):
-            state.approvals[key] = (request_id, summary[:MAX_DETAIL_CHARS], expires_at)
+            # Keep the exact summary; the router rejects a decision that changes it.
+            state.approvals[key] = (request_id, summary, expires_at)
     text = payload.get("text") if isinstance(payload, dict) else None
     summary = str(text or event.get("kind", "interaction"))[:MAX_DETAIL_CHARS]
     entries = state.details.setdefault(key, [])
@@ -313,7 +314,7 @@ def _render(state: _DashboardState) -> None:
         if approval is not None:
             request_id, summary, expires_at = approval
             remaining = max(0, (expires_at - int(time.time() * 1000)) // 1000)
-            lines.append(f"  approval pending ({remaining}s): {summary}")
+            lines.append(f"  approval pending ({remaining}s): {summary[:MAX_DETAIL_CHARS]}")
             lines.append(f"  request_id={request_id}  [display only]")
         lines.append("  live detail:")
         lines.extend(f"    {entry}" for entry in details or ["(no interaction events since dashboard start)"])

@@ -103,6 +103,59 @@ class DashboardTests(unittest.TestCase):
             ("approval-1", "run tests", 2_000),
         )
 
+    def test_long_approval_summary_is_sent_unchanged(self) -> None:
+        summary = "Run the full integration suite " * 10
+        expires_at = int(time.time() * 1000) + 30_000
+        frame = {
+            "protocol_version": 1,
+            "message_type": "interaction_update",
+            "stream_id": "stream-1",
+            "subscription_id": "subscription-1",
+            "sequence": 1,
+            "event": {
+                "protocol_version": 1,
+                "message_type": "interaction_event",
+                "event_id": "event-long",
+                "kind": "approval_request",
+                "agent_id": "codex",
+                "session_id": "session-1",
+                "project_id": "deskhelm",
+                "source": "test",
+                "source_version": "1",
+                "sequence": 1,
+                "occurred_at": expires_at - 30_000,
+                "correlation_id": "approval-long",
+                "payload": {
+                    "request_id": "approval-long",
+                    "summary": summary,
+                    "expires_at": expires_at,
+                },
+            },
+        }
+        state = _DashboardState(
+            sessions=[
+                {
+                    "agent_id": "codex",
+                    "session_id": "session-1",
+                    "project_id": "deskhelm",
+                    "slot": 0,
+                    "state": "active",
+                }
+            ],
+        )
+        _read_interaction(BytesIO(encode_frame(frame)), state)
+        result = ControlResult(
+            command_id="command-long",
+            status=ControlResultStatus.ACCEPTED,
+            code=ControlResultCode.DISPATCHED,
+            processed_at=int(time.time() * 1000),
+        )
+        with patch("deskhelm_bridge.dashboard.send_control_command", return_value=result) as send:
+            _handle_key(b"a", state, Path("/tmp/bridge.sock"), "dashboard")
+
+        self.assertGreater(len(summary), 160)
+        self.assertEqual(send.call_args.args[0].payload.summary, summary)
+
 
 if __name__ == "__main__":
     unittest.main()
