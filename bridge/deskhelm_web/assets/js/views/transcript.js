@@ -126,7 +126,9 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
 
   function approval(item) {
     const session = store.selected();
-    const ticket = session && session.approvals.find((entry) => entry.approval_id === item.approval_id);
+    const found = session && session.approvals.find((entry) => entry.approval_id === item.approval_id);
+    // A ticket can outlive its expiry until the Bridge's next tick removes it.
+    const ticket = found && found.expires_at > Date.now() ? found : null;
     const decided = store.state.decided.get(item.approval_id);
     const node = h(
       "div",
@@ -151,10 +153,19 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
     } else if (ticket) {
       node.append(h("p", { class: "approval-state", text: "请在 Agent 自己的界面里处理" }));
     } else {
-      const text = { approve: "已在这里批准", reject: "已在这里拒绝" }[decided] || "已结束";
+      const text = { approve: "已在这里批准", reject: "已在这里拒绝" }[decided] || (found ? "已过期" : "已结束");
       node.append(h("p", { class: "approval-state", text }));
     }
     return node;
+  }
+
+  function attention() {
+    return h(
+      "div",
+      { class: "notice-card is-warn" },
+      h("div", { class: "notice-head" }, icon("alert"), h("strong", { text: "Agent 在等待批准" })),
+      h("p", { class: "hint", text: "这个请求没有转到这里，请在 Agent 自己的界面里处理。" }),
+    );
   }
 
   function input(item) {
@@ -178,9 +189,22 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
 
   function renderTail() {
     const session = store.selected();
+    const transcript = store.items(key);
     const nodesInTail = [];
+    if (session) {
+      // The console holds every open request, so one without a transcript
+      // item, such as one rebuilt after a Bridge restart, is answered here.
+      for (const ticket of session.approvals) {
+        if (ticket.kind === "approval" && !transcript.has(`a:${ticket.approval_id}`)) {
+          nodesInTail.push(approval({ approval_id: ticket.approval_id, summary: ticket.summary }));
+        } else if (ticket.kind === "input" && !transcript.has(`i:${ticket.approval_id}`)) {
+          nodesInTail.push(input({ prompt: ticket.summary }));
+        }
+      }
+      if (session.attention && !session.approvals.some((ticket) => ticket.kind === "approval")) nodesInTail.push(attention());
+    }
     for (const prompt of store.state.pending.get(key) || []) nodesInTail.push(pending(prompt));
-    const items = [...store.items(key).values()];
+    const items = [...transcript.values()];
     const last = items[items.length - 1];
     const streaming = last && last.type === "message" && last.streaming;
     if (session && session.lifecycle === "active" && BUSY.has(session.activity) && !streaming) {
@@ -280,7 +304,10 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
       renderTail();
     });
   });
-  store.on("approvals", refreshApprovals);
+  store.on("approvals", () => {
+    refreshApprovals();
+    renderTail();
+  });
   store.on("pending", (changed) => {
     if (changed === key) follow(renderTail);
   });

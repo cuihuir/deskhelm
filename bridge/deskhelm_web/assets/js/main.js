@@ -134,13 +134,24 @@ document.addEventListener("keydown", (event) => {
 });
 
 // Countdowns every second; relative times every half minute.
+const transcriptRoot = document.getElementById("transcript");
+const sessionList = document.getElementById("session-list");
 let ticks = 0;
 setInterval(() => {
   const now = Date.now();
-  for (const node of document.querySelectorAll("[data-expires]")) node.textContent = countdown(Number(node.dataset.expires), now);
+  for (const node of transcriptRoot.querySelectorAll("[data-expires]")) {
+    const expires = Number(node.dataset.expires);
+    node.textContent = countdown(expires, now);
+    const card = expires <= now && node.closest(".approval");
+    if (card) {
+      // The Bridge refuses an expired decision; do not offer one.
+      card.classList.remove("is-live");
+      for (const button of card.querySelectorAll("button")) button.disabled = true;
+    }
+  }
   ticks += 1;
   if (ticks % 30 === 0) {
-    for (const node of document.querySelectorAll("[data-time]")) node.textContent = relativeTime(Number(node.dataset.time), now);
+    for (const node of sessionList.querySelectorAll("[data-time]")) node.textContent = relativeTime(Number(node.dataset.time), now);
   }
 }, 1000);
 

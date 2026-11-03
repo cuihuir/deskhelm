@@ -32,6 +32,7 @@ from deskhelm_protocol import (
     EffectOutcome,
     FactKind,
     InputSupport,
+    OpenRequest,
     PromptWhileBusy,
     RuntimeIdentity,
     SessionKey,
@@ -81,6 +82,7 @@ class ScriptedDriver:
         self.performed: Queue[tuple[EffectKind, dict]] = Queue()
         self.outcome = EffectOutcome.ACCEPTED
         self.silent = False
+        self.open_requests: tuple[OpenRequest, ...] = ()
 
     def start(self, emit) -> None:
         self.emit = emit
@@ -93,7 +95,7 @@ class ScriptedDriver:
         return self.outcome
 
     def state(self) -> SessionState:
-        return SessionState(ready=True)
+        return SessionState(ready=True, open_requests=self.open_requests)
 
     def wait(self) -> int:
         return 0
@@ -163,7 +165,7 @@ def pending(page: Page, text: str):
     return page.locator(".tail .msg.user", has_text=text)
 
 
-def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Path | None) -> None:
+def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Path | None, restart_bridge) -> None:
     codex, claude = drivers["codex"], drivers["claude"]
     page.locator("#session-list .session", has_text="Codex").click()
     page.locator("#prompt:not([disabled])").wait_for(timeout=10_000)
@@ -230,6 +232,13 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     check("a lost response is labelled unknown", announced(page, "页面没有收到回应，结果未知"))
     page.unroute("**/api/control")
 
+    # Attention without a request the page can answer.
+    codex.emit(FactKind.STATUS, {"attention": True})
+    page.locator(".tail .notice-card.is-warn").wait_for(timeout=5000)
+    check("a wait for approval with no request says where to answer it", True)
+    codex.emit(FactKind.STATUS, {"attention": False})
+    page.locator(".tail .notice-card.is-warn").wait_for(state="detached", timeout=5000)
+
     # Approval.
     codex.emit(FactKind.REQUEST_OPENED, {"provider_ref": "r1", "kind": "approval", "summary": "Run git push",
                                          "expires_at": int(time.time() * 1000) + 120_000, "answerable": True})
@@ -250,6 +259,7 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     # Focus, details, and switching.
     page.click("#topbar .button.ghost")
     page.locator("#topbar .button.ghost.is-on").wait_for(timeout=5000)
+    page.locator("#session-list .session", has_text="Codex").locator(".focus-mark").wait_for(timeout=5000)
     check("focus marks the session for voice", page.locator(".session .focus-mark").count() == 1)
     page.click("#topbar [aria-label='会话详情']")
     page.locator(".details .catalog .name", has_text="github").wait_for(timeout=5000)
@@ -274,6 +284,23 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     page.locator("#topbar h1", has_text="Claude").wait_for(timeout=5000)
     check("the theme choice persists", page.locator("html").get_attribute("data-theme") != before)
 
+    # A Bridge restart rebuilds an open approval without its transcript item.
+    page.locator("#session-list .session", has_text="Codex").click()
+    request = {"provider_ref": "r2", "kind": "approval", "summary": "Edit config",
+               "expires_at": int(time.time() * 1000) + 120_000, "answerable": True}
+    codex.emit(FactKind.REQUEST_OPENED, request)
+    page.locator(".items .approval.is-live", has_text="Edit config").wait_for(timeout=5000)
+    codex.open_requests = (OpenRequest.from_dict(request),)
+    restart_bridge()
+    rebuilt = page.locator(".tail .approval.is-live", has_text="Edit config")
+    rebuilt.wait_for(timeout=15_000)
+    check("the chosen session is shown again after the restart", page.locator("#topbar h1").text_content() == "Codex")
+    check("a restart marks no session as having new activity", page.locator("#session-list .unseen").count() == 0)
+    check("an approval rebuilt after a Bridge restart can still be answered", rebuilt.locator(".button.primary").is_enabled())
+    rebuilt.locator(".button.primary").click()
+    decision = codex.take(EffectKind.RESPOND)
+    check("the rebuilt approval reaches the vendor request", (decision["provider_ref"], decision["decision"]) == ("r2", "approve"))
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -285,8 +312,14 @@ def main() -> int:
     check = Check()
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "bridge.sock"
-        server = BridgeServer(path, tick_seconds=0.05)
-        server.start()
+        bridge = {"server": BridgeServer(path, tick_seconds=0.05)}
+        bridge["server"].start()
+
+        def restart_bridge() -> None:
+            bridge["server"].close()
+            bridge["server"] = BridgeServer(path, tick_seconds=0.05)
+            bridge["server"].start()
+
         drivers = {
             "codex": ScriptedDriver(capabilities(configure=frozenset({"model", "effort"}),
                                                  catalog=frozenset({"models", "mcp", "skills"}))),
@@ -307,6 +340,7 @@ def main() -> int:
         claude.emit(FactKind.MESSAGE, {"message_ref": "c1", "role": "user", "phase": "complete"},
                     {"text": "Summarize the pricing page"})
         web = WebSurface(path, host="127.0.0.1", port=0, access_token=TOKEN)
+        web.client.reconnect_initial, web.client.reconnect_max = 0.05, 0.2
         web.start()
         try:
             with sync_playwright() as playwright:
@@ -317,7 +351,7 @@ def main() -> int:
                 page.on("console", lambda message: message.type == "error" and errors.append(message.text))
                 page.goto(f"http://127.0.0.1:{web.port}/?token={TOKEN}")
                 try:
-                    run(page, drivers, check, args.screenshots)
+                    run(page, drivers, check, args.screenshots, restart_bridge)
                 finally:
                     if args.screenshots:
                         page.screenshot(path=str(args.screenshots / "last.png"))
@@ -331,7 +365,7 @@ def main() -> int:
             web.close()
             for link in links:
                 link.close()
-            server.close()
+            bridge["server"].close()
     print("RESULT", "ok" if not check.failures else f"{len(check.failures)} failed")
     return 1 if check.failures else 0
 

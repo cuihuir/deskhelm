@@ -18,7 +18,9 @@ export function createStore() {
     focus: null,
     sessions: new Map(),
     transcripts: new Map(),
-    selected: storageGet(SELECTION_KEY),
+    selected: null,
+    // The session the user last chose; it is shown again whenever it is present.
+    preferred: storageGet(SELECTION_KEY),
     search: "",
     pending: new Map(), // session key -> prompts sent from this page
     deciding: new Set(), // approval ids in flight from this page
@@ -45,6 +47,8 @@ export function createStore() {
       state.deciding.clear();
       state.decided.clear();
       state.catalogs.clear();
+      // Another Bridge or web process: what is listed now counts as seen.
+      state.seen.clear();
     }
     state.epoch = payload.epoch;
     state.rev = payload.rev;
@@ -125,23 +129,33 @@ export function createStore() {
 
   // Selection ---------------------------------------------------------
 
+  // A session that leaves for a moment, as during a Bridge restart, comes
+  // back into view when it returns; the fallback is never stored.
   function ensureSelection() {
-    if (state.selected && state.sessions.has(state.selected)) return;
-    const sessions = [...state.sessions.values()];
-    const waiting = sessions.find((session) => session.approvals.length);
-    const latest = sessions.sort((a, b) => b.updated_at - a.updated_at)[0];
-    const next = (waiting || latest || {}).key || null;
+    let next = state.selected;
+    if (state.preferred && state.sessions.has(state.preferred)) {
+      next = state.preferred;
+    } else if (!next || !state.sessions.has(next)) {
+      const sessions = [...state.sessions.values()];
+      const focused = state.focus && state.sessions.has(state.focus) ? state.focus : null;
+      const waiting = sessions.find((session) => session.approvals.length);
+      const latest = sessions.sort((a, b) => b.updated_at - a.updated_at)[0];
+      next = focused || (waiting || latest || {}).key || null;
+    }
     if (next !== state.selected) {
+      if (next) state.seen.set(next, state.sessions.get(next).updated_at);
       state.selected = next;
       emit("selection");
     }
   }
 
   function select(key) {
-    if (!state.sessions.has(key) || key === state.selected) return;
+    if (!state.sessions.has(key)) return;
+    state.preferred = key;
+    storageSet(SELECTION_KEY, key);
+    if (key === state.selected) return;
     state.seen.set(key, state.sessions.get(key).updated_at);
     state.selected = key;
-    storageSet(SELECTION_KEY, key);
     emit("selection");
   }
 

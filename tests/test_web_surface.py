@@ -192,6 +192,17 @@ class WebSurfaceTests(unittest.TestCase):
         self.assertEqual((item["type"], item["role"], item["text"], item["streaming"]), ("message", "assistant", "hello", False))
         self.assertEqual(self._session(web)["preview"], "hello")
 
+    def test_a_session_shows_when_it_last_did_something_not_when_the_page_connected(self) -> None:
+        self.driver.emit(FactKind.MESSAGE, {"message_ref": "m1", "role": "assistant", "phase": "complete"}, {"text": "hi"})
+        emitted = int(time.time() * 1000)
+        time.sleep(0.3)
+        web = self._web()
+        _wait(lambda: self._session(web)["preview"] == "hi")
+        connected = int(time.time() * 1000)
+
+        self.assertLessEqual(self._session(web)["updated_at"], emitted)
+        self.assertLess(self._session(web)["updated_at"], connected - 200)
+
     def test_live_changes_arrive_as_patches_newer_than_the_snapshot(self) -> None:
         web = self._web()
         reader = self._events_later(web, 4)

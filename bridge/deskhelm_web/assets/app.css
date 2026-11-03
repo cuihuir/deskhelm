@@ -326,6 +326,8 @@ pre.output.stderr { color: var(--danger); }
 .approval-actions { display: flex; gap: 8px; margin-top: 12px; }
 .approval-state { margin: 6px 0 0; color: var(--text-3); font-size: 12.5px; }
 .notice-card { background: var(--accent-soft); }
+.notice-card.is-warn { background: var(--warn-soft); }
+.notice-card.is-warn .notice-head { color: var(--warn); }
 .notice-head { color: var(--accent); }
 .notice-card p { margin: 6px 0 0; }
 .turn { display: flex; align-items: center; gap: 10px; color: var(--text-3); font-size: 12px; }

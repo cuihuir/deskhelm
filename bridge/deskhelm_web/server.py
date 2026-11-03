@@ -93,8 +93,12 @@ class WebSurface(WebHttp):
                 self._transcripts, self._previews, self._updated = {}, {}, {}
                 self._notice = "bridge_restarted"
             for key, view in change.state.sessions.items():
-                if change.reset or change.previous.sessions.get(key) is not view:
-                    self._updated[key] = max(self._updated.get(key, 0), int(view.get("opened_at") or 0), now)
+                opened = int(view.get("opened_at") or 0)
+                if change.reset:
+                    # A snapshot is not activity; replayed events carry their own times.
+                    self._updated[key] = max(self._updated.get(key, 0), opened)
+                elif change.previous.sessions.get(key) is not view:
+                    self._updated[key] = max(self._updated.get(key, 0), opened, now)
             for key in [key for key in self._updated if key not in change.state.sessions]:
                 del self._updated[key]
                 self._transcripts.pop(key, None)
@@ -120,7 +124,7 @@ class WebSurface(WebHttp):
             if not patches:
                 return
             occurred = event.get("occurred_at")
-            if not replay and isinstance(occurred, int):
+            if isinstance(occurred, int) and not isinstance(occurred, bool):
                 self._updated[key] = max(self._updated.get(key, 0), occurred)
             preview = transcript.preview()
             changed = preview != self._previews.get(key, "")
