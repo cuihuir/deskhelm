@@ -1858,6 +1858,14 @@ class ThreadItemProjectionTests(unittest.TestCase):
         listed = _thread_item_drafts("item/started", {"type": "commandExecution", "id": "c",
                                                       "command": ["/bin/zsh", "-lc", "ls -la"]})
         self.assertEqual(listed[0][2].name, "ls -la")
+        declined = _thread_item_drafts("item/completed", {"type": "commandExecution", "id": "d", "command": "rm -rf build",
+                                                          "status": "declined", "exitCode": None})
+        self.assertEqual((declined[0][2].text, declined[0][2].stream), ("declined", ToolStream.STDERR))
+        self.assertIsNone(declined[1][2].exit_code)
+        refused = _thread_item_drafts("item/completed", {"type": "fileChange", "id": "f", "status": "declined",
+                                                         "changes": [{"path": "app.py", "kind": "update", "diff": "+x\n"}]})
+        self.assertEqual(refused[0][2].stream, ToolStream.STDERR)
+        self.assertIn("+x", refused[0][2].text)
         self.assertEqual(command[0][2].phase, ToolPhase.OUTPUT)
         self.assertEqual(command[0][2].stream, ToolStream.STDOUT)
         self.assertEqual(command[1][2].phase, ToolPhase.COMPLETE)

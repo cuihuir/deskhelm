@@ -75,6 +75,13 @@ class TranscriptTests(unittest.TestCase):
         self.assertEqual([item["status"] for item in transcript.items()], ["done", "done"])
         self.assertEqual([item["exit_code"] for item in transcript.items()], [None, 0])
 
+    def test_a_tool_with_error_output_and_no_exit_code_failed(self) -> None:
+        transcript = Transcript()
+        transcript.apply(_tool("t1", "output", name="mcp", text="403 Forbidden", stream="stderr"))
+        transcript.apply(_tool("t1", "complete", name="mcp"))
+
+        self.assertEqual((transcript.items()[0]["status"], transcript.items()[0]["exit_code"]), ("failed", None))
+
     def test_a_tool_keeps_the_label_it_started_with(self) -> None:
         transcript = Transcript()
         transcript.apply(_tool("t1", "start", name="read"))

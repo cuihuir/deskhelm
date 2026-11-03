@@ -179,7 +179,9 @@ class Transcript:
             if isinstance(exit_code, bool) or not isinstance(exit_code, int):
                 exit_code = None
             item["exit_code"] = exit_code
-            item["status"] = "failed" if exit_code not in (None, 0) else "done"
+            # Without an exit code, error output is how a tool reports failure.
+            failed = exit_code not in (None, 0) or (exit_code is None and item["stderr"])
+            item["status"] = "failed" if failed else "done"
         return [self._upsert(item)]
 
     def _approval(self, event: dict[str, Any], payload: dict[str, Any]) -> list[dict[str, Any]]:

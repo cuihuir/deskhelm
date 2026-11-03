@@ -68,6 +68,8 @@ def item_line(item: dict[str, Any], speaker: str) -> str:
             state = "完成"
         elif item["status"] == "stopped":
             state = "已停止"
+        elif item["exit_code"] is None:
+            state = "失败"
         else:
             state = f"退出码 {item['exit_code']}"
         return " ".join(part for part in (tool_text(item["kind"]), " ".join(item["title"].split()), "·", state) if part)

@@ -113,6 +113,8 @@ class DashboardTests(unittest.TestCase):
         line = item_line({"type": "tool", "kind": "command", "title": "make", "status": "stopped", "exit_code": None}, "Codex")
 
         self.assertEqual(line, "命令 make · 已停止")
+        failed = item_line({"type": "tool", "kind": "mcp", "title": "github", "status": "failed", "exit_code": None}, "Codex")
+        self.assertEqual(failed, "MCP github · 失败")
 
     def test_a_lost_bridge_is_a_notice_and_q_quits(self) -> None:
         self.dashboard.on_connection(False)

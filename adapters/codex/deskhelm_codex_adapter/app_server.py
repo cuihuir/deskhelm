@@ -2247,6 +2247,7 @@ def _user_item_text(item: dict[str, Any]) -> str:
 
 
 _SHELLS = frozenset({"bash", "sh", "zsh"})
+_UNFINISHED = frozenset({"failed", "declined"})
 
 
 def _shell_script(command: str | list[Any]) -> str:
@@ -2275,15 +2276,15 @@ def _command_drafts(
         name = _clip_text(command.strip(), MAX_COMMAND_CHARS)
     if started:
         return [_tool(item_id, name, ToolPhase.START)]
+    status = item.get("status")
+    exit_code = _exit_code(item)
     output = item.get("aggregatedOutput")
     text = _clip_text(output, MAX_ITEM_TEXT_CHARS) if isinstance(output, str) else ""
     if not text.strip():
-        status = item.get("status")
-        if status in {"failed", "declined"}:
-            text = str(status)
-        else:
-            text = ""
-    return _tool_lifecycle(item_id, name, started=False, output=text, exit_code=_exit_code(item))
+        text = str(status) if status in _UNFINISHED else ""
+    # A declined or failed command may carry no exit code; its error stream says it failed.
+    stream = ToolStream.STDERR if status in _UNFINISHED and exit_code is None else ToolStream.STDOUT
+    return _tool_lifecycle(item_id, name, started=False, output=text, exit_code=exit_code, stream=stream)
 
 
 def _file_drafts(
@@ -2307,7 +2308,11 @@ def _file_drafts(
             lines.append(_ITEM_TEXT_MARKER.strip())
     name = _clip_text(", ".join(names) or "file change", MAX_COMMAND_CHARS)
     output = _clip_text("\n".join(lines), MAX_ITEM_TEXT_CHARS) if not started else ""
-    return _tool_lifecycle(item_id, name, started=started, output=output)
+    status = item.get("status")
+    if started or status not in _UNFINISHED:
+        return _tool_lifecycle(item_id, name, started=started, output=output)
+    # A change that was declined or failed was not applied.
+    return _tool_lifecycle(item_id, name, started=False, output=output or str(status), stream=ToolStream.STDERR)
 
 
 def _tool_lifecycle(
