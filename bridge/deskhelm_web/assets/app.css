@@ -152,7 +152,7 @@ button:disabled {
 
 .thread {
   display: grid;
-  grid-template-columns: 10px 1fr auto;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   width: 100%;
@@ -178,6 +178,8 @@ button:disabled {
 }
 
 .thread small { color: var(--muted); font-size: 12px; }
+
+.thread > small { white-space: nowrap; }
 
 .thread .thread-meta {
   display: block;
