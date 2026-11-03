@@ -153,7 +153,10 @@ Keep third-party reference files outside version control under
 - ADR 0043 restructures the architecture in phases 0 to 5, as described in
   `docs/architecture/target-architecture.md`. Until a phase lands, the rules
   below describe the current code. Each phase updates the rules it changes.
-- Phases 1 to 3 run protocol v2 beside v1 on `bridge-v2.sock`;
+- Since the switch-over, protocol v2 owns the user Bridge at `bridge.sock`,
+  and the `deskhelm` commands `codex`, `agent`, `web`, `dashboard`, `focus`,
+  `sessions`, and `voice` run the v2 hosts and surfaces through
+  `bridge/deskhelm_cli`;
   `protocol/deskhelm-v2.md` is its contract. The core in
   `bridge/deskhelm_core` is one single-threaded actor without I/O and imports
   no adapter or voice code. Each `bridge/deskhelm_host` process owns one
@@ -174,8 +177,9 @@ Keep third-party reference files outside version control under
   API and shares its assets and token file with v1 until phase 4. The voice
   host attaches at the voice tier, targets the focused session, applies the
   D3 phrase rules itself, derives notices from console transitions, and runs
-  its right-Alt listener as a child that holds `ptt.lock`. The rules below
-  still govern v1, which stays the default until the switch-over.
+  its right-Alt listener as a child that holds `ptt.lock`. Rules below that
+  name v1 frames, planes, routers, runtime directories, or relays describe
+  the v1 code that remains for the other commands until phase 4 removes it.
 - Keep integrations Agent-agnostic and local-first.
 - Preserve the separation between small `StateEvent` projections, rich
   `InteractionEvent` content, and targeted `ControlCommand` actions.
@@ -291,29 +295,26 @@ Keep third-party reference files outside version control under
   discovered thread; explicit thread failures remain fail-closed. Ignore a
   bounded, positively identified ephemeral internal thread, but require an
   explicit selector before choosing among multiple non-ephemeral threads.
-- Keep `deskhelm codex --tui` as a convenience launcher for the exact local
-  remote-TUI command. `deskhelm alpha` remains a hidden alias with the same
-  arguments. It must require an interactive terminal. Default Codex startup joins the
-  user bridge from ADR 0038 and, on exit, detaches that session and stops this
-  directory's Codex app-server. It must not stop or unlink the user bridge.
-  Explicit `--socket` still owns and stops its private bridge. The launcher
-  PTY must translate a first raw or Kitty-protocol Ctrl-C into clear-input and
-  forward Ctrl-C only on a second press within a bounded confirmation window;
-  timeout or other input resets the guard.
+- `deskhelm codex` runs the v2 Codex host in this interactive terminal;
+  `--tui` stays accepted and `deskhelm alpha` remains a hidden alias. The
+  host owns this directory's app-server, the TUI approval proxy, and the PTY
+  relay, starts the v2 Bridge if none listens, and leaves it running on
+  exit. A second host in the same directory is refused, and stale directory
+  sockets are removed. The relay must translate a first raw or
+  Kitty-protocol Ctrl-C into clear-input and forward Ctrl-C only on a second
+  press within a bounded confirmation window; timeout or other input resets
+  the guard. `--voice` preflights voice before the TUI takes the terminal,
+  focuses this session, runs the voice host as a child with its own log, and
+  stops it on exit.
 - Keep `tools/deskhelm-user-launcher` as a thin source-checkout entry point. It
-  must preserve the invoking working directory, use the already synchronized
-  root environment without dependency installation, and use the bounded PTY
-  relay for every real `--tui` launch so Codex retains terminal
-  semantics plus the two-press Ctrl-C guard. Default `deskhelm codex` omits `--socket`
-  and joins the user bridge. The launcher must not inject a private socket
-  and must not signal the user bridge process group. Leftover Codex sockets
-  may be cleared by signaling only this directory's app-server. Core TUI
-  startup must not consult `project-secrets`. Only `--voice` dynamically
-  injects Alpha voice settings through the checkout's encrypted profile
-  without storing their values.
-  Because `project-secrets` output forwarding is line-buffered, the relay must
-  render directly to the controlling terminal and perform boundary-safe
-  streaming redaction of injected values itself.
+  preserves the invoking working directory by `exec`, uses the already
+  synchronized root environment without dependency installation, and never
+  injects a socket or signals a process; the v2 hosts own their sockets and
+  the PTY relay. Only `codex --voice` and `voice` run under the checkout's
+  encrypted profile, which injects the Alpha voice settings without storing
+  their values. Because `project-secrets` output forwarding is line-buffered,
+  the Codex host's relay renders directly to the controlling terminal and
+  redacts the injected values itself.
 - When an Alpha lifecycle registration declares interaction or approval event
   capabilities, its publisher connection must also negotiate
   `interaction_event_v1`; do not retry a deterministic capability mismatch as
@@ -355,23 +356,17 @@ Keep third-party reference files outside version control under
   Do not publish reasoning, working directories, image bytes, local image
   paths, or tool arguments. Approval and user-input notifications stay
   private-content-free.
-- Default DeskHelm sessions share one user bridge at `default_socket_path()`
-  (`bridge.sock`), ADR 0038. Default `deskhelm codex` attaches one session
-  there and leaves the bridge running. Explicit `--socket` keeps a private
-  bridge. Codex app-server and TUI proxy sockets stay directory-scoped and
-  are never derived from the user bridge. Attach carries no working
-  directory. The directory holds at most 32 runtimes and cannot be combined
-  with a single agent provider. The first `deskhelm codex --voice` must start the
-  user bridge; a bridge already running without voice is not upgraded.
-- `deskhelm agent claude` and `deskhelm agent grok` start that vendor in the
-  current directory, register an adapter session on the bridge named by
-  `--socket`, and attach one confined stdio relay. Prompts stay on the vendor
-  stdin. Omitted `runtime_kind` remains the Codex socket pair. `claude_stream`
-  and `grok_stdio` name `relay_socket` only. `session_query` includes adapter
-  identity and declared `AdapterCapability` values. Catalog
-  `agent_capabilities` carries vendor-declared names and is not a new enum
-  value. Web, the dashboard, and later clients read those same fields. Agents
-  DeskHelm did not start stay off the page. ADR 0040.
+- Every v2 host and surface defaults to the user Bridge at `bridge.sock` in
+  the DeskHelm runtime directory. A host starts it only before its first
+  open, with output in `bridge.log`, and leaves it running. A socket held by
+  anything other than a v2 Bridge, such as an old v1 Bridge, is named and
+  refused rather than retried. Codex app-server and TUI proxy sockets stay
+  directory-scoped (`codex-<digest>-app.sock`, `codex-<digest>-tui.sock`)
+  and are never derived from the Bridge socket.
+- `deskhelm agent claude|grok` runs that vendor in the current directory as
+  one v2 session host; prompts stay on the vendor stdin, and the host's
+  Bridge connection is the session lease. Agents DeskHelm did not start stay
+  off the page.
 - Grok approvals select only the option whose ACP kind is `allow_once` or
   `reject_once`. Without one, the decision is undelivered and the request
   stays pending; never fall back to an `allow_always` or `reject_always`
@@ -384,23 +379,25 @@ Keep third-party reference files outside version control under
   permission arrives as `can_use_tool` and becomes an approval; without it
   Claude Code 2.1.312 denies such tools silently. The v2 driver declines
   `AskUserQuestion` at once because the session takes no input.
-- The loopback web client in ADR 0036 is a replaceable Bridge client. One web
-  process holds one state subscription and one interaction subscription and
-  fans them out to browsers. Omitting `--socket` reads the user bridge and
-  lists every attached session. Browsing a thread does not focus it. The page
-  does not create sessions, read transcript files, or promise replay. Bind
+- The loopback web surface is a replaceable Bridge client (ADR 0036, ADR
+  0043). One web process holds one operator connection through
+  `deskhelm_client` and fans it out to browsers. A page opened later receives
+  the Bridge's bounded recent window and pending approvals, which is not
+  durable history. Browsing a thread does not focus it. The page does not
+  create sessions or read transcript files. It serves on port 8766 and binds
   `127.0.0.1` unless `--allow-remote` is explicit.
 - Every web request needs the token stored with mode 0600 in the DeskHelm
   runtime directory. The printed `?token=` link sets an HttpOnly,
   SameSite=Strict cookie and redirects to a token-free path. A loopback bind
   accepts only `127.0.0.1` or `localhost` Host headers. POST requires
   `application/json`, and a browser Origin must match the request Host.
-- `session_catalog_query` is a read-only controller frame for one active
-  session's models, MCP status, skill names, and vendor-declared capability
-  tokens. The Codex adapter is the
-  catalog provider and answers only for its attached thread. `configure_session`
-  stores a model and reasoning override for the next `turn/start` after a
-  catalog read from the last 120 seconds. It does not write Codex config, call
+- A session's catalog (models, MCP status, skill names, and vendor capability
+  tokens) is pushed by its host and cached by the Bridge, so a catalog query
+  never blocks on a host. The Codex host refreshes it when its thread
+  attaches, after a turn at most once a minute, and after a model choice.
+  `configure` stores a model and reasoning override for the next `turn/start`
+  only after a catalog read from the last 110 seconds; otherwise it is
+  undelivered and a fresh read starts. It does not write Codex config, call
   MCP tools, return skill bodies, or follow a vendor cursor. The web 能力 panel
   fetches on open or refresh and does not poll. `/compact`, `/plan`, and
   `/fast` remain deferred.
@@ -535,54 +532,41 @@ Current commands:
 - `cd voice/runtime && uv sync --locked --python 3.12`: create or synchronize
   the ignored, pinned optional local-voice runtime. Run this from its project
   directory so uv resolves the local-voice lock rather than the root lock.
-- `deskhelm codex --check`: preflight the managed Codex startup without audio.
-- `deskhelm codex --tui`: run the managed Codex TUI from the current project
-  directory and attach it to the user bridge. The launcher requires no project
-  secrets or voice runtime, uses a bounded terminal relay for the two-press
-  Ctrl-C guard, and routes the TUI through the approval-aware local proxy.
-  On exit it detaches this session and stops this directory's Codex app-server.
-  It leaves the user bridge running. Explicit `--socket` still stops that
-  private bridge.
-- `deskhelm codex --tui --yolo`: explicitly launch that managed Codex TUI with
+- `deskhelm codex --check [--voice [--default-source]]`: find Codex and, with
+  `--voice`, preflight the voice models, PipeWire selection, and right-Alt key
+  without opening audio or loading model weights. A configured source that
+  is not connected fails without fallback.
+- `deskhelm codex [--tui]`: run the managed Codex TUI from the current project
+  directory as one v2 session on the user Bridge. It needs no project secrets
+  or voice runtime, keeps the two-press Ctrl-C guard, and routes approvals
+  through the local proxy. On exit it closes the session and stops this
+  directory's app-server; the Bridge keeps running.
+- `deskhelm codex --yolo`: explicitly launch that managed Codex TUI with
   Codex's full-access, no-approval mode. This bypasses the normal sandbox and
   approval boundary; use only when that level of access is intended.
-- `deskhelm codex --tui --voice`: add local Paraformer voice, directory-selected
-  Piper or Kokoro TTS, and the explicit right-Alt PTT controller. A Kokoro
-  directory uses `zf_xiaobei` for Chinese and `af_heart` for English. Only this
-  mode loads
-  `DESKHELM_ALPHA_ASR_MODEL_DIRECTORY`, `DESKHELM_ALPHA_TTS_DIRECTORY`, and the
-  optional `DESKHELM_ALPHA_VOICE_SOURCE` and
-  `DESKHELM_ALPHA_VOICE_SINK` through `project-secrets`.
-- `deskhelm codex --check --voice`: preflight the optional local-voice models,
-  runtime, PipeWire selection, and PTT device without opening audio or loading
-  model weights. A missing configured source fails without fallback.
-- `deskhelm focus --socket <bridge.sock> --agent-id <id> --session-id <id>
-  --project-id <id>`: mark the session currently visible in a UI as the
-  Bridge's explicit focus before using `deskhelm ptt --focused`.
-- `PYTHONPATH=bridge python3 -m deskhelm_bridge dashboard --socket <bridge.sock>`:
-  run the dependency-free multi-session TUI Dashboard. It consumes state and
-  interaction subscriptions, queries complete session metadata, and supports
-  explicit focus plus targeted interrupt without owning Agent processes.
-- `PYTHONPATH=bridge python3 -m deskhelm_bridge agent <claude|grok>
-  --socket <bridge.sock>`: start that vendor in the current directory and
-  attach it to the named bridge. The prompt stays on stdin. Codex remains
-  `deskhelm codex --tui`. The running user bridge must already contain the
-  relay factory; restart it before the first `deskhelm agent` against
-  `bridge.sock`.
-- `PYTHONPATH=bridge python3 -m deskhelm_bridge web [--socket <bridge.sock>]`:
-  run the loopback Codex-layout web client from ADR 0036. Open the
-  `http://127.0.0.1:8766/?token=…` link it prints once per browser; the
-  cookie then lasts 30 days. Omitting `--socket` reads the user bridge and lists
-  every attached session. An explicit `--socket` selects one bridge. An empty
-  path is rejected. Browsing a session does not change Bridge focus. The page
-  shows live interaction only and sends explicit focus, interrupt,
-  submit_prompt, approve, and reject controls. The 能力 panel reads the
-  session catalog and sends `configure_session` for the next new turn. It
-  does not create sessions or own Agent history. The bind stays on
-  `127.0.0.1` unless `--allow-remote` is set.
+- `deskhelm codex --voice [--default-source]`: also run the voice host for this
+  session: local Paraformer ASR, directory-selected Piper, Kokoro, or
+  IndexTTS speech, and the right-Alt key. A Kokoro directory uses
+  `zf_xiaobei` for Chinese and `af_heart` for English. The launcher loads
+  `DESKHELM_ALPHA_VOICE_SOURCE`, `DESKHELM_ALPHA_ASR_MODEL_DIRECTORY`, and
+  `DESKHELM_ALPHA_TTS_DIRECTORY` through `project-secrets`. The voice host's
+  output goes to `codex-<digest>-voice.log` in the runtime directory.
+- `deskhelm voice [--default-source] [--check]`: attach local voice to the
+  running user Bridge without a Codex host, under the same profile.
+- `deskhelm agent <claude|grok>`: run that vendor in the current directory as
+  one v2 session host.
+- `deskhelm web [--port 8766] [--allow-remote]`: serve the page for the user
+  Bridge. Open the `http://127.0.0.1:8766/?token=…` link it prints once per
+  browser; the cookie then lasts 30 days. Browsing a session does not change
+  the focus.
+- `deskhelm dashboard`, `deskhelm sessions`, and `deskhelm focus --agent-id <id>
+  --session-id <id> --project-id <id>`: watch and steer sessions from the
+  terminal, list them with pending approvals, or set the focus that voice
+  speaks to. Every switched command takes `--socket` to name another Bridge.
 - After linking `tools/deskhelm-user-launcher` into the user's executable path,
-  run these commands directly from the Agent project directory; the launcher
-  preserves that directory as `--agent-workdir`.
+  run these commands directly from the Agent project directory. After pulling
+  new packages, resynchronize the root environment so the installed
+  `deskhelm` imports them.
 - `PYTHONPATH=bridge:adapters/codex uv run --project voice/runtime --locked
   --no-sync python -m unittest tests.test_client_voice_status
   tests.test_codex_tui_proxy tests.test_codex_app_server_adapter
@@ -600,42 +584,22 @@ Current commands:
   validate relay attach, Claude and Grok normalization, session identity, and
   the web supervision page without using the operator's bridge socket.
 
-- `PYTHONPATH=bridge python3 -m deskhelm_core [--socket <bridge-v2.sock>]`:
-  run the protocol v2 Bridge from ADR 0043 beside the v1 Bridge. It defaults
-  to `bridge-v2.sock` in the DeskHelm runtime directory, requires an absolute
-  `--socket`, and owns no Agent process. A later start replaces the socket
-  file that SIGTERM leaves behind.
-- `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_host <claude|grok>
-  [--socket <bridge-v2.sock>] [--project-id <id>] [--session-id <id>]`: run
-  from the Agent project directory to start that vendor there as one v2
-  session host. It starts the v2 Bridge if none is listening, with that
-  Bridge's output in `bridge-v2.log` in the runtime directory, and reopens
-  its session after a Bridge restart. Stopping the host stops its vendor.
-- `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_host codex
-  [--codex-sandbox <read-only|workspace-write>] [--yolo]`: run the managed
-  Codex TUI in this interactive terminal as one v2 session host, beside any
-  v1 `deskhelm codex` in the same directory. It owns `codex-<digest>-app.sock`
-  and `codex-<digest>-tui.sock` in the runtime directory, keeps the two-press
-  Ctrl-C guard, and writes host diagnostics to `codex-<digest>-host.log`
-  while the TUI owns the screen. Quitting the TUI or stopping the host stops
-  the app-server and removes both sockets. `--yolo` is full access with no
-  approvals; use it only when that access is intended.
-- `PYTHONPATH=bridge python3 -m deskhelm_client [--socket <bridge-v2.sock>]
-  sessions|focus --agent-id <id> --session-id <id> --project-id <id>`: list
-  v2 sessions with their pending approvals, or set the focus.
-- `PYTHONPATH=bridge python3 -m deskhelm_web [--socket <bridge-v2.sock>]
-  [--port 8767] [--allow-remote]`: serve the page for the v2 Bridge beside
-  the v1 page on 8766. It prints the same `?token=` link and uses the same
-  token file, so one browser sign-in serves both.
-- `PYTHONPATH=bridge python3 -m deskhelm_dashboard [--socket
-  <bridge-v2.sock>]`: run the v2 terminal dashboard; it needs an interactive
-  terminal and keeps running while the Bridge is away.
+- `PYTHONPATH=bridge python3 -m deskhelm_core [--socket <bridge.sock>]`: run
+  the protocol v2 Bridge from ADR 0043 by hand; hosts normally start it. It
+  defaults to `bridge.sock` in the DeskHelm runtime directory, requires an
+  absolute `--socket`, and owns no Agent process. A later start replaces the
+  socket file that SIGTERM leaves behind.
+- `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_host
+  <claude|codex|grok> [options]`, `python3 -m deskhelm_client`,
+  `python3 -m deskhelm_web`, and `python3 -m deskhelm_dashboard`: the module
+  entry points behind the switched `deskhelm` commands, with the same
+  options.
 - `PYTHONPATH=<checkout>/bridge:<checkout>/voice uv run --project
   <checkout>/voice/runtime --locked --no-sync python -m deskhelm_voice_host
-  [--check] [--no-ptt]`: attach local voice to a running v2 Bridge. Model and
-  audio settings default to the `DESKHELM_ALPHA_*` variables, so run it under
-  `project-secrets run`. The right-Alt listener runs with the root
-  environment's Python, which needs `uv sync --extra ptt --locked`.
+  [--check] [--no-ptt] [--default-source]`: the voice host behind
+  `deskhelm voice`. Model and audio settings default to the `DESKHELM_ALPHA_*`
+  variables, so run it under `project-secrets run`. The right-Alt listener
+  runs with the root environment's Python, which needs the `ptt` extra.
   `--check` validates models, audio, and the key without opening audio or
   naming devices. A configured source or sink that is not connected fails
   with a message naming its setting, never its device; `--default-source` or
@@ -643,9 +607,10 @@ Current commands:
 - `PYTHONPATH=bridge python3 -m unittest tests.test_core
   tests.test_core_server tests.test_host_link tests.test_drivers
   tests.test_codex_host tests.test_replay_transcripts tests.test_client
-  tests.test_web_surface tests.test_dashboard_v2 tests.test_voice_host -v`:
-  validate the v2 core, socket server, host link, drivers, Codex host
-  helpers, replay transcripts, client runtime, and surfaces without a vendor
+  tests.test_web_surface tests.test_dashboard_v2 tests.test_voice_host
+  tests.test_cli_switch tests.test_user_launcher -v`: validate the v2 core,
+  socket server, host link, drivers, Codex host helpers, replay transcripts,
+  client runtime, surfaces, command routing, and launcher without a vendor
   CLI, audio device, or model.
 - `uv run --no-project --with esprima python -I -c "import esprima;
   esprima.parseScript(open('bridge/deskhelm_bridge/web-assets/app.js').read())"`:

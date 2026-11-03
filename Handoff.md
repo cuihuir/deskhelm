@@ -6,108 +6,84 @@ Project: DeskHelm
 
 Repository: <https://github.com/cuihuir/deskhelm>
 
-## Latest Phase: Architecture v2, Phase 3 Complete
+## Latest Phase: Architecture v2, Switch-Over Done
 
-Status: paused on 2026-11-03 after phase 3, following the user's rule to
-pause after each phase, on branch `refactor/architecture-v2`; nothing is
-pushed. v1 stays the default: `bridge.sock`, `deskhelm codex`,
-`deskhelm agent`, web, dashboard, and voice all run v1 code. Checks used
-temporary sockets. No DeskHelm process is running.
+Status: switched on 2026-11-03 at the user's request (`0325bfb`) and paused
+before phase 4, on branch `refactor/architecture-v2`; nothing is pushed.
+The user's v2 test stack from before the switch was left running on the old
+`bridge-v2.sock` name: a Codex host with its TUI, the web page, the voice
+host, and their Bridge.
 
 - Baseline: commit `ec128a3`, tag `pre-architecture-v2`. Design:
   `docs/architecture/target-architecture.md` and ADR 0043, with D1–D4
   accepted as recommended. `t.sh` stays untracked.
-- Phase 0, fixes on v1, `ed873e8` to `e6e4c9c`. Phase 1, `6330467` and
-  `cda4cb8`: protocol v2 and the single-threaded core on `bridge-v2.sock`;
-  contract `protocol/deskhelm-v2.md`.
-- Phase 2: hosts (`ad0151d`), Claude and Grok drivers (`8cb9b5f`), Claude
-  `--permission-prompt-tool stdio` and the ACP label fix (`d5d1db9`,
-  `c522d7f`), the Codex adapter subscription fix that v1 shares
-  (`8b8ef22`), and the Codex host (`a448a96`).
-- Phase 3:
-  - `19003f1`: `bridge/deskhelm_client`, one connection per surface with
-    cursor resume, replay handed over once, command and query correlation,
-    and the one copy of result wording; `python -m deskhelm_client
-    sessions|focus`.
-  - `b38d61c`: `python -m deskhelm_web` on port 8767 beside the v1 page. It
-    keeps the v1 page and HTTP API, maps the console to it, decides
-    approvals by approval id, reads the catalog from the Bridge cache, and
-    shares the token file. A page opened later receives the Bridge's recent
-    window and pending approvals. `app.js` now prefers the server's
-    wording and words the working state; v1 is unaffected.
-  - `367aa36`: `python -m deskhelm_dashboard` with the v1 keys; approvals
-    come from the console and a lost Bridge is a notice.
-  - `9d32fa8`: `python -m deskhelm_voice_host` attaches at the voice tier to
-    a running Bridge. Right Alt speaks to the focused session; the D3
-    phrase rules and `取消` are applied in the host; notices come from
-    console transitions. The key listener is a child in the root
-    environment holding `ptt.lock`.
-  - `381fee0` closes a host socket after a failed reconnect; `d4c8a4a`
-    removes a test race.
-- Validation: the full suite passes, 537 tests, twice in a row, with
-  `PYTHONPATH=bridge uv run --project voice/runtime --locked --no-sync python -m unittest discover -s tests`.
-  The focused v2 command in AGENTS.md passes 100 tests. `app.js` parses
-  under esprima, which settles the old unchecked-script item. A headless
-  Chrome load of the v2 page rendered a fake session with its replayed
-  message and pending approval and logged no script error. A PTY run of the
-  dashboard approved a fake request from the keyboard and quit cleanly.
-  `deskhelm_voice_host --check` passed against the encrypted voice profile
-  without printing device names.
-- Live checks on 2026-11-03: Grok 1.0.60 and Claude Code 2.1.312 on v2
-  (prompts, replies, interrupt, and Claude approve and reject); Codex CLI
-  0.166.0 through `deskhelm_host codex` (prompt, one approval through the
-  TUI proxy, clean exit). The user ran the Codex host in a real terminal;
-  the display, the Ctrl-C guard, and the exit were fine.
+- Phases 0 to 2: v1 fixes (`ed873e8` to `e6e4c9c`); protocol v2 and the
+  core (`6330467`, `cda4cb8`); session hosts and the Claude, Grok, and Codex
+  drivers (`ad0151d` to `a448a96`), including the Codex adapter
+  subscription fix that v1 shares (`8b8ef22`).
+- Phase 3: `deskhelm_client` (`19003f1`), the web page (`b38d61c`), the
+  dashboard (`367aa36`), and the voice host (`9d32fa8`, `7a794c3` for
+  `--default-source`).
+- Switch-over, `0325bfb`:
+  - Protocol v2 owns `bridge.sock`. `deskhelm codex`, `agent`, `web` (port
+    8766), `dashboard`, `focus`, `sessions`, and `voice` run v2 through
+    `bridge/deskhelm_cli`; `bridge`, `ptt`, `simulate`, `emit`, hooks, and
+    `audio` stay on the v1 command line until phase 4.
+  - `deskhelm codex --voice` preflights voice before the TUI, focuses its
+    session, runs the voice host as a child logging to
+    `codex-<digest>-voice.log`, and redacts the injected settings from the
+    TUI. `deskhelm voice` attaches voice alone.
+  - The launcher only wraps `codex --voice` and `voice` in project-secrets;
+    the hosts own sockets, the PTY relay, and the Ctrl-C guard.
+  - A socket held by an old v1 Bridge is named and refused.
+  - pyproject lists the v2 packages. The root environment was resynchronized
+    with `uv sync --extra ptt --frozen`; `--locked` fails here because this
+    machine's uv config uses the Tsinghua mirror while `uv.lock` records
+    pypi.org, which was already so before the switch.
+- Validation: the full suite passes, 546 tests. A copy of the launcher with
+  stand-in executables forwards commands unchanged and wraps only voice.
+  Through the real launcher with a temporary runtime directory, `deskhelm
+  codex --tui` started the Bridge on `bridge.sock`, opened an idle Codex
+  session, and left nothing behind after `/quit`. `deskhelm codex --check
+  --voice` named the unplugged microphone's setting and, with
+  `--default-source`, passed up to the right-Alt lock held by the user's
+  running voice host. Earlier live checks: Grok 1.0.60, Claude Code
+  2.1.312, and Codex CLI 0.166.0 on v2; the user checked the Codex TUI,
+  the page, the dashboard, and the voice path.
 
 Open issues:
 
-- Checked by the user on 2026-11-03: the v2 page and the dashboard stay in
-  sync, and the voice host's speech path works end to end with
-  `--default-source`. Their first voice start failed because the configured
-  USB microphone was unplugged, which is the intended refusal; the message
-  now names the setting and `--default-source`.
-- The page still merges the interaction stream in the browser; the target
-  view model in Python is not done. The browser sends no idempotency key,
-  which matters only if a POST is retried.
-- v1 `deskhelm agent claude` never declines an expired or ninth approval and
-  shows `AskUserQuestion` as an approval; v2 declines all three. The Codex
-  adapter fixes reach v1 through unit tests only.
-- Untested live: Grok approvals (needs a session outside always-approve
-  mode), the Codex `/resume` picker under v2, and a Bridge restart during a
-  Codex host session.
+- The user's switched commands have not run in their own terminal yet.
+- ADR status lines still read as before; the superseded and amended ADRs
+  listed in ADR 0043 get their new status in phase 4. `deskhelm --help`
+  still prints the v1 option lists.
+- The page still merges the interaction stream in the browser, and the
+  browser sends no idempotency key.
+- Untested live: Grok approvals, the Codex `/resume` picker under v2, and a
+  Bridge restart during a Codex host session.
 - Every replay transcript is synthetic; recording live ones needs an
-  operator decision. v1 `deskhelm agent` started outside this checkout
-  cannot import `deskhelm_voice`.
+  operator decision.
 
-Next, after the user confirms:
-
-1. Switch-over: v2 takes `bridge.sock`, and `deskhelm codex`, `agent`, `web`,
-   `dashboard`, and voice start the v2 hosts and surfaces.
-2. Phase 4: remove v1 per D4, move the page assets into `deskhelm_web`,
-   uv workspace packaging, condensed AGENTS.md, and a rewritten Handoff.
+Next, after the user confirms: phase 4. Remove v1 per D4 (the v1 Bridge,
+planes, router, relay, runtime directory, hooks, `emit`, `simulate`, the
+exec gateway, and the `agent-io` aliases), move the page assets into
+`deskhelm_web`, uv workspace packaging, ADR status lines, a condensed
+AGENTS.md, and a rewritten Handoff.
 
 Operator notes:
 
-- v1 runs the Codex adapter inside the user bridge, so fixes reach v1 only
-  after that bridge restarts, which ends every attached v1 session.
-- To try v2 beside v1: from an Agent project directory run
-  `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_host codex`, `claude`, or
-  `grok`; the first host starts a v2 Bridge on `bridge-v2.sock`. Then
-  `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_web` (open the printed
-  link, port 8767) or `python3 -m deskhelm_dashboard`. For voice, run, with
-  the same required names as the v1 launcher so the same microphone is used,
-  `project-secrets --project <checkout> run --env default --require
-  DESKHELM_ALPHA_VOICE_SOURCE DESKHELM_ALPHA_ASR_MODEL_DIRECTORY
-  DESKHELM_ALPHA_TTS_DIRECTORY --
-  env PYTHONPATH=<checkout>/bridge:<checkout>/voice uv run --project
-  <checkout>/voice/runtime --locked --no-sync python -m deskhelm_voice_host`,
-  focus a session on the page, and hold right Alt. Stop the v1 right-Alt
-  listener first; both take `ptt.lock`. When the configured USB microphone
-  is unplugged the host refuses to start; add `--default-source` to use the
-  computer's current default microphone instead.
-- The v2 Bridge keeps running after its hosts exit. Stop it by the pid of
-  `python3 -m deskhelm_core --socket …`; its output is in
-  `$XDG_RUNTIME_DIR/deskhelm/bridge-v2.log`.
+- To move to the switched commands: quit the old Codex TUI with `/quit`,
+  stop the old web page and voice host with Ctrl-C, and stop the old Bridge
+  by the pid of `python3 -m deskhelm_core --socket …/bridge-v2.sock`. Then
+  run `deskhelm codex`, `deskhelm web`, and the rest as usual; the first host
+  starts the Bridge on `bridge.sock`, replacing the stale v1 socket file.
+  The leftover `alpha-*-codex.sock` in the runtime directory is a v1 file
+  and can be deleted.
+- `deskhelm codex --voice` needs the configured USB microphone; without it,
+  add `--default-source`. The voice host's own messages are in
+  `codex-<digest>-voice.log` in the runtime directory.
+- The Bridge keeps running after its hosts exit; its output is in
+  `$XDG_RUNTIME_DIR/deskhelm/bridge.log`.
 
 ## Previous Phase: Web Port 8766
 
