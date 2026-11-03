@@ -317,6 +317,46 @@ class AcpDriverTests(_DriverCase):
         self.assertEqual(phases, ["start", "output", "complete", "complete"])
         self.assertNotIn("<workspace>", json.dumps(self.facts.facts))
 
+    def update(self, **fields) -> dict:
+        return {"jsonrpc": "2.0", "method": "session/update", "params": {"update": fields}}
+
+    def content(self, text: str) -> list[dict]:
+        return [{"type": "content", "content": {"type": "text", "text": text}}]
+
+    def test_whole_tool_content_is_sent_as_new_text_or_a_replacement(self) -> None:
+        # Grok sends a description first, then the whole output so far on each update.
+        self.feed(
+            self.update(sessionUpdate="tool_call", toolCallId="t1", title="Bash", kind="execute"),
+            self.update(sessionUpdate="tool_call_update", toolCallId="t1", content=self.content("Run three tock echoes")),
+            self.update(sessionUpdate="tool_call_update", toolCallId="t1", content=self.content("tock 1\n")),
+            self.update(sessionUpdate="tool_call_update", toolCallId="t1", content=self.content("tock 1\ntock 2\n")),
+            self.update(sessionUpdate="tool_call_update", toolCallId="t1", status="completed",
+                        content=self.content("tock 1\ntock 2\n")),
+        )
+        self.facts.wait_for(FactKind.TOOL, 5)
+
+        outputs = [(content["text"], meta.get("replace", False)) for meta, content in self.facts.of(FactKind.TOOL)
+                   if meta["phase"] == "output"]
+        self.assertEqual(outputs, [("Run three tock echoes", False), ("tock 1\n", True), ("tock 2\n", False)])
+
+    def test_a_reply_after_a_tool_call_is_a_new_message_with_its_whole_text(self) -> None:
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "run the tests"})
+        prompt = next(frame for frame in iter(lambda: self.vendor.written.get(timeout=2), None)
+                      if frame.get("method") == "session/prompt")
+        self.feed(
+            self.update(sessionUpdate="agent_message_chunk", content={"type": "text", "text": "I'll run the tests."}),
+            self.update(sessionUpdate="tool_call", toolCallId="t1", title="Bash", kind="execute"),
+            self.update(sessionUpdate="agent_message_chunk", content={"type": "text", "text": "All 12 "}),
+            self.update(sessionUpdate="agent_message_chunk", content={"type": "text", "text": "passed."}),
+            {"jsonrpc": "2.0", "id": prompt["id"], "result": {"stopReason": "end_turn"}},
+        )
+        self.facts.wait_for(FactKind.TURN_TERMINAL)
+
+        replies = [(meta["message_ref"], content["text"]) for meta, content in self.facts.of(FactKind.MESSAGE)
+                   if meta["role"] == "assistant" and meta["phase"] == "complete"]
+        self.assertEqual([text for _, text in replies], ["I'll run the tests.", "All 12 passed."])
+        self.assertNotEqual(replies[0][0], replies[1][0])
+
     def test_a_tool_keeps_its_first_label(self) -> None:
         self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "read it"})
         self.feed(

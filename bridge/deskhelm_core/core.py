@@ -415,6 +415,8 @@ class Core:
                 "stream": meta.get("stream"),
                 "exit_code": meta.get("exit_code"),
             }
+            if meta.get("replace"):
+                payload["replace"] = True
             self._interaction(record, "tool", payload, meta["tool_ref"], now)
         elif fact.kind is FactKind.REQUEST_OPENED:
             self._open_ticket(record, OpenRequest.from_dict(meta), now, announce=True)

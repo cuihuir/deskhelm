@@ -159,6 +159,11 @@ class Transcript:
             flagged = payload.get("stream") == "stderr" and not item["stderr"]
             if flagged:
                 item["stderr"] = True
+            if payload.get("replace") is True:
+                # The vendor replaced the whole output.
+                item["truncated"] = len(text) > MAX_OUTPUT_CHARS
+                item["output"] = text[-MAX_OUTPUT_CHARS:]
+                return [self._upsert(item)]
             if not text:
                 return [self._upsert(item)] if created or flagged else []
             output = item["output"] + text

@@ -112,6 +112,15 @@ class TranscriptTests(unittest.TestCase):
         self.assertEqual(later, [{"op": "append", "id": "t:t1", "field": "output", "text": "cc", "trim": 2}])
         self.assertTrue(transcript.items()[0]["output"].endswith("bbcc"))
 
+    def test_a_replacement_replaces_the_tool_output(self) -> None:
+        transcript = Transcript()
+        transcript.apply(_tool("t1", "output", text="Run three tock echoes"))
+        replaced = transcript.apply(_tool("t1", "output", text="tock 1\n", replace=True))
+        transcript.apply(_tool("t1", "output", text="tock 2\n"))
+
+        self.assertEqual(replaced[0]["op"], "upsert")
+        self.assertEqual(transcript.items()[0]["output"], "tock 1\ntock 2\n")
+
     def test_a_replayed_event_folds_once(self) -> None:
         transcript = Transcript()
         transcript.apply({**_tool("t1", "start", text="ls"), "sequence": 4})

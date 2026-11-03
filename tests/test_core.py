@@ -422,6 +422,18 @@ class ProjectionTests(unittest.TestCase):
         live = harness.take("web", "interaction")[0]
         self.assertNotIn("replay", live)
 
+    def test_a_tool_output_replacement_reaches_the_interaction_stream(self) -> None:
+        harness = _Harness()
+        harness.host("host")
+        harness.client("web", streams=("interaction",))
+        harness.take("web")
+        harness.fact("host", "tool", {"tool_ref": "t1", "label": "command", "phase": "output", "replace": True},
+                     {"text": "whole output"})
+        harness.fact("host", "tool", {"tool_ref": "t1", "label": "command", "phase": "output"}, {"text": "more"})
+        replaced, extended = (frame["event"]["payload"] for frame in harness.take("web", "interaction"))
+
+        self.assertEqual((replaced["replace"], "replace" in extended), (True, False))
+
     def test_only_the_operator_tier_reads_interaction_content(self) -> None:
         harness = _Harness()
         harness.client("device", tier="device", streams=("interaction",))

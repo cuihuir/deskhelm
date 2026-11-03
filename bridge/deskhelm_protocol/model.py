@@ -368,6 +368,8 @@ def _validate_tool(meta: dict[str, Any], content: dict[str, Any]) -> None:
     if meta.get("exit_code") is not None:
         if not isinstance(meta["exit_code"], int) or isinstance(meta["exit_code"], bool):
             raise ProtocolViolation("exit_code must be an integer")
+    if "replace" in meta and not isinstance(meta["replace"], bool):
+        raise ProtocolViolation("replace must be a boolean")
     text_field(content.get("text", ""), "text", MAX_TEXT_CHARS, allow_empty=True)
 
 

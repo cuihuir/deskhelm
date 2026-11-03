@@ -75,7 +75,7 @@ interaction stream.
 | `ready` | — | — |
 | `turn_started` | `turn_ref`, optional `command_id` | — |
 | `message` | `message_ref`, `role` (`user`, `assistant`, `system`), `phase` (`delta`, `complete`), optional `command_id` | `text` |
-| `tool` | `tool_ref`, `label`, `phase` (`start`, `output`, `complete`), optional `exit_code`, `stream` | `text` |
+| `tool` | `tool_ref`, `label`, `phase` (`start`, `output`, `complete`), optional `exit_code`, `stream`, `replace` | `text` |
 | `request_opened` | `provider_ref`, `kind` (`approval`, `input`), `summary`, `expires_at`, `answerable` | — |
 | `request_resolved` | `provider_ref`, `by` (`native`, `deskhelm`, `cancelled`, `expired`) | — |
 | `turn_terminal` | `status` (`completed`, `interrupted`, `failed`), optional `failure`, `reusable`, `turn_ref` | optional `message` |
@@ -83,6 +83,9 @@ interaction stream.
 | `catalog` | — | `catalog` object, at most 256 KiB |
 | `capabilities` | `capabilities` (a full matrix) | — |
 | `session_ended` | `reason` | — |
+
+An `output` fact's text extends the tool's output; with `replace: true` it
+replaces it, for a vendor that reports the whole output each time.
 
 A `capabilities` fact replaces the matrix once the driver knows what its
 vendor allows, for example after the vendor handshake.

@@ -18,6 +18,7 @@ import uuid
 
 from deskhelm_host.driver import FactSink, SessionState
 from deskhelm_host.vendor import VendorClosed, VendorProcess
+from deskhelm_protocol.model import MAX_TEXT_CHARS as MAX_REPLY_CHARS
 from deskhelm_protocol import (
     ApprovalOverflow,
     ApprovalSupport,
@@ -158,6 +159,8 @@ class AcpSession:
         self._pending_rpc: dict[str, tuple[Any, list[Any]]] = {}
         self._tools: dict[str, str] = {}
         self._tool_output: dict[str, str] = {}
+        # The whole current reply, so its complete fact carries all of it.
+        self._assistant_text = ""
         self._tool_done: set[str] = set()
         self._catalog: dict[str, Any] = {"model": "", "models": [], "agent_capabilities": []}
         self._assistant_ref = ""
@@ -236,7 +239,7 @@ class AcpSession:
             self._next_id += 1
             self._prompt_id, self._turn_ref = prompt_id, command_id
             self._echoes.append(text)
-            self._assistant_ref, self._delta = "", ""
+            self._assistant_ref, self._delta, self._assistant_text = "", "", ""
             self._emit(
                 FactKind.MESSAGE,
                 {"message_ref": command_id, "role": "user", "phase": "complete", "command_id": command_id},
@@ -361,9 +364,7 @@ class AcpSession:
         self._emit(FactKind.READY)
 
     def _prompt_finished(self, value: dict[str, Any]) -> None:
-        self._flush_delta()
-        if self._assistant_ref:
-            self._emit_assistant("complete", "")
+        self._complete_assistant()
         result = value.get("result") if isinstance(value.get("result"), dict) else None
         stop = result.get("stopReason") if result else None
         if self._interrupting or stop in {"cancelled", "canceled"}:
@@ -383,6 +384,7 @@ class AcpSession:
             if text:
                 self._assistant_ref = self._assistant_ref or uuid.uuid4().hex
                 self._delta += text
+                self._assistant_text = (self._assistant_text + text)[:MAX_REPLY_CHARS]
         elif kind == "user_message_chunk":
             text = content_text(update.get("content"))
             if text in self._echoes:
@@ -390,7 +392,8 @@ class AcpSession:
             elif text:
                 self._emit(FactKind.MESSAGE, {"message_ref": uuid.uuid4().hex, "role": "user", "phase": "complete"}, {"text": text})
         elif kind == "tool_call":
-            self._flush_delta()
+            # Text after a tool call is a new reply, shown after the tool.
+            self._complete_assistant()
             tool_ref = update.get("toolCallId") if isinstance(update.get("toolCallId"), str) and update["toolCallId"] else uuid.uuid4().hex
             label = tool_label(update) or "tool"
             self._tools[tool_ref] = label
@@ -405,10 +408,17 @@ class AcpSession:
         # back to the kind, so one tool would otherwise change its name.
         label = self._tools.setdefault(tool_ref, tool_label(update) or "tool")
         text = content_text(update.get("content"))
-        # Vendors repeat the same content on later status updates.
-        if text and self._tool_output.get(tool_ref) != text:
+        previous = self._tool_output.get(tool_ref, "")
+        # Each update carries the whole content so far, and vendors repeat it on
+        # later status updates: send only what is new, or mark a replacement.
+        if text and text != previous:
             self._tool_output[tool_ref] = text
-            self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "output", "stream": "stdout"}, {"text": text})
+            meta: dict[str, Any] = {"tool_ref": tool_ref, "label": label, "phase": "output", "stream": "stdout"}
+            if previous and text.startswith(previous):
+                text = text[len(previous):]
+            elif previous:
+                meta["replace"] = True
+            self._emit(FactKind.TOOL, meta, {"text": text})
         status = update.get("status")
         if status in {"completed", "failed"} and tool_ref not in self._tool_done:
             self._tool_done.add(tool_ref)
@@ -450,6 +460,15 @@ class AcpSession:
         if self._delta:
             text, self._delta = self._delta, ""
             self._emit_assistant("delta", text)
+
+    def _complete_assistant(self) -> None:
+        """End the current reply with its whole text, so a surface that joins
+        later from the Bridge's window still sees all of it."""
+        self._flush_delta()
+        if self._assistant_ref:
+            self._emit(FactKind.MESSAGE, {"message_ref": self._assistant_ref, "role": "assistant", "phase": "complete"},
+                       {"text": self._assistant_text})
+        self._assistant_ref, self._assistant_text = "", ""
 
     def _emit_assistant(self, phase: str, text: str) -> None:
         self._emit(FactKind.MESSAGE, {"message_ref": self._assistant_ref, "role": "assistant", "phase": phase}, {"text": _clip(text)})
