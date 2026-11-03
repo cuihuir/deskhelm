@@ -22,25 +22,16 @@ from deskhelm_protocol.paths import default_socket_path, runtime_directory
 from .bridge_process import bridge_protocol, ensure_bridge
 from .link import BridgeLink
 
-_ROOT = Path(__file__).resolve().parents[2]
 _OPEN_TIMEOUT_SECONDS = 10.0
-
-
-def _adapter_path(name: str) -> None:
-    path = str(_ROOT / "adapters" / name)
-    if path not in sys.path:
-        sys.path.insert(0, path)
 
 
 def build_driver(kind: str, cwd: Path, digest: str) -> Any:
     if kind == "claude":
-        _adapter_path("claude")
         from deskhelm_claude_adapter.command import runtime_version
         from deskhelm_claude_adapter.driver import ClaudeSession
 
         return ClaudeSession(cwd, runtime_version=runtime_version())
     if kind == "grok":
-        _adapter_path("acp")
         from deskhelm_acp_adapter import AcpSession, GrokFlavor, grok_version
 
         leader = runtime_directory() / f"grok-leader-{digest}.sock"
@@ -86,7 +77,6 @@ def main(argv: list[str] | None = None) -> int:
               "such as a v1 Bridge; stop it first", file=sys.stderr)
         return 1
     if args.agent == "codex":
-        _adapter_path("codex")
         from deskhelm_codex_adapter.host import check_voice, run_codex_host
 
         voice = None

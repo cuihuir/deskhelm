@@ -6,7 +6,7 @@ from threading import Event, Thread
 import time
 import unittest
 
-from voice.deskhelm_voice import (
+from deskhelm_voice import (
     CapturedAudio,
     PcmSampleFormat,
     PipeWireCaptureProvider,

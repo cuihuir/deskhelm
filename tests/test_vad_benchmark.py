@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from voice.deskhelm_voice import (
+from deskhelm_voice import (
     FakeVadProvider,
     PcmChunk,
     PcmStreamFormat,
@@ -13,7 +13,7 @@ from voice.deskhelm_voice import (
     VadEvent,
     VadEventKind,
 )
-from voice.deskhelm_voice.benchmark import (
+from deskhelm_voice.benchmark import (
     BenchmarkIdentity,
     BenchmarkStatus,
     VadBenchmarkObservation,

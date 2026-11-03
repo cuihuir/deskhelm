@@ -11,10 +11,9 @@ import unittest
 TESTS = Path(__file__).resolve().parent
 if str(TESTS) not in sys.path:
     sys.path.insert(0, str(TESTS))
-CODEX = TESTS.parent / "adapters" / "codex"
-if str(CODEX) not in sys.path:
-    sys.path.insert(0, str(CODEX))
 
+from deskhelm_codex_adapter import CodexAppServerAdapter, ProxiedApprovalRequest  # noqa: E402
+from deskhelm_codex_adapter.app_server import MAX_ITEM_TEXT_CHARS, _thread_item_drafts  # noqa: E402
 from deskhelm_codex_adapter.controls import (  # noqa: E402
     ApprovalDecisionPayload,
     ConfigureSessionPayload,
@@ -37,33 +36,6 @@ from deskhelm_codex_adapter.events import (  # noqa: E402
     UserInputPayload,
 )
 from helpers.control_host import ControlResultCode, FakeControlHost  # noqa: E402
-try:
-    from deskhelm_codex_adapter import (
-        CodexAppServerAdapter,
-        ProxiedApprovalRequest,
-    )
-except ModuleNotFoundError as error:
-    if error.name != "deskhelm_codex_adapter":
-        raise
-    from adapters.codex.deskhelm_codex_adapter import (
-        CodexAppServerAdapter,
-        ProxiedApprovalRequest,
-    )
-try:
-    from deskhelm_codex_adapter.app_server import (
-        MAX_ITEM_TEXT_CHARS,
-        _thread_item_drafts,
-    )
-except ModuleNotFoundError as error:
-    if error.name not in {
-        "deskhelm_codex_adapter",
-        "deskhelm_codex_adapter.app_server",
-    }:
-        raise
-    from adapters.codex.deskhelm_codex_adapter.app_server import (
-        MAX_ITEM_TEXT_CHARS,
-        _thread_item_drafts,
-    )
 
 
 class _FakeAppServerTransport:

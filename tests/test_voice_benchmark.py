@@ -5,13 +5,13 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from voice.deskhelm_voice import (
+from deskhelm_voice import (
     CapturedAudio,
     FakeAsrProvider,
     FakeTtsProvider,
     Transcript,
 )
-from voice.deskhelm_voice.benchmark import (
+from deskhelm_voice.benchmark import (
     MAX_NDJSON_RECORD_BYTES,
     MAX_OBSERVATION_FILE_BYTES,
     MAX_TEXT_CHARS,

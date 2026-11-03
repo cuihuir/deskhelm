@@ -29,21 +29,14 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 from queue import Empty, Queue
-import sys
 import tempfile
 import time
 from threading import Condition, Lock
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-for _kind in ("codex", "claude", "acp"):
-    _adapter = ROOT / "adapters" / _kind
-    if str(_adapter) not in sys.path:
-        sys.path.insert(0, str(_adapter))
-
-from deskhelm_core import Core, Send  # noqa: E402
-from deskhelm_host.vendor import VendorClosed  # noqa: E402
-from deskhelm_protocol import EffectKind, FactKind, SessionKey  # noqa: E402
+from deskhelm_core import Core, Send
+from deskhelm_host.vendor import VendorClosed
+from deskhelm_protocol import EffectKind, FactKind, SessionKey
 
 
 TRANSCRIPT_FORMAT = "deskhelm-replay-v1"

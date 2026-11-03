@@ -6,7 +6,7 @@ from threading import Event
 import unittest
 import wave
 
-from voice.deskhelm_voice import (
+from deskhelm_voice import (
     PcmChunk,
     PcmStreamFormat,
     VadEventKind,

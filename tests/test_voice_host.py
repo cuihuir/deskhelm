@@ -20,8 +20,8 @@ from deskhelm_protocol import EffectKind, FactKind, SessionKey, Tier  # noqa: E4
 from deskhelm_voice_host.__main__ import main as voice_main, tts_settings  # noqa: E402
 from deskhelm_voice_host.policy import VoiceHost  # noqa: E402
 from helpers.v2 import FakeDriver  # noqa: E402
-import voice.deskhelm_voice as voice_library  # noqa: E402
-from voice.deskhelm_voice import (  # noqa: E402
+import deskhelm_voice as voice_library  # noqa: E402
+from deskhelm_voice import (  # noqa: E402
     AudioNode,
     AudioNodeKind,
     CapturedAudio,

@@ -4,7 +4,7 @@ from threading import Event
 import time
 import unittest
 
-from voice.deskhelm_voice import (
+from deskhelm_voice import (
     CapturedAudio,
     FakeAsrProvider,
     FakeCaptureProvider,

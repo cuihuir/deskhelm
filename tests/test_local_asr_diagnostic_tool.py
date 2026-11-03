@@ -11,7 +11,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from voice.deskhelm_voice import (
+from deskhelm_voice import (
     AudioNode,
     AudioNodeKind,
     CapturedAudio,
@@ -22,8 +22,8 @@ from voice.deskhelm_voice import (
     VadEventKind,
     VoiceNoTranscript,
 )
-from voice.deskhelm_voice.audio_config import PipeWireAudioInventory
-from voice.deskhelm_voice.benchmark import BenchmarkCorpus
+from deskhelm_voice.audio_config import PipeWireAudioInventory
+from deskhelm_voice.benchmark import BenchmarkCorpus
 
 
 TOOL_PATH = Path("tools/run-local-asr-diagnostic.py")

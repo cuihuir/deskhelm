@@ -9,36 +9,19 @@ import shlex
 from threading import Condition, Timer
 import time
 
-try:
-    from deskhelm_voice import (
-        AudioProviderKind,
-        LocalAsrProviderKind,
-        LocalAudioConfig,
-        LocalTtsProviderKind,
-        LocalVadProviderKind,
-        LocalVoiceConfig,
-        SpeechItem,
-        VoiceEvent,
-        VoiceEventKind,
-        VoiceTarget,
-        discover_pipewire_audio,
-    )
-except ModuleNotFoundError as error:
-    if error.name != "deskhelm_voice":
-        raise
-    from voice.deskhelm_voice import (
-        AudioProviderKind,
-        LocalAsrProviderKind,
-        LocalAudioConfig,
-        LocalTtsProviderKind,
-        LocalVadProviderKind,
-        LocalVoiceConfig,
-        SpeechItem,
-        VoiceEvent,
-        VoiceEventKind,
-        VoiceTarget,
-        discover_pipewire_audio,
-    )
+from deskhelm_voice import (
+    AudioProviderKind,
+    LocalAsrProviderKind,
+    LocalAudioConfig,
+    LocalTtsProviderKind,
+    LocalVadProviderKind,
+    LocalVoiceConfig,
+    SpeechItem,
+    VoiceEvent,
+    VoiceEventKind,
+    VoiceTarget,
+    discover_pipewire_audio,
+)
 
 
 DEFAULT_RESPONSE_TEXT = "本地语音链路测试完成。"

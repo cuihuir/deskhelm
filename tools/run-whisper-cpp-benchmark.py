@@ -10,24 +10,13 @@ import platform
 import resource
 import time
 
-try:
-    from deskhelm_voice import WhisperCppAsrProvider, load_prepared_asr_set
-    from deskhelm_voice.benchmark import (
-        BenchmarkIdentity,
-        run_asr_benchmark,
-        summarize_asr,
-        write_observations,
-    )
-except ModuleNotFoundError as error:
-    if error.name != "deskhelm_voice":
-        raise
-    from voice.deskhelm_voice import WhisperCppAsrProvider, load_prepared_asr_set
-    from voice.deskhelm_voice.benchmark import (
-        BenchmarkIdentity,
-        run_asr_benchmark,
-        summarize_asr,
-        write_observations,
-    )
+from deskhelm_voice import WhisperCppAsrProvider, load_prepared_asr_set
+from deskhelm_voice.benchmark import (
+    BenchmarkIdentity,
+    run_asr_benchmark,
+    summarize_asr,
+    write_observations,
+)
 
 
 MODEL_METADATA = {

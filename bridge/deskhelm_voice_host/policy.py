@@ -15,13 +15,7 @@ import uuid
 
 from deskhelm_client import CommandResult, ConsoleChange, ConsoleState, result_text
 from deskhelm_protocol import SessionKey
-
-try:
-    from deskhelm_voice import SpeechItem, Transcript, VoiceEvent, VoiceEventKind, VoiceGateway, VoiceTarget
-except ModuleNotFoundError as error:
-    if error.name != "deskhelm_voice":
-        raise
-    from voice.deskhelm_voice import SpeechItem, Transcript, VoiceEvent, VoiceEventKind, VoiceGateway, VoiceTarget
+from deskhelm_voice import SpeechItem, Transcript, VoiceEvent, VoiceEventKind, VoiceGateway, VoiceTarget
 
 APPROVAL_PHRASES = {
     "批准": "approve",

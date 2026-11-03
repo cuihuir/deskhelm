@@ -39,7 +39,9 @@ def voice_host_command(arguments: list[str], *, uv: str | None = None) -> tuple[
         "deskhelm_voice_host",
         *arguments,
     ]
-    environment = {**os.environ, "PYTHONPATH": os.pathsep.join((str(ROOT / "bridge"), str(ROOT / "voice")))}
+    # The voice runtime installs this checkout, so no path is added. An
+    # inherited VIRTUAL_ENV names the root environment and only draws a warning.
+    environment = dict(os.environ)
     environment.pop("VIRTUAL_ENV", None)
     return command, environment
 

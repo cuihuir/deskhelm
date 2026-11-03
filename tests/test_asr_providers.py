@@ -7,7 +7,7 @@ from threading import Event
 import unittest
 import wave
 
-from voice.deskhelm_voice import (
+from deskhelm_voice import (
     AsrRunManifest,
     CapturedAudio,
     ParaformerStreamingAsrProvider,
@@ -18,7 +18,7 @@ from voice.deskhelm_voice import (
     VoiceNoTranscript,
     load_prepared_asr_set,
 )
-from voice.deskhelm_voice.benchmark import (
+from deskhelm_voice.benchmark import (
     BenchmarkAudioSample,
     BenchmarkIdentity,
     BenchmarkStatus,

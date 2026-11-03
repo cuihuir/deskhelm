@@ -17,16 +17,6 @@ from threading import Event
 from typing import Any
 
 
-def _voice() -> Any:
-    try:
-        import deskhelm_voice
-    except ModuleNotFoundError as error:
-        if error.name != "deskhelm_voice":
-            raise
-        from voice import deskhelm_voice
-    return deskhelm_voice
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="deskhelm audio", description="Inspect or test the local audio devices.")
     commands = parser.add_subparsers(dest="audio_command", required=True)
@@ -67,7 +57,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def run(args: argparse.Namespace) -> None:
-    voice = _voice()
+    import deskhelm_voice as voice
+
     try:
         prefix = tuple(shlex.split(args.pw_cat_command_prefix))
     except ValueError as error:

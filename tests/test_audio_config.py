@@ -3,7 +3,7 @@ from threading import Event
 import unittest
 
 from deskhelm_cli.audio import build_parser
-from voice.deskhelm_voice.audio_config import (
+from deskhelm_voice.audio_config import (
     AudioNode,
     AudioNodeKind,
     LocalAudioConfig,
@@ -13,7 +13,7 @@ from voice.deskhelm_voice.audio_config import (
     measure_audio_signal,
     test_audio_input as run_audio_input_test,
 )
-from voice.deskhelm_voice.models import CapturedAudio, PcmSampleFormat
+from deskhelm_voice.models import CapturedAudio, PcmSampleFormat
 
 
 class _CaptureProvider:

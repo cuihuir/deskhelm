@@ -2,8 +2,7 @@
 
 Run it from the voice runtime, which holds the model providers::
 
-    PYTHONPATH=<checkout>/bridge:<checkout>/voice \\
-      uv run --project <checkout>/voice/runtime --locked --no-sync \\
+    uv run --project <checkout>/voice/runtime --locked --no-sync \\
       python -m deskhelm_voice_host
 
 It attaches to a running v2 Bridge at the voice tier. Holding right Alt
@@ -27,6 +26,7 @@ from typing import Any
 from deskhelm_client import BridgeClient
 from deskhelm_protocol import Tier
 from deskhelm_protocol.paths import default_socket_path
+import deskhelm_voice
 
 from .keys import DEFAULT_DEVICE
 
@@ -43,16 +43,6 @@ INDEXTTS_CONFIG_NAME = "config.yaml"
 INDEXTTS_VOICE_NAME = "voice.wav"
 INDEXTTS_EXECUTABLE = ROOT / "tools" / "run-index-tts25"
 STOP_SECONDS = 2.0
-
-
-def _voice() -> Any:
-    try:
-        import deskhelm_voice
-    except ModuleNotFoundError as error:
-        if error.name != "deskhelm_voice":
-            raise
-        from voice import deskhelm_voice
-    return deskhelm_voice
 
 
 def _is_indextts(directory: Path) -> bool:
@@ -83,23 +73,22 @@ def tts_settings(directory: Path) -> dict[str, Any]:
 
 
 def build_config(args: argparse.Namespace) -> Any:
-    voice = _voice()
     tts = tts_settings(args.tts_directory)
     try:
         prefix = tuple(shlex.split(args.pw_cat_command_prefix))
     except ValueError as error:
         raise ValueError("the pw-cat command prefix is invalid") from error
-    audio = voice.LocalAudioConfig(
+    audio = deskhelm_voice.LocalAudioConfig(
         source_name=args.source or None,
         sink_name=args.sink or None,
         latency=args.latency,
         pw_cat_command_prefix=prefix,
     )
-    return voice.LocalVoiceConfig(
+    return deskhelm_voice.LocalVoiceConfig(
         audio=audio,
-        asr_provider=voice.LocalAsrProviderKind.PARAFORMER,
+        asr_provider=deskhelm_voice.LocalAsrProviderKind.PARAFORMER,
         asr_model_directory=args.asr_model_directory.expanduser().resolve(),
-        tts_provider=voice.LocalTtsProviderKind(tts["provider"]),
+        tts_provider=deskhelm_voice.LocalTtsProviderKind(tts["provider"]),
         tts_model_path=tts["model"],
         tts_config_path=tts["config"],
         tts_resource_directory=tts["resources"],
@@ -170,10 +159,6 @@ def _keys_command(args: argparse.Namespace, *extra: str) -> list[str]:
     return [str(args.ptt_python), "-m", "deskhelm_voice_host.keys", "--device", str(args.ptt_device), *extra]
 
 
-def _keys_environment() -> dict[str, str]:
-    return {**os.environ, "PYTHONPATH": str(ROOT / "bridge")}
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -187,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"{args.ptt_python} is missing; run `uv sync --extra ptt --locked` in {ROOT} or pass --no-ptt")
     try:
         config = build_config(args)
-        inventory = _voice().discover_pipewire_audio(
+        inventory = deskhelm_voice.discover_pipewire_audio(
             pw_dump_executable=args.pw_dump_executable, wpctl_executable=args.wpctl_executable
         )
         absent = missing_devices(inventory, args.source, args.sink)
@@ -213,8 +198,8 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         if not args.no_ptt:
-            checked = subprocess.run(_keys_command(args, "--check"), env=_keys_environment(),
-                                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, check=False)
+            checked = subprocess.run(_keys_command(args, "--check"), stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, check=False)
             if checked.returncode != 0:
                 return 1
         print("deskhelm voice: preflight passed", file=sys.stderr)
@@ -244,8 +229,8 @@ def _run(args: argparse.Namespace, gateway: Any) -> int:
         host.start()
         client.start()
         if not args.no_ptt:
-            keys = subprocess.Popen(_keys_command(args), env=_keys_environment(), stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.PIPE, text=True, bufsize=1)
+            keys = subprocess.Popen(_keys_command(args), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    text=True, bufsize=1)
             Thread(target=_read_keys, args=(keys, host, stop), name="deskhelm-voice-keys", daemon=True).start()
         how = "hold right Alt to speak to the focused session" if keys else "notices only"
         print(f"deskhelm voice: attached to {socket_path}; {how}", file=sys.stderr)

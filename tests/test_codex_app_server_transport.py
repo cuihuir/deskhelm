@@ -10,20 +10,11 @@ import tempfile
 from threading import Event, Thread
 import unittest
 
-try:
-    from deskhelm_codex_adapter.app_server_transport import (
-        AppServerTransportError,
-        UnixWebSocketTransport,
-        WEBSOCKET_GUID,
-    )
-except ModuleNotFoundError as error:
-    if error.name != "deskhelm_codex_adapter":
-        raise
-    from adapters.codex.deskhelm_codex_adapter.app_server_transport import (
-        AppServerTransportError,
-        UnixWebSocketTransport,
-        WEBSOCKET_GUID,
-    )
+from deskhelm_codex_adapter.app_server_transport import (
+    AppServerTransportError,
+    UnixWebSocketTransport,
+    WEBSOCKET_GUID,
+)
 
 
 class CodexAppServerTransportTests(unittest.TestCase):

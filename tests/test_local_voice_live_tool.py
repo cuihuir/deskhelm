@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 import unittest
 
-from voice.deskhelm_voice import Transcript, VoiceEvent, VoiceEventKind, VoiceTarget
+from deskhelm_voice import Transcript, VoiceEvent, VoiceEventKind, VoiceTarget
 
 
 TOOL_PATH = Path("tools/run-local-voice-live.py")

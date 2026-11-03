@@ -13,54 +13,28 @@ import sys
 from threading import Event, Thread, Timer
 import time
 
-try:
-    from deskhelm_voice import (
-        AudioProviderKind,
-        CapturedAudio,
-        LocalAudioConfig,
-        ParaformerStreamingAsrProvider,
-        PcmChunk,
-        PcmStreamFormat,
-        StreamingAsrResult,
-        SenseVoiceOfflineAsrProvider,
-        VadEvent,
-        VadEventKind,
-        VoiceNoTranscript,
-        WebRtcVadProvider,
-        discover_pipewire_audio,
-        measure_audio_signal,
-    )
-    from deskhelm_voice.benchmark import (
-        BenchmarkCorpus,
-        BenchmarkUtterance,
-        character_error_rate,
-        keyword_accuracy,
-    )
-except ModuleNotFoundError as error:
-    if error.name != "deskhelm_voice":
-        raise
-    from voice.deskhelm_voice import (
-        AudioProviderKind,
-        CapturedAudio,
-        LocalAudioConfig,
-        ParaformerStreamingAsrProvider,
-        PcmChunk,
-        PcmStreamFormat,
-        StreamingAsrResult,
-        SenseVoiceOfflineAsrProvider,
-        VadEvent,
-        VadEventKind,
-        VoiceNoTranscript,
-        WebRtcVadProvider,
-        discover_pipewire_audio,
-        measure_audio_signal,
-    )
-    from voice.deskhelm_voice.benchmark import (
-        BenchmarkCorpus,
-        BenchmarkUtterance,
-        character_error_rate,
-        keyword_accuracy,
-    )
+from deskhelm_voice import (
+    AudioProviderKind,
+    CapturedAudio,
+    LocalAudioConfig,
+    ParaformerStreamingAsrProvider,
+    PcmChunk,
+    PcmStreamFormat,
+    StreamingAsrResult,
+    SenseVoiceOfflineAsrProvider,
+    VadEvent,
+    VadEventKind,
+    VoiceNoTranscript,
+    WebRtcVadProvider,
+    discover_pipewire_audio,
+    measure_audio_signal,
+)
+from deskhelm_voice.benchmark import (
+    BenchmarkCorpus,
+    BenchmarkUtterance,
+    character_error_rate,
+    keyword_accuracy,
+)
 
 
 DEFAULT_CORPUS = Path("voice/benchmarks/utterances-v1.json")

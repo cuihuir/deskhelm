@@ -6,14 +6,14 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from voice.deskhelm_voice import (
+from deskhelm_voice import (
     IndexTtsProvider,
     KokoroTtsProvider,
     PiperTtsProvider,
     SynthesizedAudio,
     VoiceCancelled,
 )
-from voice.deskhelm_voice.benchmark import (
+from deskhelm_voice.benchmark import (
     BenchmarkCorpus,
     BenchmarkIdentity,
     BenchmarkLanguage,
@@ -21,7 +21,7 @@ from voice.deskhelm_voice.benchmark import (
     run_tts_benchmark,
     summarize_tts,
 )
-from voice.deskhelm_voice.tts_manifest import TtsCandidateManifest
+from deskhelm_voice.tts_manifest import TtsCandidateManifest
 
 
 MANIFEST_PATH = Path("voice/benchmarks/tts-candidates-v1.json")

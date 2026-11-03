@@ -8,13 +8,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[1]
-for path in (ROOT / "bridge", ROOT / "adapters" / "codex"):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
-
-from deskhelm_codex_adapter.host import codex_sockets, run_codex_host, tui_command  # noqa: E402
-from deskhelm_protocol import SessionKey  # noqa: E402
+from deskhelm_codex_adapter.host import codex_sockets, run_codex_host, tui_command
+from deskhelm_protocol import SessionKey
 
 
 class CodexHostTests(unittest.TestCase):

@@ -15,9 +15,6 @@ from unittest import mock
 TESTS = Path(__file__).resolve().parent
 if str(TESTS) not in sys.path:
     sys.path.insert(0, str(TESTS))
-CODEX = TESTS.parent / "adapters" / "codex"
-if str(CODEX) not in sys.path:
-    sys.path.insert(0, str(CODEX))
 
 from deskhelm_cli import USAGE, _options_first, main as deskhelm_main  # noqa: E402
 from deskhelm_codex_adapter.host import redaction_arguments  # noqa: E402

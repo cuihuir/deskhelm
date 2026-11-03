@@ -11,7 +11,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 
 from voice import deskhelm_voice as _deskhelm_voice
-from voice.deskhelm_voice import (
+from deskhelm_voice import (
     FakeStreamingCaptureProvider,
     FakeVadProvider,
     PcmChunk,

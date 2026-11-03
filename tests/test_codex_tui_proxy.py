@@ -12,19 +12,8 @@ from threading import Event, Lock, Thread
 import time
 import unittest
 
-try:
-    from deskhelm_codex_adapter import CodexTuiProxy, UnixWebSocketTransport
-    from deskhelm_codex_adapter.app_server_transport import WEBSOCKET_GUID
-except ModuleNotFoundError as error:
-    if error.name != "deskhelm_codex_adapter":
-        raise
-    from adapters.codex.deskhelm_codex_adapter import (
-        CodexTuiProxy,
-        UnixWebSocketTransport,
-    )
-    from adapters.codex.deskhelm_codex_adapter.app_server_transport import (
-        WEBSOCKET_GUID,
-    )
+from deskhelm_codex_adapter import CodexTuiProxy, UnixWebSocketTransport
+from deskhelm_codex_adapter.app_server_transport import WEBSOCKET_GUID
 
 
 class _FakeUpstreamServer:
