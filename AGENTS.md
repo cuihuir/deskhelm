@@ -637,7 +637,9 @@ Current commands:
   `project-secrets run`. The right-Alt listener runs with the root
   environment's Python, which needs `uv sync --extra ptt --locked`.
   `--check` validates models, audio, and the key without opening audio or
-  naming devices.
+  naming devices. A configured source or sink that is not connected fails
+  with a message naming its setting, never its device; `--default-source` or
+  `--default-sink` explicitly uses the computer's current default instead.
 - `PYTHONPATH=bridge python3 -m unittest tests.test_core
   tests.test_core_server tests.test_host_link tests.test_drivers
   tests.test_codex_host tests.test_replay_transcripts tests.test_client

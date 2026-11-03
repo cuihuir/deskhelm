@@ -62,7 +62,10 @@ temporary sockets. No DeskHelm process is running.
 Open issues:
 
 - Not yet exercised by a person: the voice host's speech path (hold right
-  Alt and speak, then hear a notice) and the v2 page in a real browser.
+  Alt and speak, then hear a notice). The user checked the v2 page and the
+  dashboard on 2026-11-03: both stay in sync. Their first voice start
+  failed because the configured USB microphone was unplugged, which is the
+  intended refusal; the message now names the setting and `--default-source`.
 - The page still merges the interaction stream in the browser; the target
   view model in Python is not done. The browser sends no idempotency key,
   which matters only if a POST is retried.
@@ -99,7 +102,9 @@ Operator notes:
   env PYTHONPATH=<checkout>/bridge:<checkout>/voice uv run --project
   <checkout>/voice/runtime --locked --no-sync python -m deskhelm_voice_host`,
   focus a session on the page, and hold right Alt. Stop the v1 right-Alt
-  listener first; both take `ptt.lock`.
+  listener first; both take `ptt.lock`. When the configured USB microphone
+  is unplugged the host refuses to start; add `--default-source` to use the
+  computer's current default microphone instead.
 - The v2 Bridge keeps running after its hosts exit. Stop it by the pid of
   `python3 -m deskhelm_core --socket …`; its output is in
   `$XDG_RUNTIME_DIR/deskhelm/bridge-v2.log`.
