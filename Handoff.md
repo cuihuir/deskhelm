@@ -91,9 +91,11 @@ Operator notes:
   `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_host codex`, `claude`, or
   `grok`; the first host starts a v2 Bridge on `bridge-v2.sock`. Then
   `PYTHONPATH=<checkout>/bridge python3 -m deskhelm_web` (open the printed
-  link, port 8767) or `python3 -m deskhelm_dashboard`. For voice, run
+  link, port 8767) or `python3 -m deskhelm_dashboard`. For voice, run, with
+  the same required names as the v1 launcher so the same microphone is used,
   `project-secrets --project <checkout> run --env default --require
-  DESKHELM_ALPHA_ASR_MODEL_DIRECTORY DESKHELM_ALPHA_TTS_DIRECTORY --
+  DESKHELM_ALPHA_VOICE_SOURCE DESKHELM_ALPHA_ASR_MODEL_DIRECTORY
+  DESKHELM_ALPHA_TTS_DIRECTORY --
   env PYTHONPATH=<checkout>/bridge:<checkout>/voice uv run --project
   <checkout>/voice/runtime --locked --no-sync python -m deskhelm_voice_host`,
   focus a session on the page, and hold right Alt. Stop the v1 right-Alt
