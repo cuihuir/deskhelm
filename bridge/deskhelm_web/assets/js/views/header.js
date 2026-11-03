@@ -54,6 +54,7 @@ export function mountHeader(store, root, banner, actions) {
 
   // An informational notice stays dismissed for the Bridge instance it was about.
   let dismissed = "";
+  let shown = "";
 
   function renderBanner() {
     const { state } = store;
@@ -64,6 +65,9 @@ export function mountHeader(store, root, banner, actions) {
     else if (state.stream === "lost") text = "与页面服务的连接已断开，正在重连…";
     else if (state.stream === "open" && !state.connected) text = NOTICE_TEXT.bridge_unavailable;
     else if (NOTICE_TEXT[state.notice] && notice !== dismissed) [text, tone] = [NOTICE_TEXT[state.notice], "info"];
+    // The banner is a status region; redrawing the same words would repeat them.
+    if (`${tone}:${text}` === shown) return;
+    shown = `${tone}:${text}`;
     banner.hidden = !text;
     banner.className = `banner tone-${tone}`;
     const close = tone === "info"

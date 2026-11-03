@@ -3,11 +3,13 @@ from __future__ import annotations
 import http.client
 import json
 from pathlib import Path
+import queue
 import re
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
 if str(TESTS) not in sys.path:
@@ -213,6 +215,35 @@ class WebSurfaceTests(unittest.TestCase):
         _wait(lambda: self._get(web, "/api/snapshot")[1]["transcripts"][PAGE_KEY][0]["status"] == "stopped")
 
         self.assertEqual(self._session(web)["lifecycle"], "disconnected")
+
+    def test_a_browser_that_falls_behind_is_cut_off_cleanly(self) -> None:
+        web = self._web()
+        slow: queue.Queue = queue.Queue(maxsize=2)
+        with web._clients_lock:
+            web._clients.append(slow)
+        for rev in range(3):
+            web.broadcast("patch", {"rev": rev})
+
+        self.assertNotIn(slow, web._clients)
+        self.assertEqual([slow.get_nowait() for _ in range(slow.qsize())], [None])
+
+    def test_a_session_past_the_transcript_bound_is_named_in_a_notice(self) -> None:
+        other = FakeDriver()
+        link = BridgeLink(self.path, SessionKey("fake", "session-2", "demo"), other, client_id="host-other",
+                          reconnect_initial=0.05, reconnect_max=0.1)
+        link.start()
+        self.addCleanup(link.close)
+        self.assertTrue(link.opened.wait(3))
+        other.start(link.emit)
+        with mock.patch("deskhelm_web.server.MAX_TRANSCRIPTS", 1):
+            web = self._web()
+            self.driver.emit(FactKind.MESSAGE, {"message_ref": "m1", "role": "assistant", "phase": "complete"}, {"text": "one"})
+            _wait(lambda: PAGE_KEY in self._get(web, "/api/snapshot")[1]["transcripts"])
+            other.emit(FactKind.MESSAGE, {"message_ref": "m2", "role": "assistant", "phase": "complete"}, {"text": "two"})
+            _wait(lambda: self._get(web, "/api/snapshot")[1]["notice"] == "too_many_sessions")
+            snapshot = self._get(web, "/api/snapshot")[1]
+
+        self.assertEqual(list(snapshot["transcripts"]), [PAGE_KEY])
 
     def test_live_changes_arrive_as_patches_newer_than_the_snapshot(self) -> None:
         web = self._web()

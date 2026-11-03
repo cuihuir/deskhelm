@@ -36,12 +36,21 @@ export function createStore() {
   }
 
   function emit(topic, detail) {
-    for (const listener of listeners.get(topic) || []) listener(detail);
+    for (const listener of listeners.get(topic) || []) {
+      try {
+        listener(detail);
+      } catch (error) {
+        // One view that fails must not stop the others or the stream.
+        console.error(error);
+      }
+    }
   }
 
   // Server ------------------------------------------------------------
 
   function applySnapshot(payload) {
+    // A snapshot queued before the one this stream began with is older.
+    if (payload.epoch === state.epoch && typeof payload.rev === "number" && payload.rev <= state.rev) return;
     if (payload.epoch !== state.epoch) {
       state.pending.clear();
       state.deciding.clear();
@@ -102,6 +111,12 @@ export function createStore() {
 
   function fresh(payload) {
     if (typeof payload.rev !== "number" || payload.rev <= state.rev) return false;
+    if (payload.rev !== state.rev + 1) {
+      // Every event reaches every page in order, so a skipped revision means
+      // something was lost; the stream starts again from a snapshot.
+      emit("gap");
+      return false;
+    }
     state.rev = payload.rev;
     return true;
   }

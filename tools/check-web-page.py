@@ -20,6 +20,7 @@ from pathlib import Path
 from queue import Empty, Queue
 import sys
 import tempfile
+import threading
 import time
 
 from deskhelm_core.server import BridgeServer
@@ -199,6 +200,27 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     page.locator(".msg.assistant:not(.is-streaming)", has_text="Looking at it now.").wait_for(timeout=5000)
     check("the finished reply replaces the stream", page.locator(".msg.assistant.is-streaming").count() == 0)
 
+    # Markdown that once broke the page.
+    tricky = "### Using C#\n\n```python print('hi')``` stays inline.\n\nAfter the inline code."
+    codex.emit(FactKind.MESSAGE, {"message_ref": "md1", "role": "assistant", "phase": "complete"}, {"text": tricky})
+    reply = page.locator(".msg.assistant", has_text="After the inline code.")
+    reply.wait_for(timeout=5000)
+    check("a heading keeps a # that follows a word", reply.locator("h3").text_content() == "Using C#")
+    check("inline code that starts with three backticks opens no block",
+          reply.locator(".code").count() == 0 and reply.locator("p", has_text="After the inline code.").count() == 1)
+    codex.emit(FactKind.MESSAGE, {"message_ref": "md2", "role": "assistant", "phase": "complete"},
+               {"text": "- " * 3000 + "x\n  y\n\nNESTED-END"})
+    page.locator(".msg.assistant", has_text="NESTED-END").wait_for(timeout=5000)
+    check("nesting deeper than anyone writes still renders", True)
+    started = time.monotonic()
+    codex.emit(FactKind.MESSAGE, {"message_ref": "md3", "role": "assistant", "phase": "complete"},
+               {"text": "# a" + " " * 6000 + "b\n\nHEADING-END"})
+    codex.emit(FactKind.MESSAGE, {"message_ref": "md4", "role": "assistant", "phase": "complete"},
+               {"text": ("see `src/f.py`, " * 4000)[:60_000] + " LONG-END"})
+    page.locator(".msg.assistant", has_text="LONG-END").wait_for(timeout=15_000)
+    page.locator(".msg.assistant", has_text="HEADING-END").wait_for(timeout=1000)
+    check("lines that once took seconds render quickly", time.monotonic() - started < 3)
+
     # Interrupt while working.
     page.click(".composer .stop")
     codex.take(EffectKind.INTERRUPT)
@@ -270,11 +292,33 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     page.click("#topbar .button.ghost")
     page.locator("#topbar .button.ghost.is-on").wait_for(timeout=5000)
     page.locator("#session-list .session", has_text="Codex").locator(".focus-mark").wait_for(timeout=5000)
-    check("focus marks the session for voice", page.locator(".session .focus-mark").count() == 1)
+    check("focus marks the session for voice", page.locator(".session .focus-mark:not([hidden])").count() == 1)
     page.click("#topbar [aria-label='会话详情']")
     page.locator(".details .catalog .name", has_text="github").wait_for(timeout=5000)
     check("details list the MCP servers", True)
     page.keyboard.press("Escape")
+
+    # A session row stays clickable while another session streams.
+    streaming = threading.Event()
+
+    def stream() -> None:
+        count = 0
+        while not streaming.is_set():
+            claude.emit(FactKind.MESSAGE, {"message_ref": "c-stream", "role": "assistant", "phase": "delta"},
+                        {"text": f"word{count} "})
+            count += 1
+            time.sleep(0.03)
+
+    streamer = threading.Thread(target=stream, daemon=True)
+    streamer.start()
+    try:
+        page.locator("#session-list .session", has_text="Grok").click()
+        page.locator("#topbar h1", has_text="Grok").wait_for(timeout=3000)
+        check("a session row stays clickable while another session streams", True)
+    finally:
+        streaming.set()
+        streamer.join()
+    claude.emit(FactKind.MESSAGE, {"message_ref": "c-stream", "role": "assistant", "phase": "complete"}, {"text": "streamed"})
     page.locator("#session-list .session", has_text="Claude").click()
     page.locator(".msg.user", has_text="Summarize the pricing page").wait_for(timeout=5000)
     check("switching sessions switches the transcript", page.locator("#topbar h1").text_content() == "Claude")
@@ -282,7 +326,8 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     page.locator(".msg.assistant", has_text="Second note.").wait_for(timeout=5000)
     drivers["grok"].emit(FactKind.MESSAGE, {"message_ref": "g1", "role": "assistant", "phase": "complete"}, {"text": "Grok news."})
     page.locator("#session-list .session", has_text="Grok").locator(".unseen").wait_for(timeout=5000)
-    check("new activity elsewhere is marked unseen", page.locator("#session-list .session", has_text="Claude").locator(".unseen").count() == 0)
+    check("new activity elsewhere is marked unseen",
+          page.locator("#session-list .session", has_text="Claude").locator(".unseen:not([hidden])").count() == 0)
     page.reload()
     page.locator("#topbar h1", has_text="Claude").wait_for(timeout=5000)
     check("the selection survives a reload", page.locator(".msg.assistant", has_text="Second note.").count() == 1)
@@ -305,7 +350,7 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     rebuilt = page.locator(".tail .approval.is-live", has_text="Edit config")
     rebuilt.wait_for(timeout=15_000)
     check("the chosen session is shown again after the restart", page.locator("#topbar h1").text_content() == "Codex")
-    check("a restart marks no session as having new activity", page.locator("#session-list .unseen").count() == 0)
+    check("a restart marks no session as having new activity", page.locator("#session-list .unseen:not([hidden])").count() == 0)
     check("an approval rebuilt after a Bridge restart can still be answered", rebuilt.locator(".button.primary").is_enabled())
     rebuilt.locator(".button.primary").click()
     decision = codex.take(EffectKind.RESPOND)

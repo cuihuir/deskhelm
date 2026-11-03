@@ -122,7 +122,9 @@ class WebSurface(WebHttp):
             transcript = self._transcripts.get(key)
             if transcript is None:
                 if len(self._transcripts) >= MAX_TRANSCRIPTS:
-                    self._notice = "too_many_sessions"
+                    if self._notice != "too_many_sessions":
+                        self._notice = "too_many_sessions"
+                        self._emit_locked("sessions", self._sessions_locked())
                     return
                 transcript = self._transcripts[key] = Transcript()
             patches = transcript.apply(event)

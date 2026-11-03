@@ -8,6 +8,17 @@ export function openStream(store) {
     leaving = true;
     source.close();
   });
+  // A page restored from the back/forward cache needs its stream again.
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) {
+      leaving = false;
+      start();
+    }
+  });
+  store.on("gap", () => {
+    source.close();
+    start();
+  });
 
   const read = (handler) => (event) => {
     let payload = null;

@@ -7,6 +7,7 @@ import { diffBlock, looksLikeDiff, renderMarkdown } from "../markdown.js";
 import { countdown, historyHint, outcomeText, toolIcon, toolWord } from "../text.js";
 
 const STREAM_RENDER_MS = 50;
+const MAX_STREAM_RENDER_MS = 1000;
 const BUSY = new Set(["working", "starting"]);
 
 export function mountTranscript(store, { scroller, root, jump }, actions) {
@@ -54,12 +55,27 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
   }
 
   function render(item) {
-    if (item.type === "message") return message(item);
-    if (item.type === "tool") return tool(item);
-    if (item.type === "approval") return approval(item);
-    if (item.type === "input") return input(item);
-    if (item.type === "turn") return turn(item);
-    return h("div", { hidden: true });
+    try {
+      if (item.type === "message") return message(item);
+      if (item.type === "tool") return tool(item);
+      if (item.type === "approval") return approval(item);
+      if (item.type === "input") return input(item);
+      if (item.type === "turn") return turn(item);
+      return h("div", { hidden: true });
+    } catch (error) {
+      // One item that cannot be drawn must not take the transcript with it.
+      console.error(error);
+      return h("div", { class: "msg system" }, h("p", { text: "这一项无法显示" }));
+    }
+  }
+
+  function markdown(text) {
+    try {
+      return renderMarkdown(text);
+    } catch (error) {
+      console.error(error);
+      return document.createTextNode(text);
+    }
   }
 
   function message(item) {
@@ -69,7 +85,7 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
     if (item.role === "system") {
       return h("div", { class: "msg system" }, h("p", { text: item.text }));
     }
-    const body = h("div", { class: "md" }, renderMarkdown(item.text));
+    const body = h("div", { class: "md" }, markdown(item.text));
     if (item.streaming && !item.text) body.append(dots());
     const node = h("div", { class: item.streaming ? "msg assistant is-streaming" : "msg assistant" }, body);
     if (!item.streaming && item.text && navigator.clipboard) {
@@ -264,11 +280,19 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
     follow(() => {
       for (const id of dirty) {
         const item = store.items(key).get(id);
-        const body = nodes.get(id) && nodes.get(id).querySelector(".md");
-        if (item && body) body.replaceChildren(renderMarkdown(item.text));
+        if (!item) continue;
+        const body = item.type === "message" && nodes.get(id) && nodes.get(id).querySelector(".md");
+        if (body) body.replaceChildren(markdown(item.text));
+        else place(item);
       }
       dirty.clear();
     });
+  }
+
+  // Drawing costs grow with the text, so a long reply is redrawn less often.
+  function streamDelay(item) {
+    const size = (item.type === "message" ? item.text : item.output).length;
+    return Math.min(MAX_STREAM_RENDER_MS, STREAM_RENDER_MS + Math.floor(size / 64));
   }
 
   store.on("snapshot", renderAll);
@@ -276,11 +300,12 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
   store.on("patch", ({ key: changed, op, id }) => {
     if (changed !== key) return;
     const item = store.items(key).get(id);
-    if (op === "append" && item && item.type === "message" && nodes.has(id)) {
+    if (op === "append" && item && nodes.has(id)) {
       dirty.add(id);
-      if (!timer) timer = setTimeout(() => requestAnimationFrame(flushStreaming), STREAM_RENDER_MS);
+      if (!timer) timer = setTimeout(() => requestAnimationFrame(flushStreaming), streamDelay(item));
       return;
     }
+    const arrived = op === "upsert" && item && !nodes.has(id);
     follow(() => {
       if (op === "remove") {
         if (nodes.has(id)) nodes.get(id).remove();
@@ -291,6 +316,9 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
       }
       renderTail();
     });
+    // The transcript is not a live region, so the few changes worth hearing are said once.
+    if (arrived && item.type === "approval") actions.announce("有新的批准请求");
+    else if (arrived && item.type === "turn") actions.announce(outcomeText(item));
   });
   const refreshApprovals = () => {
     for (const item of store.items(key).values()) if (item.type === "approval") place(item);

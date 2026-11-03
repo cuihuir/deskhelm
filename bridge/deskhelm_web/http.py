@@ -108,6 +108,19 @@ def _same_origin(origin: str, host: str | None) -> bool:
     return parts.scheme == "http" and bool(host) and parts.netloc == host
 
 
+def _end_stream(subscriber: queue.Queue[tuple[str, str] | None]) -> None:
+    """Drop what a cut-off browser still has queued and tell its stream to end."""
+    while True:
+        try:
+            subscriber.get_nowait()
+        except queue.Empty:
+            break
+    try:
+        subscriber.put_nowait(None)
+    except queue.Full:
+        pass
+
+
 def _load_assets() -> dict[str, tuple[bytes, str]]:
     """The page and every stylesheet, module, and icon under assets/."""
     assets = {"/": ((ASSET_DIRECTORY / "index.html").read_bytes(), "text/html; charset=utf-8")}
@@ -207,13 +220,10 @@ class WebHttp:
             try:
                 subscriber.put_nowait((name, data))
             except queue.Full:
-                # A browser that cannot keep up reconnects and gets a snapshot.
+                # A browser that cannot keep up starts again from a snapshot,
+                # so nothing after the gap may reach it.
                 self._unsubscribe(subscriber)
-                try:
-                    subscriber.get_nowait()
-                    subscriber.put_nowait(None)
-                except (queue.Empty, queue.Full):
-                    pass
+                _end_stream(subscriber)
 
     # Requests ----------------------------------------------------------
 
