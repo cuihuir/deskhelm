@@ -12,6 +12,17 @@ Adapter session lifecycle fixtures live under `tests/fixtures/protocol/`.
 Runtime-specific evidence lives under `tests/fixtures/adapters/`; each set must
 record provenance and distinguish official examples from synthetic fixtures.
 
+Replay transcripts under `fixtures/replay/<runtime>/<scenario>.ndjson` drive
+the real Claude, Grok, and Codex adapters through `helpers/replay.py`.
+`test_replay_transcripts.py` replays every file; only the vendor transport is
+replaced. The format is `deskhelm-replay-v1`: a header naming the runtime,
+scenario, `source_type`, and provenance notes, followed by `inbound`,
+`outbound`, `control`, and `events` steps, as the module docstring describes.
+Every current transcript is synthetic. A recorded transcript must use a public
+prompt, replace paths, home directories, and vendor session ids with
+placeholders, set `source_type` to `recorded`, name the runtime version, and
+be reviewed by a person before it is committed.
+
 `FakeAgentProvider` verifies prompt streaming, bounded capacity, session resume,
 and cancellation without external runtimes. `tests/helpers/fake_codex_cli.py`
 verifies subprocess startup, stdin prompt delivery, JSONL parsing, timeout,

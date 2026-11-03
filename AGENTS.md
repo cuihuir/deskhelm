@@ -687,6 +687,9 @@ Current commands:
 - `PYTHONPATH=bridge uv run --project voice/runtime --locked --no-sync python -m
   unittest discover -s tests -v`: run the full no-hardware suite from the
   already synchronized pinned uv environment; model imports remain lazy.
+- `PYTHONPATH=bridge python3 -m unittest tests.test_replay_transcripts -v`:
+  replay every vendor transcript in `tests/fixtures/replay/` through the real
+  adapters.
 - `git diff --check`: detect whitespace errors.
 - `find docs -name '*.md' -type f`: list documentation for review.
 - `rg '<term>' .`: search code and documentation.
@@ -713,7 +716,10 @@ Add tests beside their component or under `tests/` for cross-component
 behavior. Protocol and adapter changes require captured or synthetic fixtures,
 including producing runtime versions where applicable. Test malformed input,
 unknown events, cancellation, queue limits, and terminal states, not only happy
-paths.
+paths. Adapter changes keep the replay transcripts in `tests/fixtures/replay/`
+passing and add a transcript for new vendor behavior. Recording a live vendor
+session is an explicit operator action; recorded transcripts are anonymized
+and reviewed before they are committed.
 
 Firmware changes should include hardware-in-the-loop notes when necessary.
 Record every untested hardware or model assumption explicitly.
