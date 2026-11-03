@@ -3,7 +3,7 @@
 Every request needs the startup token, once as ``?token=`` and then as an
 HttpOnly, SameSite=Strict cookie. A loopback bind accepts only loopback Host
 names; POST needs a JSON body and, when the browser sends one, a same-origin
-Origin. The v1 web client keeps its own copy of these rules until phase 4.
+Origin.
 """
 
 from __future__ import annotations
@@ -37,8 +37,7 @@ _CSP = (
     "default-src 'self'; style-src 'self'; script-src 'self'; "
     "img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'"
 )
-# The page is shared with the v1 web client until phase 4 removes v1.
-ASSET_DIRECTORY = Path(__file__).resolve().parents[1] / "deskhelm_bridge" / "web-assets"
+ASSET_DIRECTORY = Path(__file__).resolve().parent / "assets"
 _ASSET_SPECS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/assets/app.css": ("app.css", "text/css; charset=utf-8"),
@@ -66,7 +65,7 @@ def normalize_web_port(port: int) -> int:
 
 
 def default_web_token_path() -> Path:
-    # The same file as the v1 web client, so one sign-in serves both.
+    # The file the v1 web client used, so existing browser sign-ins still work.
     return runtime_directory() / "web-token"
 
 

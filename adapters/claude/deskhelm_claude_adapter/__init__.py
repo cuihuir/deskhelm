@@ -1,10 +1,6 @@
-from .command import claude_argv, runtime_version
-from .runtime import ClaudeRelayRuntime
-from .stream import ClaudeEventDecoder
+"""Claude Code stream-json driver for a session host (ADR 0043)."""
 
-__all__ = [
-    "ClaudeEventDecoder",
-    "ClaudeRelayRuntime",
-    "claude_argv",
-    "runtime_version",
-]
+from .command import claude_argv, runtime_version
+from .driver import ClaudeSession
+
+__all__ = ["ClaudeSession", "claude_argv", "runtime_version"]

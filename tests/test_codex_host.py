@@ -13,7 +13,6 @@ for path in (ROOT / "bridge", ROOT / "adapters" / "codex"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from deskhelm_bridge.paths import alpha_codex_socket_paths, default_alpha_socket_path  # noqa: E402
 from deskhelm_codex_adapter.host import codex_sockets, run_codex_host, tui_command  # noqa: E402
 from deskhelm_protocol import SessionKey  # noqa: E402
 
@@ -28,14 +27,15 @@ class CodexHostTests(unittest.TestCase):
         self.assertEqual(normal, ["codex", "--remote", f"unix://{proxy}", "--sandbox", "read-only", "--ask-for-approval", "on-request"])
         self.assertEqual(yolo, ["codex", "--remote", f"unix://{proxy}", "--yolo"])
 
-    def test_sockets_are_per_directory_and_apart_from_the_v1_launcher(self) -> None:
+    def test_sockets_are_per_directory_and_apart_from_the_bridge(self) -> None:
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": directory}):
             app, tui = codex_sockets("0123456789ab")
-            v1 = set(alpha_codex_socket_paths(default_alpha_socket_path(Path(directory))))
+            other = codex_sockets("ba9876543210")
 
         self.assertEqual((app.parent, tui.parent), (Path(directory) / "deskhelm",) * 2)
-        self.assertNotEqual(app, tui)
-        self.assertFalse({app, tui} & v1)
+        self.assertEqual((app.name, tui.name), ("codex-0123456789ab-app.sock", "codex-0123456789ab-tui.sock"))
+        self.assertFalse({app, tui} & set(other))
+        self.assertNotIn("bridge.sock", (app.name, tui.name))
 
     def test_a_terminal_is_required(self) -> None:
         stderr = io.StringIO()

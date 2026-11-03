@@ -19,9 +19,7 @@ ptt = [
 
 [tool.setuptools]
 packages = [
-  "agent_io_bridge",
   "deskhelm_acp_adapter",
-  "deskhelm_bridge",
   "deskhelm_claude_adapter",
   "deskhelm_cli",
   "deskhelm_client",
@@ -36,9 +34,7 @@ packages = [
 ]
 
 [tool.setuptools.package-dir]
-agent_io_bridge = "bridge/agent_io_bridge"
 deskhelm_acp_adapter = "adapters/acp/deskhelm_acp_adapter"
-deskhelm_bridge = "bridge/deskhelm_bridge"
 deskhelm_claude_adapter = "adapters/claude/deskhelm_claude_adapter"
 deskhelm_cli = "bridge/deskhelm_cli"
 deskhelm_client = "bridge/deskhelm_client"
@@ -52,4 +48,4 @@ deskhelm_voice_host = "bridge/deskhelm_voice_host"
 deskhelm_web = "bridge/deskhelm_web"
 
 [tool.setuptools.package-data]
-deskhelm_bridge = ["web-assets/*"]
+deskhelm_web = ["assets/*"]
