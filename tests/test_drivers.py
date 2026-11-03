@@ -11,11 +11,12 @@ TESTS = Path(__file__).resolve().parent
 if str(TESTS) not in sys.path:
     sys.path.insert(0, str(TESTS))
 
-from helpers.replay import _FakeVendor  # noqa: E402
+from helpers.replay import _FakeVendor, _QueueTransport  # noqa: E402
 
 from deskhelm_acp_adapter import AcpSession, GrokFlavor  # noqa: E402
 from deskhelm_claude_adapter.driver import MAX_PENDING_APPROVALS, ClaudeSession  # noqa: E402
-from deskhelm_protocol import EffectKind, EffectOutcome, FactKind  # noqa: E402
+from deskhelm_codex_adapter.driver import CodexSession  # noqa: E402
+from deskhelm_protocol import EffectKind, EffectOutcome, FactKind, SessionKey  # noqa: E402
 
 
 FIXTURES = TESTS / "fixtures" / "adapters"
@@ -291,6 +292,173 @@ class AcpDriverTests(_DriverCase):
 
         terminal = self.facts.of(FactKind.TURN_TERMINAL)[0][0]
         self.assertEqual((terminal["status"], terminal["failure"]), ("failed", "process_exit"))
+
+
+def _codex(transport: _QueueTransport) -> CodexSession:
+    return CodexSession(
+        SessionKey("codex", "local-1", "demo"),
+        socket_path=Path("/tmp/deskhelm-codex-test.sock"),
+        runtime_version="test",
+        refresh_catalog=False,
+        transport_factory=lambda: transport,
+        discovery_interval_seconds=3600,
+        reconnect_initial_seconds=0.01,
+        reconnect_max_seconds=0.02,
+    )
+
+
+class CodexDriverTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.transport = _QueueTransport()
+        self.injected = 0
+        self.facts = _Recorder()
+        self.driver = _codex(self.transport)
+        self.driver.start(self.facts)
+        self.addCleanup(self.driver.close)
+        self.answer("initialize", {})
+        self.answer("thread/loaded/list", {"data": ["thread-1"], "nextCursor": None})
+        self.facts.wait_for(FactKind.READY)
+
+    def outgoing(self, wanted) -> dict:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if not self.transport.outgoing.empty():
+                message = self.transport.outgoing.get_nowait()
+                if wanted(message):
+                    return message
+            time.sleep(0.01)
+        raise AssertionError("the adapter did not send the expected frame")
+
+    def inject(self, *frames: dict) -> None:
+        for frame in frames:
+            self.injected += 1
+            self.transport.incoming.put(frame)
+        self.assertTrue(self.transport.wait_until_handled(self.injected, 2))
+
+    def answer(self, method: str, result: dict) -> None:
+        request = self.outgoing(lambda message: message.get("method") == method)
+        self.inject({"id": request["id"], "result": result})
+
+    def turn_started(self, turn_id: str = "turn-1") -> dict:
+        return {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": turn_id, "items": [], "status": "inProgress"}}}
+
+    def test_a_tui_turn_keeps_tool_labels_fixed_and_commands_in_content(self) -> None:
+        command = {"type": "commandExecution", "id": "item-1", "command": "rm -rf build", "status": "inProgress"}
+        self.inject(
+            self.turn_started("turn-k"),
+            {"method": "item/started", "params": {"threadId": "thread-1", "item": command}},
+            {"method": "item/completed", "params": {"threadId": "thread-1", "item": {
+                **command, "aggregatedOutput": "removed", "exitCode": 0, "status": "completed"}}},
+            {"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {"id": "turn-k", "items": [], "status": "completed"}}},
+        )
+        self.facts.wait_for(FactKind.TURN_TERMINAL)
+
+        tools = self.facts.of(FactKind.TOOL)
+        self.assertNotIn("command_id", self.facts.of(FactKind.TURN_STARTED)[0][0])
+        self.assertEqual([meta["label"] for meta, _ in tools], ["command", "command", "command"])
+        self.assertEqual((tools[0][1]["text"], tools[1][1]["text"]), ("rm -rf build", "removed"))
+        self.assertNotIn("rm -rf", json.dumps([meta for meta, _ in tools]))
+        self.assertEqual(self.facts.of(FactKind.TURN_TERMINAL)[0][0]["status"], "completed")
+
+    def test_a_prompt_opens_the_turn_under_its_command(self) -> None:
+        outcome = self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "Reply pong"})
+        self.outgoing(lambda message: message.get("method") == "turn/start")
+
+        message = self.facts.of(FactKind.MESSAGE)[0][0]
+        started = self.facts.of(FactKind.TURN_STARTED)[0][0]
+        self.assertIs(outcome, EffectOutcome.ACCEPTED)
+        self.assertEqual((message["role"], message["command_id"]), ("user", "c1"))
+        self.assertEqual((started["turn_ref"], started["command_id"]), ("c1", "c1"))
+
+    def test_a_refused_steer_is_a_notice_and_the_turn_goes_on(self) -> None:
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "first"})
+        self.answer("turn/start", {"turn": {"id": "turn-1", "items": [], "status": "inProgress"}})
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c2", "text": "and this"})
+        steer = self.outgoing(lambda message: message.get("method") == "turn/steer")
+        self.inject({"id": steer["id"], "error": {"code": -32600, "message": "steer refused"}})
+
+        notices = [meta for meta, _ in self.facts.of(FactKind.MESSAGE) if meta["role"] == "system"]
+        self.assertEqual(notices[0]["command_id"], "c2")
+        self.assertEqual(self.facts.of(FactKind.TURN_TERMINAL), [])
+        self.assertEqual(self.driver.state().turn_ref, "c1")
+
+    def test_an_approval_is_answered_on_its_request(self) -> None:
+        self.inject(
+            {"method": "item/commandExecution/requestApproval", "id": "rpc-1", "params": {
+                "threadId": "thread-1", "turnId": "turn-1", "itemId": "item-1", "startedAtMs": 1,
+                "command": "make test", "reason": "private reason"}}
+        )
+        self.facts.wait_for(FactKind.REQUEST_OPENED)
+        opened = self.facts.of(FactKind.REQUEST_OPENED)[0][0]
+
+        outcome = self.driver.perform(
+            EffectKind.RESPOND, {"command_id": "a1", "provider_ref": opened["provider_ref"], "decision": "approve"}
+        )
+        reply = self.outgoing(lambda message: message.get("id") == "rpc-1")
+
+        self.assertIs(outcome, EffectOutcome.ACCEPTED)
+        self.assertEqual(reply["result"], {"decision": "accept"})
+        self.assertEqual((opened["summary"], opened["answerable"]), ("Codex command execution approval", True))
+        self.assertEqual(self.driver.state().open_requests, ())
+        self.assertNotIn("private", json.dumps(self.facts.facts))
+
+    def test_a_prompt_answers_a_single_codex_question(self) -> None:
+        self.inject(
+            self.turn_started(),
+            {"method": "item/tool/requestUserInput", "id": 77, "params": {
+                "threadId": "thread-1", "turnId": "turn-1", "itemId": "input-1", "isBlocking": True,
+                "autoResolutionMs": None, "questions": [{"id": "choice", "header": "Private header",
+                "question": "Private question", "isSecret": False, "options": None}]}},
+        )
+        self.facts.wait_for(FactKind.REQUEST_OPENED)
+        opened = self.facts.of(FactKind.REQUEST_OPENED)[0][0]
+
+        outcome = self.driver.perform(EffectKind.SUBMIT, {"command_id": "c9", "text": "option one"})
+        reply = self.outgoing(lambda message: message.get("id") == 77)
+
+        self.assertEqual((opened["kind"], opened["answerable"]), ("input", False))
+        self.assertIs(outcome, EffectOutcome.ACCEPTED)
+        self.assertEqual(reply["result"], {"answers": {"choice": {"answers": ["option one"]}}})
+        self.assertEqual(self.facts.of(FactKind.REQUEST_RESOLVED)[0][0], {"provider_ref": opened["provider_ref"], "by": "deskhelm"})
+        self.assertNotIn("Private", json.dumps(self.facts.facts))
+
+    def test_a_model_choice_waits_for_a_fresh_catalog(self) -> None:
+        stale = self.driver.perform(EffectKind.CONFIGURE, {"command_id": "m1", "model": "example-model"})
+        self.answer("thread/read", {"thread": {"id": "thread-1", "ephemeral": False, "cwd": "/tmp/deskhelm-catalog",
+                                               "model": "example-model", "turns": []}})
+        self.answer("model/list", {"data": [{"id": "example-model", "model": "example-model", "hidden": False,
+                                             "displayName": "Example", "isDefault": True, "defaultReasoningEffort": "medium",
+                                             "supportedReasoningEfforts": [{"reasoningEffort": "medium", "description": "balanced"}]}],
+                                   "nextCursor": None})
+        self.answer("mcpServerStatus/list", {"data": [], "nextCursor": None})
+        self.answer("skills/list", {"data": []})
+        self.facts.wait_for(FactKind.CATALOG)
+
+        chosen = self.driver.perform(EffectKind.CONFIGURE, {"command_id": "m2", "model": "example-model", "effort": "medium"})
+        unknown = self.driver.perform(EffectKind.CONFIGURE, {"command_id": "m3", "model": "missing-model"})
+        self.assertEqual((stale, chosen, unknown), (EffectOutcome.UNDELIVERED, EffectOutcome.ACCEPTED, EffectOutcome.UNSUPPORTED))
+        self.assertTrue(self.facts.of(FactKind.CATALOG)[0][1]["catalog"]["available"])
+
+    def test_closing_ends_the_open_turn_and_the_session(self) -> None:
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "work"})
+        self.driver.close()
+
+        terminal = self.facts.of(FactKind.TURN_TERMINAL)[0][0]
+        self.assertEqual((terminal["status"], terminal["failure"], terminal["turn_ref"]), ("failed", "process_exit", "c1"))
+        self.assertEqual(self.facts.kinds()[-1], "session_ended")
+
+
+class CodexStartupTests(unittest.TestCase):
+    def test_prompts_before_a_thread_is_attached_are_undelivered(self) -> None:
+        facts = _Recorder()
+        driver = _codex(_QueueTransport())
+        driver.start(facts)
+        self.addCleanup(driver.close)
+
+        outcome = driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "hello"})
+        self.assertIs(outcome, EffectOutcome.UNDELIVERED)
+        self.assertEqual(facts.kinds(), [])
+        self.assertIsNone(driver.state().turn_ref)
 
 
 if __name__ == "__main__":

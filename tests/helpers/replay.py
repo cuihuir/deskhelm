@@ -18,9 +18,9 @@ Transcript format ``deskhelm-replay-v1`` is NDJSON. The first line is a header:
 - ``events``: the kinds of interaction events published since the previous
   ``events`` step, in order. ``error_code`` checks the last event's task code.
 
-Claude and Grok replay through their protocol v2 drivers and an in-process
-Bridge core; Codex replays through its app-server adapter. Only the vendor
-transport is replaced.
+Claude, Grok, and Codex replay through their protocol v2 drivers and an
+in-process Bridge core; the Codex driver wraps the app-server adapter that v1
+also uses. Only the vendor transport is replaced.
 """
 
 from __future__ import annotations
@@ -41,18 +41,6 @@ for _kind in ("codex", "claude", "acp"):
     if str(_adapter) not in sys.path:
         sys.path.insert(0, str(_adapter))
 
-from deskhelm_bridge.control import (  # noqa: E402
-    ApprovalDecisionPayload,
-    ControlCommand,
-    ControlKind,
-    InterruptPayload,
-    SubmitPromptPayload,
-)
-from deskhelm_bridge.control_result import ControlResultCode  # noqa: E402
-from deskhelm_bridge.control_router import ControlRouter  # noqa: E402
-from deskhelm_bridge.interaction import InteractionEvent, TaskPayload  # noqa: E402
-from deskhelm_bridge.session_registry import SessionKey as V1SessionKey  # noqa: E402
-from deskhelm_bridge.session_registry import SessionRegistry  # noqa: E402
 from deskhelm_core import Core, Send  # noqa: E402
 from deskhelm_host.vendor import VendorClosed  # noqa: E402
 from deskhelm_protocol import EffectKind, FactKind, SessionKey  # noqa: E402
@@ -307,7 +295,9 @@ class _DriverReplay(_ReplayRun):
             self._seq += 1
             frame = {"type": "fact", "seq": self._seq, "kind": kind.value, "meta": meta or {}, "content": content or {}}
             self._apply(self.core.receive("host", frame, _now()))
-        self._drain()
+        # Effects come only from commands, and control() performs them. A
+        # driver emits facts holding its own lock, so performing an effect
+        # here could deadlock on that lock.
 
     def _apply(self, outputs) -> None:
         for output in outputs:
@@ -398,67 +388,6 @@ class _DriverReplay(_ReplayRun):
         self._directory.cleanup()
 
 
-class _V1Run(_ReplayRun):
-    """Controls through a v1 ControlRouter, as the Codex adapter still needs."""
-
-    def __init__(self, transcript: Transcript, session: V1SessionKey) -> None:
-        super().__init__(transcript)
-        self.session = session
-        registry = SessionRegistry(slot_count=1)
-        registry.register(session, preferred_slot=0)
-        self.router = ControlRouter(registry)
-
-    def publish(self, event: InteractionEvent) -> None:
-        self.router.observe_interaction(event)
-        code = event.payload.error_code if isinstance(event.payload, TaskPayload) else None
-        self.record_event(event.kind.value, code)
-
-    def control(self, step: dict[str, Any], index: int, where: str) -> None:
-        kind = ControlKind(step["kind"])
-        now = _now()
-        expires_at = now + 60_000
-        if kind is ControlKind.SUBMIT_PROMPT:
-            payload: Any = SubmitPromptPayload(step["text"])
-        elif kind is ControlKind.INTERRUPT:
-            payload = InterruptPayload("replay")
-        elif kind in {ControlKind.APPROVE, ControlKind.REJECT}:
-            pending = self.router.pending_approvals_for(self.session, now_ms=now)
-            if len(pending) != 1:
-                raise ReplayMismatch(f"{where}: expected one pending approval, found {len(pending)}")
-            payload = ApprovalDecisionPayload(
-                request_id=pending[0].request_id,
-                summary=pending[0].summary,
-                request_expires_at=pending[0].expires_at,
-            )
-            expires_at = pending[0].expires_at
-        else:
-            raise ReplayMismatch(f"{where}: unsupported control {kind.value}")
-        command = ControlCommand(
-            kind=kind,
-            agent_id=self.session.agent_id,
-            session_id=self.session.session_id,
-            project_id=self.session.project_id,
-            issued_by="replay",
-            issued_at=now,
-            expires_at=expires_at,
-            idempotency_key=f"replay-{index}",
-            payload=payload,
-        )
-        # An adapter that is still attaching answers handler_unavailable. That
-        # result is not retained, so the same command may be sent again.
-        deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
-        while True:
-            result = self.router.route(command, now_ms=_now())
-            if (
-                result.code is not ControlResultCode.HANDLER_UNAVAILABLE
-                or time.monotonic() >= deadline
-            ):
-                break
-            time.sleep(0.01)
-        if result.code is not ControlResultCode.DISPATCHED:
-            raise ReplayMismatch(f"{where}: control answered {result.code.value}")
-
-
 class _QueueTransport:
     """An app-server transport whose frames come from the transcript.
 
@@ -501,27 +430,29 @@ class _QueueTransport:
         return None
 
 
-class _CodexReplay(_V1Run):
-    """Act as the Codex app-server for the in-process adapter."""
+class _CodexDriverReplay(_DriverReplay):
+    """The v2 Codex driver around its app-server adapter, fed by the transcript."""
 
     def __init__(self, transcript: Transcript) -> None:
-        super().__init__(transcript, V1SessionKey("codex", "replay", "demo"))
-        from deskhelm_codex_adapter.app_server import CodexAppServerAdapter
-
         self._transport = _QueueTransport()
+        self._sent = 0
+        super().__init__(transcript, self._codex_driver)
+
+    def _codex_driver(self, cwd: Path, vendor: _FakeVendor):
+        from deskhelm_codex_adapter.driver import CodexSession
+
         # A long discovery interval keeps the outbound order deterministic.
-        self._adapter = CodexAppServerAdapter(
+        return CodexSession(
+            self.key,
             socket_path=Path("/tmp/deskhelm-codex-replay.sock"),
-            session=self.session,
-            source_version="replay",
+            runtime_version="replay",
+            refresh_catalog=False,
             transport_factory=lambda: self._transport,
             request_timeout_seconds=STEP_TIMEOUT_SECONDS,
             discovery_interval_seconds=3600,
             reconnect_initial_seconds=0.01,
             reconnect_max_seconds=0.02,
         )
-        self._adapter.start(self.publish, self.router)
-        self._sent = 0
 
     def send(self, frame: dict[str, Any]) -> None:
         self._sent += 1
@@ -544,7 +475,8 @@ class _CodexReplay(_V1Run):
             return None
 
     def close(self) -> None:
-        self._adapter.close()
+        self.driver.close()
+        self._directory.cleanup()
 
 
 def _claude_driver(cwd: Path, vendor: _FakeVendor):
@@ -566,7 +498,7 @@ def _now() -> int:
 def replay_transcript(transcript: Transcript) -> None:
     runtime = transcript.header["runtime"]
     if runtime == "codex":
-        run: _ReplayRun = _CodexReplay(transcript)
+        run: _ReplayRun = _CodexDriverReplay(transcript)
     elif runtime == "claude":
         run = _DriverReplay(transcript, _claude_driver)
     elif runtime == "grok":

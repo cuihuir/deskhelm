@@ -1,0 +1,18 @@
+{"type":"header","format":"deskhelm-replay-v1","runtime":"codex","scenario":"approval_allow","source_type":"synthetic","notes":"Synthetic. A command approval answered on the adapter's own app-server connection, as when no TUI proxy holds it; request fields follow the adapter tests and the public app-server shapes; no recorded frame is copied."}
+{"type":"outbound","frame":{"method":"initialize","id":"$init","params":{"clientInfo":{"name":"deskhelm"},"capabilities":{"experimentalApi":true}}}}
+{"type":"inbound","frame":{"id":"$init","result":{}}}
+{"type":"outbound","frame":{"method":"initialized"}}
+{"type":"outbound","frame":{"method":"thread/loaded/list","id":"$list"}}
+{"type":"inbound","frame":{"id":"$list","result":{"data":["thread-1"],"nextCursor":null}}}
+{"type":"control","kind":"submit_prompt","text":"Run the project tests"}
+{"type":"outbound","frame":{"method":"turn/start","id":"$turn","params":{"threadId":"thread-1","input":[{"type":"text","text":"Run the project tests"}]}}}
+{"type":"inbound","frame":{"id":"$turn","result":{"turn":{"id":"turn-1","items":[],"status":"inProgress"}}}}
+{"type":"inbound","frame":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","items":[],"status":"inProgress"}}}}
+{"type":"inbound","frame":{"method":"item/started","params":{"threadId":"thread-1","item":{"type":"commandExecution","id":"item-1","command":"make test","status":"inProgress"}}}}
+{"type":"inbound","frame":{"method":"item/commandExecution/requestApproval","id":"rpc-approval-1","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"item-1","startedAtMs":1,"command":"make test","reason":"run the tests"}}}
+{"type":"events","kinds":["message","tool","approval_request"]}
+{"type":"control","kind":"approve"}
+{"type":"outbound","frame":{"id":"rpc-approval-1","result":{"decision":"accept"}}}
+{"type":"inbound","frame":{"method":"item/completed","params":{"threadId":"thread-1","item":{"type":"commandExecution","id":"item-1","command":"make test","aggregatedOutput":"12 passed","exitCode":0,"status":"completed"}}}}
+{"type":"inbound","frame":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","items":[],"status":"completed"}}}}
+{"type":"events","kinds":["tool","tool","task_completed"]}
