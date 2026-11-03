@@ -6,41 +6,50 @@ Project: DeskHelm
 
 Repository: <https://github.com/cuihuir/deskhelm>
 
-## Latest Phase: Architecture v2, Phase 0 In Progress
+## Latest Phase: Architecture v2, Phase 0 Complete
 
-Status: accepted on 2026-11-03 as ADR 0043. Work happens on branch
-`refactor/architecture-v2`. No bridge, web, or agent process was started.
+Status: phase 0 of ADR 0043 finished on 2026-11-03 on branch
+`refactor/architecture-v2`. No bridge, web, or agent process was started or
+restarted; running processes still execute the old code.
 
-- Baseline commit `ec128a3`, tag `pre-architecture-v2`, holds all work that
-  was uncommitted since `9809755`. `t.sh` stays untracked. The full suite
-  passed there (405 tests) with
-  `PYTHONPATH=bridge uv run --project voice/runtime --locked --no-sync python -m unittest discover -s tests`.
-  Adding `voice` to `PYTHONPATH` loads `deskhelm_voice` twice and fails
-  voice tests; that is a packaging defect, not a code failure.
-- `docs/architecture/target-architecture.md` holds the diagnosis, the target
-  design, conflicts with existing ADRs, and the phase plan. D1–D4 were
+- Baseline: commit `ec128a3`, tag `pre-architecture-v2`, holds the work that
+  was uncommitted since `9809755`. `t.sh` stays untracked.
+- Design: `docs/architecture/target-architecture.md` and ADR 0043. D1–D4 were
   accepted as recommended.
-- Sources: read-only reviews of the Bridge core, the runtime adapters, and
-  voice, surfaces, and clients, plus a governance review. Compared with
-  `pingdotgg/t3code` (MIT), shallow-cloned and ignored at
-  `references/vendor/t3code`, commit `997e3f3`. It was not built or run.
-- Highest risk, verified in code, not reproduced: `ControlRouter.route` calls
-  handlers under its lock, handlers publish under `_event_lock`, and the
-  publish path takes the router lock under `_event_lock`. An approval request
-  concurrent with a prompt can deadlock the whole user bridge.
-- Other open findings that phase 0 fixes on the current code:
-  - Grok approval can choose `allow_always`. t3code's live Grok 1.0.41
-    recordings list it first in 3 of 4 requests; our fixture has two options.
-  - Grok uses the ACP title, which carries commands and paths, as the tool
-    name and approval summary, contrary to ADR 0040.
-  - `deskhelm web` `/api/control` checks no token, Host, Origin, or
-    Content-Type. Exploitation is inferred, not tested.
-  - An undelivered approval is still consumed.
-  - Dashboard truncates approval summaries to 160 characters; the router
-    requires an exact match.
-  - Voice approval phrases fall through to a prompt when nothing is pending.
-  - Unverified: Grok sends `session/cancel` as a request, not a notification.
-- Next: phase 0 fixes, one commit each, then the replay harness.
+- Phase 0 commits on the current code:
+  - `ed873e8`: the router calls handlers outside its lock. The deadlock
+    between an approval request and a prompt was reproduced against the old
+    router by `tests/test_bridge_control_concurrency.py`. Handlers raise
+    `ControlUndelivered` when a command never reached the runtime; the router
+    answers `handler_unavailable`, keeps the approval pending, and does not
+    cache that result. Grok no longer busy-waits in the handler.
+  - `ed3b0e5`: Grok approvals select only `allow_once` / `reject_once`; titles
+    with commands or paths are not published.
+  - `135a4b0`: Grok interrupt sends `session/cancel` as a notification and
+    answers open permissions as cancelled. Not tried on a live Grok.
+  - `854a8f2`: the dashboard sends the exact approval summary.
+  - `e855fb8`: every web request needs the token in
+    `$XDG_RUNTIME_DIR/deskhelm/web-token`. Checked end to end through
+    `run_web_client`; no browser pass.
+  - `1568ee2`: voice approval phrases never become prompts; `取消` discards.
+  - `d77bb8d`: voice notifications name Codex, Claude, Grok, or Agent.
+  - `dc11699`: Grok tool output inside ACP content blocks is published;
+    diff blocks with paths are not.
+  - `5f42fe7`: replay harness (`tests/helpers/replay.py`) with seven
+    synthetic transcripts for Claude, Grok, and Codex.
+- Validation: the full no-hardware suite passes (437 tests) with
+  `PYTHONPATH=bridge uv run --project voice/runtime --locked --no-sync python -m unittest discover -s tests`.
+  Adding `voice` to `PYTHONPATH` loads `deskhelm_voice` twice and fails voice
+  tests; phase 4 packaging removes that trap. `node` is unavailable here, so
+  `app.js` was not syntax-checked after a one-string change.
+- Operator actions: restart the user bridge to load these fixes. Until phase
+  2 that restart still ends every attached session. After restarting
+  `deskhelm web`, open the printed `?token=` link once per browser.
+- Pending operator decision: recording live Claude, Grok, and Codex
+  transcripts uses real accounts; transcripts must be anonymized and reviewed
+  before commit.
+- Next: phase 1, protocol v2 and the single-threaded core beside the current
+  protocol.
 
 ## Previous Phase: Web Port 8766
 
