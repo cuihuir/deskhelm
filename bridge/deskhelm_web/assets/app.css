@@ -362,6 +362,8 @@ button:disabled {
 
 .failed { color: var(--danger); }
 
+.unknown { color: var(--warn); }
+
 .card {
   border: 1px solid var(--line);
   background: var(--surface);

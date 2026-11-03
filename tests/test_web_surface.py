@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import time
@@ -12,11 +13,12 @@ TESTS = Path(__file__).resolve().parent
 if str(TESTS) not in sys.path:
     sys.path.insert(0, str(TESTS))
 
+from deskhelm_client.texts import RESULT_TEXT  # noqa: E402
 from deskhelm_core.server import BridgeServer  # noqa: E402
 from deskhelm_host import BridgeLink  # noqa: E402
 from deskhelm_protocol import EffectKind, EffectOutcome, FactKind, SessionKey  # noqa: E402
 from deskhelm_web import WebSurface  # noqa: E402
-from deskhelm_web.http import load_web_token  # noqa: E402
+from deskhelm_web.http import ASSET_DIRECTORY, load_web_token  # noqa: E402
 from helpers.v2 import FakeDriver  # noqa: E402
 
 
@@ -120,6 +122,14 @@ class WebSurfaceTests(unittest.TestCase):
         self.assertIsNone(session["approval"])
         self.assertEqual(page, 200)
         self.assertIn(b"payload.message", script)
+
+    def test_the_page_falls_back_to_the_shared_wording(self) -> None:
+        script = (ASSET_DIRECTORY / "app.js").read_text(encoding="utf-8")
+        block = re.search(r"var CODE_TEXT = \{(.*?)\n  \};", script, re.S)
+        assert block is not None
+        fallback = dict(re.findall(r'^ +([a-z_]+): "([^"]*)",?$', block.group(1), re.M))
+
+        self.assertEqual({code: fallback.get(code) for code in RESULT_TEXT}, RESULT_TEXT)
 
     def test_a_pending_approval_is_listed_and_decided_by_its_approval_id(self) -> None:
         self._approval()

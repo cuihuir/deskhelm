@@ -20,28 +20,36 @@
     attention: "需要关注"
   };
 
+  // A fallback for the shared wording in deskhelm_client/texts.py, plus the
+  // codes only this page reports.
   var CODE_TEXT = {
     focused: "已聚焦这个会话",
-    dispatched: "指令已交给 Bridge",
-    expired: "这个请求已过期",
+    dispatched: "已交给 Agent",
+    expired: "这个操作已过期",
+    issuer_mismatch: "操作来源不匹配",
+    invalid_command: "这个操作无法发送",
+    idempotency_conflict: "重复的操作冲突",
+    idempotency_capacity: "操作记录已满，请稍后再试",
     target_not_found: "找不到这个会话",
     target_inactive: "这个会话不在活动状态",
-    target_not_focused: "需要先聚焦这个会话",
-    handler_unavailable: "Agent 当前无法接收这个操作",
+    not_permitted: "这里不能发出这个操作",
+    unsupported: "这个 Agent 不支持这个操作",
     approval_not_found: "找不到这条批准请求",
     approval_already_decided: "这条批准已经处理过",
-    approval_summary_mismatch: "批准摘要已经变化",
-    approval_target_mismatch: "批准目标不匹配",
-    approval_expiry_mismatch: "批准期限不匹配",
-    issuer_mismatch: "控制来源不匹配",
-    idempotency_conflict: "重复的操作冲突",
-    idempotency_capacity: "操作记录已满",
-    dispatch_failed: "操作没有完成",
-    invalid_control_request: "这个操作无法发送",
+    undelivered: "Agent 当前无法接收这个操作",
+    dispatch_failed: "操作可能没有完成，请查看 Agent",
     bridge_unavailable: "Bridge 暂时不可用",
+    connection_lost: "与 Bridge 的连接中断，结果未知",
+    timeout: "Bridge 没有及时回应，结果未知",
+    client_busy: "操作太多，请稍后再试",
+    request_lost: "页面没有收到回应，结果未知",
+    invalid_control_request: "这个操作无法发送",
     too_many_clients: "打开这个页面的客户端太多",
     invalid_catalog_request: "这个能力请求无法发送"
   };
+
+  // The command may still have reached the agent.
+  var UNKNOWN_OUTCOMES = ["dispatch_failed", "connection_lost", "timeout", "request_lost"];
 
   var CATALOG_NOTICE = {
     catalog_unavailable: "这个会话还不能列出能力。",
@@ -527,9 +535,10 @@
       });
       state.optimistic.forEach(function (item) {
         var pending = el("div", "row user");
-        var bubble = el("div", "bubble" + (item.failed ? " failed" : " pending"), item.text);
+        var bubble = el("div", "bubble" + (item.failed ? " failed" : item.unknown ? " unknown" : " pending"), item.text);
         pending.append(bubble);
         if (item.failed) pending.append(el("p", "hint failed", "未送达"));
+        else if (item.unknown) pending.append(el("p", "hint unknown", "结果未知，请查看 Agent"));
         column.append(pending);
       });
     }
@@ -754,7 +763,8 @@
         return { ok: response.ok, payload: payload };
       });
     }).catch(function () {
-      return { ok: false, payload: { error: "bridge_unavailable" } };
+      // The server may have acted before the response was lost.
+      return { ok: false, payload: { error: "request_lost" } };
     });
   }
 
@@ -804,7 +814,7 @@
     if (!session || !text.trim() || state.sending || !state.connected) return;
     if (catalog.panel) setPanel("");
     state.sending = true;
-    var optimistic = { id: String(Date.now()), text: text, failed: false };
+    var optimistic = { id: String(Date.now()), text: text, failed: false, unknown: false };
     state.optimistic.push(optimistic);
     prompt.value = "";
     resizePrompt();
@@ -819,7 +829,8 @@
     }).then(function (result) {
       state.sending = false;
       var code = result.payload && (result.payload.code || result.payload.error);
-      if (!result.ok || (code && code !== "dispatched")) optimistic.failed = true;
+      if (UNKNOWN_OUTCOMES.indexOf(code) >= 0) optimistic.unknown = true;
+      else if (!result.ok || (code && code !== "dispatched")) optimistic.failed = true;
       announce(describe(result));
       render();
     });
