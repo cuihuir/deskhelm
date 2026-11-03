@@ -10,6 +10,7 @@
     idle: "空闲",
     thinking: "思考中",
     running_tool: "执行工具",
+    working: "工作中",
     waiting_approval: "等待批准",
     waiting_user: "等待输入",
     completed: "已完成",
@@ -758,6 +759,8 @@
 
   function describe(result) {
     var payload = result.payload || {};
+    // A v2 server sends the shared wording; the v1 server sends codes only.
+    if (typeof payload.message === "string" && payload.message) return payload.message;
     return codeText(payload.code) || codeText(payload.error) || (result.ok ? "已发送" : "没有完成");
   }
 
