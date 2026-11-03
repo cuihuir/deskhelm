@@ -763,6 +763,9 @@ class CodexAppServerAdapterTests(unittest.TestCase):
         # Codex sends one request to every subscribed connection.
         proxy = _FakeTuiProxy()
         self._replace_adapter(tui_proxy=proxy)
+        # A request for a thread not yet attached is refused; that is not
+        # the case under test.
+        self._wait_for(lambda: self.adapter.attached_thread_id() == "thread-1")
         params = {"threadId": "thread-1", "turnId": "turn-manual", "itemId": "item-1"}
         self.transport.inject(
             {"method": "item/commandExecution/requestApproval", "id": 0, "params": params}
