@@ -6,13 +6,15 @@ Project: DeskHelm
 
 Repository: <https://github.com/cuihuir/deskhelm>
 
-## Latest Phase: Architecture v2, Paused After the Claude and Grok Hosts
+## Latest Phase: Architecture v2, Phase 2 in Progress
 
-Status: paused on 2026-11-03 at the user's request, on branch
-`refactor/architecture-v2`; nothing is pushed. Phases 0 and 1 and the Claude
-and Grok part of phase 2 are committed. v1 stays the default: `bridge.sock`,
-`deskhelm codex`, `deskhelm agent`, web, dashboard, and voice all run v1
-code. Live checks used temporary sockets. No DeskHelm process is running.
+Status: on 2026-11-03 the user approved continuing with the Claude permission
+fix, the ACP label fix, and then the Codex host, on branch
+`refactor/architecture-v2`; nothing is pushed. Phases 0 and 1, the Claude and
+Grok part of phase 2, and both fixes are committed; the Codex host is next.
+v1 stays the default: `bridge.sock`, `deskhelm codex`, `deskhelm agent`, web,
+dashboard, and voice all run v1 code. Live checks used temporary sockets. No
+DeskHelm process is running.
 
 - Baseline: commit `ec128a3`, tag `pre-architecture-v2`, holds the work that
   was uncommitted since `9809755`. Design:
@@ -40,7 +42,12 @@ code. Live checks used temporary sockets. No DeskHelm process is running.
   host starts the Bridge only before its first open. Before that fix, hosts
   in tests and live checks restarted stopped Bridges; the five that leaked
   were stopped by pid.
-- Validation: the full suite passes, 488 tests, with
+- Fixes, `d5d1db9` and `c522d7f`: Claude runs with
+  `--permission-prompt-tool stdio`, which v1 and v2 share; without it
+  Claude Code 2.1.312 denied every tool that needs permission without asking.
+  The v2 driver declines `AskUserQuestion` because the session takes no
+  input. An ACP tool keeps the label it had at `tool_call`, in v1 and v2.
+- Validation: the full suite passes, 493 tests, with
   `PYTHONPATH=bridge uv run --project voice/runtime --locked --no-sync python -m unittest discover -s tests`,
   and leaves no process behind. The focused v2 command in AGENTS.md passes
   55 tests with the system Python 3.14. `git diff --check` is clean.
@@ -50,25 +57,22 @@ code. Live checks used temporary sockets. No DeskHelm process is running.
     always-approve (yolo) mode, so it requested no approval; the v2 driver
     reports approvals as `none` for it.
   - Claude Code 2.1.312 on v2: a Bash `echo` turn streamed the tool, the
-    reply, and the turn end. A Write that needs permission did not; see
-    below.
+    reply, and the turn end. With `--permission-prompt-tool stdio`, a Write
+    opened an approval; approving wrote the file and completed the turn, and
+    rejecting returned the denial to the model, which went on. Claude
+    accepts `--permission-mode default` and reports it in `system/init`.
+    The earlier 90-second "stall" was the model thinking past the probe's
+    window: a `claude` started from this agent sandbox inherits its API proxy
+    and effort level and thought for over 100 seconds. A normal terminal
+    does not have that environment.
 
 Open issues:
 
-- Claude permission routing. With the committed argv
-  (`--permission-mode default --permission-prompts host`), two Write turns
-  ended without a `can_use_tool` request and wrote no file. A raw probe with
-  `--permission-prompt-tool stdio` added did receive `can_use_tool` for
-  Write, but that argv under `ClaudeSession` produced no `request_opened` and
-  no turn end within 90 seconds. The cause is unknown, and the argv change
-  was reverted. Next step: replay that real `can_use_tool` frame through
-  `ClaudeSession` in a test. `default` is not among the `--permission-mode`
-  choices 2.1.312 lists (`acceptEdits`, `auto`, `bypassPermissions`,
-  `manual`, `dontAsk`, `plan`). v1 `deskhelm agent claude` uses the same
-  argv.
-- The ACP driver labels a tool update with the update's title or kind before
-  the label recorded at `tool_call`, so one tool can show different labels
-  at start and completion. Fix: prefer the recorded label.
+- v1 `deskhelm agent claude` now receives approvals too, but v1 never
+  declines one: an approval left past its expiry or a ninth pending one keeps
+  Claude waiting until the turn is interrupted, and v1 shows
+  `AskUserQuestion` as an approval. v2 declines all three. v1 was checked by
+  unit tests only; a running agent must restart to load the new argv.
 - Grok approvals are untested live; that needs a Grok session that is not in
   always-approve mode.
 - `node` is unavailable here, so `app.js` was not syntax-checked after its
@@ -79,10 +83,11 @@ Open issues:
 - v1 packaging: `deskhelm agent` started outside this checkout cannot import
   `deskhelm_voice`. Phase 4 packaging fixes it.
 
-Next, after the user confirms:
+Next:
 
-1. Rest of phase 2: the Codex host around `CodexAppServerAdapter`, the TUI
-   proxy, and the PTY relay, keeping ADR 0033 semantics.
+1. Rest of phase 2, now in progress: the Codex host around
+   `CodexAppServerAdapter`, the TUI proxy, and the PTY relay, keeping ADR
+   0033 semantics.
 2. Phase 3: `deskhelm_client`, web and dashboard on v2, and the voice host.
 3. Switch-over: v2 takes `bridge.sock`.
 4. Phase 4: remove v1, uv workspace packaging, condensed AGENTS.md, and a

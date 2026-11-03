@@ -360,7 +360,12 @@ Keep third-party reference files outside version control under
   option. Tool names and approval summaries use the vendor title only when it
   is a bare name, otherwise the ACP kind, because titles can embed commands and
   paths. Interrupt sends `session/cancel` as a notification and answers every
-  open permission request with the `cancelled` outcome.
+  open permission request with the `cancelled` outcome. A tool keeps the label
+  it had at `tool_call`.
+- Claude runs `-p` with `--permission-prompt-tool stdio`, so a tool that needs
+  permission arrives as `can_use_tool` and becomes an approval; without it
+  Claude Code 2.1.312 denies such tools silently. The v2 driver declines
+  `AskUserQuestion` at once because the session takes no input.
 - The loopback web client in ADR 0036 is a replaceable Bridge client. One web
   process holds one state subscription and one interaction subscription and
   fans them out to browsers. Omitting `--socket` reads the user bridge and
