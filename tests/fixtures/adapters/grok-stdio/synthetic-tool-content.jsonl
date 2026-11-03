@@ -1,0 +1,3 @@
+{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"tool-echo","title":"run_terminal_command","kind":"execute","status":"pending"}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-echo","status":"completed","content":[{"type":"content","content":{"type":"text","text":"12 passed"}}]}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-write","status":"completed","content":[{"type":"diff","path":"<workspace>/notes.txt","oldText":"","newText":"draft text"}]}}}

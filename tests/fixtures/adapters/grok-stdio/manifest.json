@@ -17,6 +17,12 @@
       "source_type": "synthetic",
       "produced_locally": false,
       "notes": "The option order (allow_always first) and the argument-bearing tool titles follow live Grok 1.0.41 transcripts published in pingdotgg/t3code (MIT). This file is synthetic; it copies no recorded frame, path, or session id."
+    },
+    {
+      "file": "synthetic-tool-content.jsonl",
+      "source_type": "synthetic",
+      "produced_locally": false,
+      "notes": "The ACP content-block and diff shapes of tool_call_update follow live Grok 1.0.41 transcripts published in pingdotgg/t3code (MIT). This file is synthetic; it copies no recorded frame or path."
     }
   ]
 }

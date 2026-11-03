@@ -212,6 +212,20 @@ class GrokStreamTests(unittest.TestCase):
         self.assertEqual(events[-1].kind, InteractionKind.TASK_FAILED)
         self.assertEqual(events[-1].payload.error_code, "interrupted")
 
+    def test_acp_tool_output_is_published_and_diffs_are_not(self) -> None:
+        decoder = GrokEventDecoder(SessionKey("grok", "local-1", "demo"), "grok 1")
+        lines = _lines("grok-stdio", "synthetic-tool-content.jsonl")
+
+        decoder.feed(lines[0])
+        output = decoder.feed(lines[1])
+        diff = decoder.feed(lines[2])
+        blob = "".join(event.to_json() for event in output + diff)
+
+        self.assertEqual(output[0].payload.text, "12 passed")
+        self.assertEqual([event.payload.phase.value for event in diff], ["complete"])
+        for private in ("<workspace>", "notes.txt", "draft text"):
+            self.assertNotIn(private, blob)
+
     def test_tool_titles_with_arguments_are_not_published(self) -> None:
         decoder = GrokEventDecoder(SessionKey("grok", "local-1", "demo"), "grok 1")
         lines = _lines("grok-stdio", "synthetic-permissions.jsonl")

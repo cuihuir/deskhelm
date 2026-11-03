@@ -423,8 +423,14 @@ def _flatten_capabilities(value: object) -> list[str]:
 def _content_text(value: object) -> str:
     if isinstance(value, str):
         return _clip(value)
-    if isinstance(value, dict) and value.get("type") == "text" and isinstance(value.get("text"), str):
-        return _clip(value["text"])
+    if isinstance(value, dict):
+        if value.get("type") == "text" and isinstance(value.get("text"), str):
+            return _clip(value["text"])
+        # ACP wraps tool output as {"type": "content", "content": {...}}.
+        # Other blocks, such as diffs with file paths, are not published.
+        if value.get("type") == "content":
+            return _content_text(value.get("content"))
+        return ""
     if isinstance(value, list):
         return _clip("".join(_content_text(item) for item in value))
     return ""
