@@ -145,6 +145,31 @@ class BridgeLinkTests(unittest.TestCase):
         self.assertEqual(result["code"], "dispatch_failed")
 
 
+class AutostartTests(unittest.TestCase):
+    def test_bridge_is_started_only_before_the_first_open(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bridge.sock"
+            server = BridgeServer(path, tick_seconds=0.05)
+            server.start()
+            calls: list[Path] = []
+            link = BridgeLink(
+                path, KEY, _FakeDriver(), client_id="host-test", ensure_bridge=calls.append,
+                reconnect_initial=0.05, reconnect_max=0.1,
+            )
+            link.start()
+            try:
+                self.assertTrue(link.opened.wait(3))
+                server.close()
+                deadline = time.monotonic() + 3
+                while link.opened.is_set() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                time.sleep(0.4)
+            finally:
+                link.close()
+
+        self.assertEqual(calls, [path])
+
+
 class EnsureBridgeTests(unittest.TestCase):
     def test_a_missing_bridge_is_started_once(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

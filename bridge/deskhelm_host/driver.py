@@ -32,6 +32,7 @@ class SessionState:
     turn_ref: str | None = None
     attention: bool = False
     open_requests: tuple[OpenRequest, ...] = ()
+    catalog: dict[str, Any] | None = None
 
 
 class DriverSession(Protocol):

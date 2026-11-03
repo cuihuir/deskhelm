@@ -12,14 +12,15 @@ Transcript format ``deskhelm-replay-v1`` is NDJSON. The first line is a header:
   expected frame are ignored and ``"<any>"`` matches any value. A string that
   starts with ``$`` captures the actual value the first time and must match
   it afterwards; inbound frames substitute captured values.
-- ``control``: a DeskHelm control routed through a real ControlRouter. Kind
-  is ``submit_prompt`` (with ``text``), ``interrupt``, ``approve``, or
-  ``reject``. Approvals decide the session's single pending request.
+- ``control``: a DeskHelm control. Kind is ``submit_prompt`` (with ``text``),
+  ``interrupt``, ``approve``, or ``reject``. Approvals decide the session's
+  single pending request.
 - ``events``: the kinds of interaction events published since the previous
   ``events`` step, in order. ``error_code`` checks the last event's task code.
 
-Only the vendor transport is replaced, so a replay exercises the adapter's
-own parsing, correlation, and control handling.
+Claude and Grok replay through their protocol v2 drivers and an in-process
+Bridge core; Codex replays through its app-server adapter. Only the vendor
+transport is replaced.
 """
 
 from __future__ import annotations
@@ -28,8 +29,6 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 from queue import Empty, Queue
-import select
-import socket
 import sys
 import tempfile
 import time
@@ -37,7 +36,7 @@ from threading import Condition, Lock
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-for _kind in ("codex", "claude", "grok"):
+for _kind in ("codex", "claude", "acp"):
     _adapter = ROOT / "adapters" / _kind
     if str(_adapter) not in sys.path:
         sys.path.insert(0, str(_adapter))
@@ -52,12 +51,11 @@ from deskhelm_bridge.control import (  # noqa: E402
 from deskhelm_bridge.control_result import ControlResultCode  # noqa: E402
 from deskhelm_bridge.control_router import ControlRouter  # noqa: E402
 from deskhelm_bridge.interaction import InteractionEvent, TaskPayload  # noqa: E402
-from deskhelm_bridge.runtime_directory import (  # noqa: E402
-    RUNTIME_KIND_CLAUDE,
-    RUNTIME_KIND_GROK,
-    RuntimeAttachSpec,
-)
-from deskhelm_bridge.session_registry import SessionKey, SessionRegistry  # noqa: E402
+from deskhelm_bridge.session_registry import SessionKey as V1SessionKey  # noqa: E402
+from deskhelm_bridge.session_registry import SessionRegistry  # noqa: E402
+from deskhelm_core import Core, Send  # noqa: E402
+from deskhelm_host.vendor import VendorClosed  # noqa: E402
+from deskhelm_protocol import EffectKind, FactKind, SessionKey  # noqa: E402
 
 
 TRANSCRIPT_FORMAT = "deskhelm-replay-v1"
@@ -147,16 +145,12 @@ class Bindings:
 
 
 class _ReplayRun:
-    """Walk one transcript; subclasses own the vendor transport."""
+    """Walk one transcript; subclasses own the vendor transport and controls."""
 
-    def __init__(self, transcript: Transcript, session: SessionKey) -> None:
+    def __init__(self, transcript: Transcript) -> None:
         self.transcript = transcript
-        self.session = session
-        registry = SessionRegistry(slot_count=1)
-        registry.register(session, preferred_slot=0)
-        self.router = ControlRouter(registry)
         self.bindings = Bindings()
-        self._events: list[InteractionEvent] = []
+        self._events: list[tuple[str, str | None]] = []
         self._events_lock = Lock()
         self._checked = 0
 
@@ -171,17 +165,16 @@ class _ReplayRun:
                     self.bindings.match(step["frame"], self.receive(where), where)
                 elif kind == "control":
                     self.settle(where)
-                    self._control(step, index, where)
+                    self.control(step, index, where)
                 else:
                     self._check_events(step, where)
             self._check_finished()
         finally:
             self.close()
 
-    def publish(self, event: InteractionEvent) -> None:
-        self.router.observe_interaction(event)
+    def record_event(self, kind: str, error_code: str | None) -> None:
         with self._events_lock:
-            self._events.append(event)
+            self._events.append((kind, error_code))
 
     def send(self, frame: dict[str, Any]) -> None:
         raise NotImplementedError
@@ -195,12 +188,234 @@ class _ReplayRun:
     def pending_outbound(self) -> dict[str, Any] | None:
         raise NotImplementedError
 
+    def control(self, step: dict[str, Any], index: int, where: str) -> None:
+        raise NotImplementedError
+
     def close(self) -> None:
         raise NotImplementedError
 
-    def _control(self, step: dict[str, Any], index: int, where: str) -> None:
+    def _check_events(self, step: dict[str, Any], where: str) -> None:
+        expected = list(step["kinds"])
+        target = self._checked + len(expected)
+        deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            with self._events_lock:
+                if len(self._events) >= target:
+                    break
+            time.sleep(0.01)
+        with self._events_lock:
+            window = self._events[self._checked:target]
+        kinds = [kind for kind, _ in window]
+        if kinds != expected:
+            raise ReplayMismatch(f"{where}: expected events {expected}, got {kinds}")
+        code = step.get("error_code")
+        if code is not None and window[-1][1] != code:
+            raise ReplayMismatch(f"{where}: expected error_code {code!r}, got {window[-1][1]!r}")
+        self._checked = target
+
+    def _check_finished(self) -> None:
+        extra = self.pending_outbound()
+        if extra is not None:
+            raise ReplayMismatch(
+                f"{self.transcript.path.name}: unexpected outbound frame {extra!r}"
+            )
+        with self._events_lock:
+            unchecked = [kind for kind, _ in self._events[self._checked:]]
+        if unchecked:
+            raise ReplayMismatch(
+                f"{self.transcript.path.name}: unchecked events {unchecked}"
+            )
+
+
+class _FakeVendor:
+    """Stands in for VendorProcess; the transcript feeds and reads its lines."""
+
+    def __init__(self) -> None:
+        self.batches: Queue[list[dict[str, Any]] | None] = Queue()
+        self.written: Queue[dict[str, Any]] = Queue()
+        self._closed = False
+
+    def start(self) -> None:
+        return None
+
+    def alive(self) -> bool:
+        return not self._closed
+
+    def write_line(self, value: dict[str, Any]) -> None:
+        if self._closed:
+            raise VendorClosed()
+        self.written.put(json.loads(json.dumps(value)))
+
+    def read_batches(self):
+        while True:
+            try:
+                batch = self.batches.get(timeout=0.5)
+            except Empty:
+                yield []
+                continue
+            if batch is None:
+                return
+            yield batch
+
+    def wait(self) -> int:
+        return 0
+
+    def terminate(self, grace: float = 2.0) -> None:
+        if not self._closed:
+            self._closed = True
+            self.batches.put(None)
+
+
+class _DriverReplay(_ReplayRun):
+    """A protocol v2 driver connected to an in-process Bridge core."""
+
+    def __init__(self, transcript: Transcript, driver_factory) -> None:
+        super().__init__(transcript)
+        self.key = SessionKey(transcript.header["runtime"], "replay", "demo")
+        self.vendor = _FakeVendor()
+        self._directory = tempfile.TemporaryDirectory()
+        self.driver = driver_factory(Path(self._directory.name), self.vendor)
+        self.core = Core("replay")
+        self._lock = Lock()
+        self._results: dict[str, dict[str, Any]] = {}
+        self._results_ready = Condition(self._lock)
+        self._effects: list[dict[str, Any]] = []
+        self._seq = 0
+        now = _now()
+        with self._lock:
+            for connection in ("host", "replay"):
+                self.core.connect(connection)
+            self._apply(self.core.receive("host", {"type": "hello", "protocol_version": 2, "role": "host", "client_id": "host"}, now))
+            self._apply(
+                self.core.receive(
+                    "host",
+                    {
+                        "type": "session_open",
+                        "session": self.key.to_dict(),
+                        "runtime": self.driver.runtime.to_dict(),
+                        "capabilities": self.driver.capabilities.to_dict(),
+                    },
+                    now,
+                )
+            )
+            self._apply(self.core.receive("replay", {"type": "hello", "protocol_version": 2, "role": "client", "client_id": "replay", "tier": "operator"}, now))
+            self._apply(self.core.receive("replay", {"type": "subscribe", "stream": "interaction"}, now))
+        self.driver.start(self._fact)
+
+    def _fact(self, kind: FactKind, meta: dict | None = None, content: dict | None = None) -> None:
+        with self._lock:
+            self._seq += 1
+            frame = {"type": "fact", "seq": self._seq, "kind": kind.value, "meta": meta or {}, "content": content or {}}
+            self._apply(self.core.receive("host", frame, _now()))
+        self._drain()
+
+    def _apply(self, outputs) -> None:
+        for output in outputs:
+            if not isinstance(output, Send):
+                raise ReplayMismatch(f"the core closed {output.connection}: {output.code}")
+            frame = output.frame
+            if output.connection == "host" and frame["type"] == "effect":
+                self._effects.append(frame)
+            elif output.connection == "replay" and frame["type"] == "interaction":
+                event = frame["event"]
+                self.record_event(event["kind"], event["payload"].get("error_code"))
+            elif output.connection == "replay" and frame["type"] == "command_result":
+                self._results[frame["command_id"]] = frame
+                self._results_ready.notify_all()
+
+    def _drain(self) -> None:
+        while True:
+            with self._lock:
+                if not self._effects:
+                    return
+                effect = self._effects.pop(0)
+            outcome = self.driver.perform(EffectKind(effect["kind"]), effect["payload"])
+            with self._lock:
+                result = {"type": "effect_result", "effect_id": effect["effect_id"], "outcome": outcome.value}
+                self._apply(self.core.receive("host", result, _now()))
+
+    def send(self, frame: dict[str, Any]) -> None:
+        self.vendor.batches.put([frame])
+
+    def receive(self, where: str) -> dict[str, Any]:
+        try:
+            return self.vendor.written.get(timeout=STEP_TIMEOUT_SECONDS)
+        except Empty as error:
+            raise ReplayMismatch(f"{where}: the driver sent nothing") from error
+
+    def pending_outbound(self) -> dict[str, Any] | None:
+        try:
+            return self.vendor.written.get_nowait()
+        except Empty:
+            return None
+
+    def control(self, step: dict[str, Any], index: int, where: str) -> None:
+        kind = step["kind"]
+        payload: dict[str, Any] = {}
+        if kind == "submit_prompt":
+            payload = {"text": step["text"]}
+        elif kind in {"approve", "reject"}:
+            with self._lock:
+                approvals = self.core.session(self.key)["approvals"]
+            if len(approvals) != 1:
+                raise ReplayMismatch(f"{where}: expected one pending approval, found {len(approvals)}")
+            payload = {"approval_id": approvals[0]["approval_id"]}
+        command_id = f"replay-{index}"
+        deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
+        while True:
+            now = _now()
+            frame = {
+                "type": "command",
+                "command": {
+                    "command_id": command_id,
+                    "kind": kind,
+                    **self.key.to_dict(),
+                    "issued_by": "replay",
+                    "issued_at": now,
+                    "expires_at": now + 60_000,
+                    "idempotency_key": f"{command_id}-{now}",
+                    "payload": payload,
+                },
+            }
+            with self._lock:
+                self._results.pop(command_id, None)
+                self._apply(self.core.receive("replay", frame, now))
+            self._drain()
+            with self._lock:
+                self._results_ready.wait_for(lambda: command_id in self._results, STEP_TIMEOUT_SECONDS)
+                code = self._results.get(command_id, {}).get("code")
+            # A driver that is not ready yet answers undelivered; that result
+            # is not retained, so the command may be sent again.
+            if code != "undelivered" or time.monotonic() >= deadline:
+                break
+            time.sleep(0.01)
+        if code != "dispatched":
+            raise ReplayMismatch(f"{where}: control answered {code}")
+
+    def close(self) -> None:
+        self.vendor.terminate()
+        self.driver.wait()
+        self._directory.cleanup()
+
+
+class _V1Run(_ReplayRun):
+    """Controls through a v1 ControlRouter, as the Codex adapter still needs."""
+
+    def __init__(self, transcript: Transcript, session: V1SessionKey) -> None:
+        super().__init__(transcript)
+        self.session = session
+        registry = SessionRegistry(slot_count=1)
+        registry.register(session, preferred_slot=0)
+        self.router = ControlRouter(registry)
+
+    def publish(self, event: InteractionEvent) -> None:
+        self.router.observe_interaction(event)
+        code = event.payload.error_code if isinstance(event.payload, TaskPayload) else None
+        self.record_event(event.kind.value, code)
+
+    def control(self, step: dict[str, Any], index: int, where: str) -> None:
         kind = ControlKind(step["kind"])
-        now = int(time.time() * 1000)
+        now = _now()
         expires_at = now + 60_000
         if kind is ControlKind.SUBMIT_PROMPT:
             payload: Any = SubmitPromptPayload(step["text"])
@@ -233,7 +448,7 @@ class _ReplayRun:
         # result is not retained, so the same command may be sent again.
         deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
         while True:
-            result = self.router.route(command, now_ms=int(time.time() * 1000))
+            result = self.router.route(command, now_ms=_now())
             if (
                 result.code is not ControlResultCode.HANDLER_UNAVAILABLE
                 or time.monotonic() >= deadline
@@ -242,114 +457,6 @@ class _ReplayRun:
             time.sleep(0.01)
         if result.code is not ControlResultCode.DISPATCHED:
             raise ReplayMismatch(f"{where}: control answered {result.code.value}")
-
-    def _check_events(self, step: dict[str, Any], where: str) -> None:
-        expected = list(step["kinds"])
-        target = self._checked + len(expected)
-        deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
-        while time.monotonic() < deadline:
-            with self._events_lock:
-                if len(self._events) >= target:
-                    break
-            time.sleep(0.01)
-        with self._events_lock:
-            window = self._events[self._checked:target]
-        kinds = [event.kind.value for event in window]
-        if kinds != expected:
-            raise ReplayMismatch(f"{where}: expected events {expected}, got {kinds}")
-        code = step.get("error_code")
-        if code is not None:
-            payload = window[-1].payload
-            actual = payload.error_code if isinstance(payload, TaskPayload) else None
-            if actual != code:
-                raise ReplayMismatch(f"{where}: expected error_code {code!r}, got {actual!r}")
-        self._checked = target
-
-    def _check_finished(self) -> None:
-        extra = self.pending_outbound()
-        if extra is not None:
-            raise ReplayMismatch(
-                f"{self.transcript.path.name}: unexpected outbound frame {extra!r}"
-            )
-        with self._events_lock:
-            unchecked = [event.kind.value for event in self._events[self._checked:]]
-        if unchecked:
-            raise ReplayMismatch(
-                f"{self.transcript.path.name}: unchecked events {unchecked}"
-            )
-
-
-class _RouterFacade:
-    def __init__(self, router: ControlRouter) -> None:
-        self._router = router
-
-    def register_handler(self, kind, handler):
-        return self._router.register_handler(kind, handler)
-
-    def register_catalog_provider(self, provider):
-        return self._router.register_catalog_provider(provider)
-
-    def resolve_approval(self, request_id: str, *, now_ms: int | None = None) -> bool:
-        return self._router.resolve_approval(request_id, now_ms=now_ms)
-
-
-class _StdioReplay(_ReplayRun):
-    """Act as the stdio relay peer of a Claude or Grok runtime."""
-
-    def __init__(self, transcript: Transcript, runtime_class, runtime_kind: str) -> None:
-        super().__init__(
-            transcript, SessionKey(transcript.header["runtime"], "replay", "demo")
-        )
-        self._directory = tempfile.TemporaryDirectory()
-        path = Path(self._directory.name) / "relay.sock"
-        self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._listener.bind(str(path))
-        self._listener.listen(1)
-        spec = RuntimeAttachSpec(
-            session=self.session,
-            source_version="replay",
-            runtime_kind=runtime_kind,
-            relay_socket=path,
-        )
-        self._runtime = runtime_class(spec)
-        self._runtime.start(self.publish, _RouterFacade(self.router))
-        self._peer, _ = self._listener.accept()
-        self._buffer = bytearray()
-
-    def send(self, frame: dict[str, Any]) -> None:
-        self._peer.sendall(json.dumps(frame, ensure_ascii=False).encode("utf-8") + b"\n")
-
-    def receive(self, where: str) -> dict[str, Any]:
-        line = self._next_line(STEP_TIMEOUT_SECONDS)
-        if line is None:
-            raise ReplayMismatch(f"{where}: the adapter sent nothing")
-        return json.loads(line)
-
-    def pending_outbound(self) -> dict[str, Any] | None:
-        line = self._next_line(0)
-        return json.loads(line) if line is not None else None
-
-    def _next_line(self, timeout: float) -> bytes | None:
-        deadline = time.monotonic() + timeout
-        while b"\n" not in self._buffer:
-            remaining = max(0.0, deadline - time.monotonic())
-            readable, _, _ = select.select([self._peer], [], [], remaining)
-            if not readable:
-                return None
-            chunk = self._peer.recv(65536)
-            if not chunk:
-                return None
-            self._buffer.extend(chunk)
-        index = self._buffer.index(b"\n")
-        line = bytes(self._buffer[:index])
-        del self._buffer[: index + 1]
-        return line
-
-    def close(self) -> None:
-        self._runtime.close()
-        self._peer.close()
-        self._listener.close()
-        self._directory.cleanup()
 
 
 class _QueueTransport:
@@ -394,11 +501,11 @@ class _QueueTransport:
         return None
 
 
-class _CodexReplay(_ReplayRun):
+class _CodexReplay(_V1Run):
     """Act as the Codex app-server for the in-process adapter."""
 
     def __init__(self, transcript: Transcript) -> None:
-        super().__init__(transcript, SessionKey("codex", "replay", "demo"))
+        super().__init__(transcript, V1SessionKey("codex", "replay", "demo"))
         from deskhelm_codex_adapter.app_server import CodexAppServerAdapter
 
         self._transport = _QueueTransport()
@@ -440,18 +547,30 @@ class _CodexReplay(_ReplayRun):
         self._adapter.close()
 
 
+def _claude_driver(cwd: Path, vendor: _FakeVendor):
+    from deskhelm_claude_adapter.driver import ClaudeSession
+
+    return ClaudeSession(cwd, runtime_version="replay", vendor=vendor)
+
+
+def _grok_driver(cwd: Path, vendor: _FakeVendor):
+    from deskhelm_acp_adapter import AcpSession, GrokFlavor
+
+    return AcpSession(GrokFlavor(cwd / "leader.sock"), cwd, runtime_version="replay", vendor=vendor)
+
+
+def _now() -> int:
+    return int(time.time() * 1000)
+
+
 def replay_transcript(transcript: Transcript) -> None:
     runtime = transcript.header["runtime"]
     if runtime == "codex":
         run: _ReplayRun = _CodexReplay(transcript)
     elif runtime == "claude":
-        from deskhelm_claude_adapter.runtime import ClaudeRelayRuntime
-
-        run = _StdioReplay(transcript, ClaudeRelayRuntime, RUNTIME_KIND_CLAUDE)
+        run = _DriverReplay(transcript, _claude_driver)
     elif runtime == "grok":
-        from deskhelm_grok_adapter.runtime import GrokRelayRuntime
-
-        run = _StdioReplay(transcript, GrokRelayRuntime, RUNTIME_KIND_GROK)
+        run = _DriverReplay(transcript, _grok_driver)
     else:
         raise ValueError(f"no replay runner for runtime {runtime!r}")
     run.play()

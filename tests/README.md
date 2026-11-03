@@ -13,7 +13,9 @@ Runtime-specific evidence lives under `tests/fixtures/adapters/`; each set must
 record provenance and distinguish official examples from synthetic fixtures.
 
 Replay transcripts under `fixtures/replay/<runtime>/<scenario>.ndjson` drive
-the real Claude, Grok, and Codex adapters through `helpers/replay.py`.
+the real adapters through `helpers/replay.py`: Claude and Grok through their
+protocol v2 drivers and an in-process Bridge core, Codex through its
+app-server adapter until the Codex host lands.
 `test_replay_transcripts.py` replays every file; only the vendor transport is
 replaced. The format is `deskhelm-replay-v1`: a header naming the runtime,
 scenario, `source_type`, and provenance notes, followed by `inbound`,

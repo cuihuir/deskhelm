@@ -9,6 +9,7 @@ from pathlib import Path
 import select
 import signal
 import subprocess
+import time
 from threading import Lock
 from typing import Any
 
@@ -65,7 +66,9 @@ class VendorProcess:
     def read_batches(self) -> Iterator[list[dict[str, Any]]]:
         """Yield the JSON objects from each read, so a driver can coalesce deltas.
 
-        An overlong line stops the vendor instead of dropping output.
+        An idle half second yields an empty batch, which gives the driver a
+        tick for expiries. An overlong line stops the vendor instead of
+        dropping output.
         """
         process = self._process
         if process is None or process.stdout is None:
@@ -77,6 +80,7 @@ class VendorProcess:
             if not readable:
                 if process.poll() is not None:
                     return
+                yield []
                 continue
             chunk = os.read(descriptor, 65536)
             if not chunk:
@@ -110,15 +114,23 @@ class VendorProcess:
         return self._process.wait()
 
     def terminate(self, grace: float = 2.0) -> None:
+        """Stop the vendor's process group without waiting on it.
+
+        A signal handler may call this while the main thread blocks in
+        wait(); a nested wait would stall on Popen's internal lock, so this
+        polls and leaves reaping to the waiter.
+        """
         process = self._process
         self._closed = True
         if process is None or process.poll() is not None:
             return
         try:
             os.killpg(process.pid, signal.SIGTERM)
-            process.wait(timeout=grace)
-        except subprocess.TimeoutExpired:
+            deadline = time.monotonic() + grace
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    return
+                time.sleep(0.05)
             os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=grace)
         except ProcessLookupError:
             pass

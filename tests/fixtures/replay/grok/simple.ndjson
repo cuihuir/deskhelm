@@ -1,4 +1,6 @@
-{"type":"header","format":"deskhelm-replay-v1","runtime":"grok","scenario":"simple","source_type":"synthetic","notes":"Synthetic. Frame shapes follow the ACP specification and the Grok 1.0.41 transcripts published in pingdotgg/t3code (MIT); no recorded frame is copied."}
+{"type":"header","format":"deskhelm-replay-v1","runtime":"grok","scenario":"simple","source_type":"synthetic","notes":"Synthetic. Frame shapes follow the ACP specification and the Grok 1.0.41 transcripts published in pingdotgg/t3code (MIT); no recorded frame is copied. The driver writes the ACP handshake itself."}
+{"type":"outbound","frame":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}}
+{"type":"outbound","frame":{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"<any>","mcpServers":[]}}}
 {"type":"inbound","frame":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}}}
 {"type":"inbound","frame":{"jsonrpc":"2.0","id":2,"result":{"sessionId":"session-replay"}}}
 {"type":"control","kind":"submit_prompt","text":"Reply with the single word pong"}

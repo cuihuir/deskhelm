@@ -97,15 +97,20 @@ class BridgeLink:
 
     def _run(self) -> None:
         delay = self.reconnect_initial
+        opened_once = False
         while not self._stop.is_set():
             try:
-                if self.ensure_bridge is not None:
+                # Only the first open may start a Bridge. A Bridge that later
+                # disappears was stopped on purpose or by a crash; restarting
+                # it is not a reconnecting host's decision.
+                if self.ensure_bridge is not None and not opened_once:
                     self.ensure_bridge(self.socket_path)
                 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 sock.settimeout(self.io_timeout)
                 sock.connect(str(self.socket_path))
                 decoder = FrameDecoder()
                 self._open(sock, decoder)
+                opened_once = True
                 delay = self.reconnect_initial
                 self._serve(sock, decoder)
             except LinkRefused as error:
@@ -158,6 +163,8 @@ class BridgeLink:
         with self._lock:
             self._sock, self._seq = sock, 0
             self.opened.set()
+            if state.catalog is not None:
+                self._send_fact_locked(FactKind.CATALOG, {}, {"catalog": state.catalog})
             if state.ready:
                 self._send_fact_locked(FactKind.READY, {}, {})
             if state.turn_ref:
