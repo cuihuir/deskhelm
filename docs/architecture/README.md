@@ -4,4 +4,4 @@
 
 - [`phase-0.md`](phase-0.md)：Phase 0 架构。
 - [`multimodal-agent-console.md`](multimodal-agent-console.md)：多模态 Agent Console 的边界与分工。
-- [`target-architecture.md`](target-architecture.md)：重设计提案（2026-11-03，待决策，未实施）。
+- [`target-architecture.md`](target-architecture.md)：目标架构（ADR 0043，2026-11-03 采纳，分阶段实施）。

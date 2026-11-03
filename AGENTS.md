@@ -150,6 +150,9 @@ Keep third-party reference files outside version control under
 
 ## Architecture and Protocol Rules
 
+- ADR 0043 restructures the architecture in phases 0 to 5, as described in
+  `docs/architecture/target-architecture.md`. Until a phase lands, the rules
+  below describe the current code. Each phase updates the rules it changes.
 - Keep integrations Agent-agnostic and local-first.
 - Preserve the separation between small `StateEvent` projections, rich
   `InteractionEvent` content, and targeted `ControlCommand` actions.

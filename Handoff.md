@@ -6,14 +6,20 @@ Project: DeskHelm
 
 Repository: <https://github.com/cuihuir/deskhelm>
 
-## Latest Phase: Architecture Redesign Proposal
+## Latest Phase: Architecture v2, Phase 0 In Progress
 
-Status: proposal written on 2026-11-03. No code was changed. No bridge, web,
-or agent process was started.
+Status: accepted on 2026-11-03 as ADR 0043. Work happens on branch
+`refactor/architecture-v2`. No bridge, web, or agent process was started.
 
+- Baseline commit `ec128a3`, tag `pre-architecture-v2`, holds all work that
+  was uncommitted since `9809755`. `t.sh` stays untracked. The full suite
+  passed there (405 tests) with
+  `PYTHONPATH=bridge uv run --project voice/runtime --locked --no-sync python -m unittest discover -s tests`.
+  Adding `voice` to `PYTHONPATH` loads `deskhelm_voice` twice and fails
+  voice tests; that is a packaging defect, not a code failure.
 - `docs/architecture/target-architecture.md` holds the diagnosis, the target
-  design, conflicts with existing ADRs, and a five-phase migration plan. It is
-  not accepted. Decisions D1–D4 in its §8 are open.
+  design, conflicts with existing ADRs, and the phase plan. D1–D4 were
+  accepted as recommended.
 - Sources: read-only reviews of the Bridge core, the runtime adapters, and
   voice, surfaces, and clients, plus a governance review. Compared with
   `pingdotgg/t3code` (MIT), shallow-cloned and ignored at
@@ -34,10 +40,7 @@ or agent process was started.
     requires an exact match.
   - Voice approval phrases fall through to a prompt when nothing is pending.
   - Unverified: Grok sends `session/cancel` as a request, not a notification.
-- About 14k lines since 2026-09-02 are uncommitted. A baseline commit before
-  refactoring needs operator approval.
-- Next: the operator answers D1–D4 and the baseline-commit question. Phase 0
-  does not depend on D1–D4.
+- Next: phase 0 fixes, one commit each, then the replay harness.
 
 ## Previous Phase: Web Port 8766
 

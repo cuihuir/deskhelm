@@ -124,3 +124,8 @@ page stays on the existing interaction pipe.
 [`0042-one-user-message-per-prompt.md`](0042-one-user-message-per-prompt.md)
 publishes each accepted prompt once on the interaction plane. A vendor echo
 of that same text is not published again.
+
+[`0043-architecture-v2.md`](0043-architecture-v2.md)
+turns the Bridge into a single-threaded control plane, moves each agent into
+a session host process and voice into its own host, and gives every surface
+one console projection. It is implemented in phases 0 to 5.
