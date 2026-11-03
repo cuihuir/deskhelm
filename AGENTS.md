@@ -571,7 +571,8 @@ Current commands:
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --max-connections 16`:
   run with an explicit bounded connection limit.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge --max-subscribers 8
-  --subscriber-queue-frames 8`: run with explicit subscription bounds.
+  --subscriber-queue-frames 64`: run with explicit subscription bounds. The
+  default of 64 frames absorbs a batch of streamed Grok or Claude deltas.
 - `PYTHONPATH=bridge python3 -m deskhelm_bridge bridge
   --control-idempotency-entries 1024 --control-approval-records 1024`: run with
   explicit control-state bounds.

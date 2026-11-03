@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     bridge.add_argument("--max-events", type=int)
     bridge.add_argument("--max-connections", type=int, default=16)
     bridge.add_argument("--max-subscribers", type=int)
-    bridge.add_argument("--subscriber-queue-frames", type=int, default=8)
+    bridge.add_argument("--subscriber-queue-frames", type=int, default=64)
     bridge.add_argument("--control-idempotency-entries", type=int, default=1024)
     bridge.add_argument(
         "--control-idempotency-retention-ms", type=int, default=300_000
