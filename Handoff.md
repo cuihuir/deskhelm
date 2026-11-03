@@ -33,8 +33,14 @@ Since the release, branch `next` (not pushed) holds:
   test. The page never retries, so it needs no idempotency key of its own.
 - The sidebar session card keeps its time label inside the card.
 - A stopped `deskhelm agent` host returns 128 plus the signal, not 1.
-- In progress: the page refactor the user asked for on 2026-11-04 (a mature
-  but light agent page).
+- The page is rebuilt (ADR 0044), as the user asked on 2026-11-04: a
+  mature agent page that stays light. `deskhelm_client.transcript` folds
+  interaction events into items and patches; the web server sends a
+  snapshot, then revisioned patches; the page is plain ES modules with
+  Markdown replies, tool rows that show the command or path, inline
+  approvals, a stop button, a details panel, and light and dark themes. The
+  Bridge now sends a session in a console delta only when its view changed.
+  `tools/check-web-page.py` checks the page in Chrome (23 checks pass).
 
 `voice/runtime` installs the checkout as an editable path dependency, so no
 command, test, or tool needs `PYTHONPATH`. The two uv projects stay separate
@@ -54,9 +60,9 @@ so model dependencies never enter the root package.
 
 ## Validation
 
-- Full suite in the voice runtime without `PYTHONPATH`: 289 tests pass. The
-  root environment passes every test except the ASR provider tests, which
-  need NumPy.
+- Full suite in the voice runtime without `PYTHONPATH`: 307 tests pass on
+  `next` (289 at the release). The root environment passes every test except
+  the ASR provider tests, which need NumPy.
 - Every documented command starts from outside the checkout without
   `PYTHONPATH`, including the voice host through `uv` and the right-Alt
   listener with the root environment's Python.
