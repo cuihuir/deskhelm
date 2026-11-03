@@ -99,6 +99,7 @@ class BridgeLink:
         delay = self.reconnect_initial
         opened_once = False
         while not self._stop.is_set():
+            sock: socket.socket | None = None
             try:
                 # Only the first open may start a Bridge. A Bridge that later
                 # disappears was stopped on purpose or by a crash; restarting
@@ -119,6 +120,9 @@ class BridgeLink:
                 pass
             finally:
                 self._drop()
+                # A connect or handshake that failed never stored the socket.
+                if sock is not None:
+                    sock.close()
             # Jitter keeps many hosts from reconnecting in the same instant.
             if self._stop.wait(delay * random.uniform(0.5, 1.0)):
                 return
