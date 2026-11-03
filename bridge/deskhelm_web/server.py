@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, urlsplit
 import uuid
 
 from deskhelm_client import BridgeClient, ConsoleChange, agent_label, result_text
+from deskhelm_client.texts import ACTIVITY_TEXT, FAILURE_TEXT, OUTCOME_TEXT, RESULT_TEXT, TOOL_TEXT
 from deskhelm_client.transcript import Transcript
 from deskhelm_protocol import SessionKey
 from deskhelm_protocol.model import MAX_IDENTITY_CHARS, MAX_LABEL_CHARS, MAX_TEXT_CHARS
@@ -30,6 +31,14 @@ from .http import WebHttp
 
 # More than the Bridge's session limit, so a session that just left still fits.
 MAX_TRANSCRIPTS = 64
+# The shared wording travels with each snapshot, so the page keeps no copy.
+WORDS = {
+    "result": RESULT_TEXT,
+    "activity": ACTIVITY_TEXT,
+    "outcome": OUTCOME_TEXT,
+    "failure": FAILURE_TEXT,
+    "tool": TOOL_TEXT,
+}
 _SEPARATOR = "\u001f"
 _COMMAND_ID = re.compile(r"[A-Za-z0-9_-]{8,64}")
 _CATALOG_FIELDS = (
@@ -181,6 +190,7 @@ class WebSurface(WebHttp):
     def _snapshot_locked(self) -> dict[str, Any]:
         payload = self._sessions_locked()
         payload["transcripts"] = {_joined(key): transcript.items() for key, transcript in self._transcripts.items()}
+        payload["words"] = WORDS
         return payload
 
     def sessions_payload(self) -> dict[str, Any]:

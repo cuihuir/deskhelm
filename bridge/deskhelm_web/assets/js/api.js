@@ -1,5 +1,7 @@
 // The page's only network code: one event stream and two JSON requests.
 
+import { setWords } from "./text.js";
+
 export function openStream(store) {
   let source = null;
   let delay = 1000;
@@ -34,6 +36,7 @@ export function openStream(store) {
     source = new EventSource("/api/events");
     source.addEventListener("snapshot", read((payload) => {
       delay = 1000;
+      setWords(payload.words);
       store.applySnapshot(payload);
       store.setStream("open");
     }));

@@ -4,7 +4,6 @@ import http.client
 import json
 from pathlib import Path
 import queue
-import re
 import sys
 import tempfile
 import time
@@ -20,7 +19,7 @@ from deskhelm_core.server import BridgeServer  # noqa: E402
 from deskhelm_host import BridgeLink  # noqa: E402
 from deskhelm_protocol import EffectKind, EffectOutcome, FactKind, SessionKey  # noqa: E402
 from deskhelm_web import WebSurface  # noqa: E402
-from deskhelm_web.http import ASSET_DIRECTORY, load_web_token  # noqa: E402
+from deskhelm_web.http import load_web_token  # noqa: E402
 from helpers.v2 import FakeDriver  # noqa: E402
 
 
@@ -157,16 +156,12 @@ class WebSurfaceTests(unittest.TestCase):
         self.assertIn(b"export function mountTranscript", script)
         self.assertEqual((missing, outside), (404, 404))
 
-    def test_the_page_words_mirror_the_shared_wording(self) -> None:
-        script = (ASSET_DIRECTORY / "js" / "text.js").read_text(encoding="utf-8")
-        tables = {"RESULT_TEXT": RESULT_TEXT, "ACTIVITY_TEXT": ACTIVITY_TEXT, "OUTCOME_TEXT": OUTCOME_TEXT,
-                  "FAILURE_TEXT": FAILURE_TEXT, "TOOL_TEXT": TOOL_TEXT}
-        for name, shared in tables.items():
-            block = re.search(rf"export const {name} = \{{(.*?)\n\}};", script, re.S)
-            with self.subTest(table=name):
-                assert block is not None
-                page = dict(re.findall(r'^ +([a-z_]+): "([^"]*)",?$', block.group(1), re.M))
-                self.assertEqual({code: page.get(code) for code in shared}, shared)
+    def test_the_snapshot_carries_the_shared_words(self) -> None:
+        web = self._web()
+        words = self._get(web, "/api/snapshot")[1]["words"]
+
+        self.assertEqual(words, {"result": RESULT_TEXT, "activity": ACTIVITY_TEXT, "outcome": OUTCOME_TEXT,
+                                 "failure": FAILURE_TEXT, "tool": TOOL_TEXT})
 
     def test_a_pending_approval_is_listed_and_decided_by_its_approval_id(self) -> None:
         self._approval()

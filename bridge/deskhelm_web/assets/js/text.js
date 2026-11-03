@@ -1,58 +1,22 @@
-// The page's words. The tables marked "mirror" follow deskhelm_client/texts.py,
-// which a test keeps in step; the server's own message wins when it sends one.
+// The page's words. The shared tables arrive with each snapshot from
+// deskhelm_client/texts.py, so they have one copy; the page keeps only words
+// of its own. The server's message for a command result wins when it sends one.
 
-// mirror
-export const RESULT_TEXT = {
-  focused: "已聚焦这个会话",
-  dispatched: "已交给 Agent",
-  expired: "这个操作已过期",
-  issuer_mismatch: "操作来源不匹配",
-  invalid_command: "这个操作无法发送",
-  idempotency_conflict: "重复的操作冲突",
-  idempotency_capacity: "操作记录已满，请稍后再试",
-  target_not_found: "找不到这个会话",
-  target_inactive: "这个会话不在活动状态",
-  not_permitted: "这里不能发出这个操作",
-  unsupported: "这个 Agent 不支持这个操作",
-  approval_not_found: "找不到这条批准请求",
-  approval_already_decided: "这条批准已经处理过",
-  undelivered: "Agent 当前无法接收这个操作",
-  dispatch_failed: "操作可能没有完成，请查看 Agent",
-  bridge_unavailable: "Bridge 暂时不可用",
-  connection_lost: "与 Bridge 的连接中断，结果未知",
-  timeout: "Bridge 没有及时回应，结果未知",
-  client_busy: "操作太多，请稍后再试",
+const words = { result: {}, activity: {}, outcome: {}, failure: {}, tool: {} };
+
+export function setWords(shared) {
+  if (!shared || typeof shared !== "object") return;
+  for (const name of Object.keys(words)) {
+    if (shared[name] && typeof shared[name] === "object") words[name] = shared[name];
+  }
+}
+
+// Codes only this page reports.
+const PAGE_RESULT_TEXT = {
   request_lost: "页面没有收到回应，结果未知",
   invalid_control_request: "这个操作无法发送",
   too_many_clients: "打开这个页面的客户端太多",
   invalid_catalog_request: "这个请求无法发送",
-};
-
-// mirror
-export const ACTIVITY_TEXT = {
-  starting: "启动中",
-  idle: "空闲",
-  working: "工作中",
-  waiting_approval: "等待批准",
-  waiting_input: "等待输入",
-};
-
-// mirror
-export const OUTCOME_TEXT = {
-  completed: "这一轮已完成",
-  interrupted: "这一轮已中断",
-  failed: "这一轮失败",
-};
-
-// mirror
-export const FAILURE_TEXT = {
-  provider: "Agent 报告了错误",
-  usage_limit: "用量已到上限",
-  auth: "需要重新登录",
-  protocol: "Agent 的回应无法识别",
-  transport_lost: "与 Agent 的连接中断",
-  process_exit: "Agent 进程已退出",
-  timeout: "Agent 没有及时回应",
 };
 
 // The command may still have reached the agent.
@@ -64,14 +28,6 @@ export const NOTICE_TEXT = {
   too_many_sessions: "会话太多，有的会话没有显示活动。",
 };
 
-// mirror
-export const TOOL_TEXT = {
-  command: "命令",
-  file_change: "修改文件",
-  web_search: "搜索",
-  mcp: "MCP",
-  tool: "工具",
-};
 
 const TOOL_ICONS = {
   command: "terminal",
@@ -81,7 +37,7 @@ const TOOL_ICONS = {
 };
 
 export function toolWord(kind) {
-  return TOOL_TEXT[kind] || kind || TOOL_TEXT.tool;
+  return words.tool[kind] || kind || "工具";
 }
 
 export function toolIcon(kind) {
@@ -117,13 +73,13 @@ export const EFFORT_TEXT = {
 export function resultText(payload, ok) {
   if (payload && typeof payload.message === "string" && payload.message) return payload.message;
   const code = payload && (payload.code || payload.error);
-  return RESULT_TEXT[code] || (ok ? "已发送" : "没有完成");
+  return words.result[code] || PAGE_RESULT_TEXT[code] || (ok ? "已发送" : "没有完成");
 }
 
 export function activityText(session) {
   if (!session) return "";
   if (session.lifecycle === "disconnected") return "已断开";
-  return ACTIVITY_TEXT[session.activity] || session.activity || "";
+  return words.activity[session.activity] || session.activity || "";
 }
 
 // One tone per state, shared by the sidebar, the header, and the dot.
@@ -137,8 +93,8 @@ export function activityTone(session) {
 }
 
 export function outcomeText(item) {
-  const text = OUTCOME_TEXT[item.status] || "";
-  const failure = FAILURE_TEXT[item.code] || "";
+  const text = words.outcome[item.status] || "";
+  const failure = words.failure[item.code] || "";
   return failure ? `${text}：${failure}` : text;
 }
 
