@@ -254,7 +254,9 @@ class GrokEventDecoder:
             tool = update.get("toolCall") if isinstance(update.get("toolCall"), dict) else update
             tool_id = _token(tool.get("toolCallId") or update.get("toolCallId")) or "tool"
             text = _content_text(update.get("content") or tool.get("content"))
-            name = _tool_label(tool) or self._tool_names.get(tool_id, "tool")
+            # The first label stays: a later title such as "Read <path>"
+            # falls back to the kind, so one tool would otherwise change name.
+            name = self._tool_names.get(tool_id) or _tool_label(tool) or "tool"
             events = []
             if text:
                 events.append(

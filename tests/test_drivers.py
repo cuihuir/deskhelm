@@ -260,6 +260,20 @@ class AcpDriverTests(_DriverCase):
         self.assertEqual(phases, ["start", "output", "complete", "complete"])
         self.assertNotIn("<workspace>", json.dumps(self.facts.facts))
 
+    def test_a_tool_keeps_its_first_label(self) -> None:
+        self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "read it"})
+        self.feed(
+            {"jsonrpc": "2.0", "method": "session/update", "params": {"update": {
+                "sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Read", "kind": "read"}}},
+            {"jsonrpc": "2.0", "method": "session/update", "params": {"update": {
+                "sessionUpdate": "tool_call_update", "toolCallId": "t1", "title": "Read /home/someone/notes.txt",
+                "kind": "read", "status": "completed"}}},
+        )
+        self.facts.wait_for(FactKind.TOOL, 2)
+
+        self.assertEqual([meta["label"] for meta, _ in self.facts.of(FactKind.TOOL)], ["Read", "Read"])
+        self.assertNotIn("/home/someone", json.dumps(self.facts.facts))
+
     def test_permission_overflow_declines_once(self) -> None:
         options = [{"optionId": "always-allow", "kind": "allow_always"},
                    {"optionId": "allow-once", "kind": "allow_once"},

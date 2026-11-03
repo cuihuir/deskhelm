@@ -250,6 +250,17 @@ class GrokStreamTests(unittest.TestCase):
         for private in ("rm -rf", "example-probe", "package.json", "<workspace>", "notes.txt"):
             self.assertNotIn(private, blob)
 
+    def test_a_tool_keeps_its_first_name(self) -> None:
+        decoder = GrokEventDecoder(SessionKey("grok", "local-1", "demo"), "grok 1")
+        start = decoder.feed({"jsonrpc": "2.0", "method": "session/update", "params": {"update": {
+            "sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Read", "kind": "read"}}})
+        done = decoder.feed({"jsonrpc": "2.0", "method": "session/update", "params": {"update": {
+            "sessionUpdate": "tool_call_update", "toolCallId": "t1", "title": "Read /home/someone/notes.txt",
+            "kind": "read", "status": "completed"}}})
+
+        self.assertEqual([event.payload.name for event in start + done], ["Read", "Read"])
+        self.assertNotIn("/home/someone", "".join(event.to_json() for event in start + done))
+
     def test_each_prompt_keeps_its_own_id_and_the_echo_is_skipped(self) -> None:
         decoder = GrokEventDecoder(SessionKey("grok", "local-1", "demo"), "grok 1")
         first = decoder.user_message("first instruction", "command-1")

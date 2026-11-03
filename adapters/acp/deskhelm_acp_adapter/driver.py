@@ -401,7 +401,9 @@ class AcpSession:
 
     def _tool_update(self, update: dict[str, Any]) -> None:
         tool_ref = update.get("toolCallId") if isinstance(update.get("toolCallId"), str) and update["toolCallId"] else "tool"
-        label = tool_label(update) or self._tools.get(tool_ref, "tool")
+        # The first label stays: a later title such as "Read <path>" falls
+        # back to the kind, so one tool would otherwise change its name.
+        label = self._tools.setdefault(tool_ref, tool_label(update) or "tool")
         text = content_text(update.get("content"))
         # Vendors repeat the same content on later status updates.
         if text and self._tool_output.get(tool_ref) != text:
@@ -462,6 +464,7 @@ class AcpSession:
             meta = {**meta, "turn_ref": self._turn_ref}
         self._emit(FactKind.TURN_TERMINAL, meta)
         self._turn_ref, self._prompt_id, self._interrupting = None, None, False
+        self._tools.clear()
         self._tool_output.clear()
         self._tool_done.clear()
 
