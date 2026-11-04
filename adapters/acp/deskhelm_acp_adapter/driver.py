@@ -158,7 +158,7 @@ class AcpSession:
         cwd: Path,
         *,
         runtime_version: str,
-        adapter_version: str = "0.1.0",
+        adapter_version: str = "0.2.0",
         vendor: VendorProcess | None = None,
         clock: Callable[[], int] = lambda: int(time.time() * 1000),
     ) -> None:

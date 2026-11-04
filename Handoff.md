@@ -8,60 +8,44 @@ Repository: <https://github.com/cuihuir/deskhelm>
 
 ## Current State
 
-DeskHelm 0.1.0 is released from `main` as tag `v0.1.0`. It completes phases
-0 to 4 of ADR 0043: protocol v2 is the only protocol, and the v1 Bridge, its
-planes and router, the stdio relays, the runtime directory, `emit`, the Codex
-hook, the codex exec gateway with its project registry, `deskhelm ptt`, and
-the `agent-io` aliases are gone. Phase 5, the hardware and remote-access ADRs,
-has not started. The redesign baseline is tag `pre-architecture-v2`
-(`ec128a3`).
+DeskHelm 0.2.0 is released from `main` as tag `v0.2.0`. It keeps the protocol
+v2 architecture of 0.1.0 (ADR 0043, phases 0 to 4) and changes the protocol
+without compatibility with 0.1.0, which the user accepted on 2026-11-04
+because DeskHelm has no users yet (ADR 0045). Phase 5, the hardware and
+remote-access ADRs, has not started.
 
 | Component | Where | State |
 |---|---|---|
 | Bridge | `bridge/deskhelm_core` | Single-threaded actor at `bridge.sock`; hosts start it on demand |
-| Codex host | `adapters/codex`, `deskhelm codex` | Managed TUI, approval proxy, PTY relay; user-verified |
+| Codex host | `adapters/codex`, `deskhelm codex` | Managed TUI, approval proxy, PTY relay; live-checked with Codex CLI 0.166.0 |
 | Claude and Grok hosts | `adapters/claude`, `adapters/acp`, `deskhelm agent` | Live-checked with Claude Code 2.1.312 and Grok 1.0.60 |
-| Surfaces | `deskhelm_client`, `deskhelm_web`, `deskhelm_dashboard` | Web page on port 8766 and the dashboard; user-verified |
-| Voice host | `bridge/deskhelm_voice_host`, `deskhelm voice` | Paraformer ASR, Piper, Kokoro, or IndexTTS notices, right-Alt PTT; user-verified |
+| Surfaces | `deskhelm_client`, `deskhelm_web`, `deskhelm_dashboard` | Rebuilt web page on port 8766 and the dashboard |
+| Voice host | `bridge/deskhelm_voice_host`, `deskhelm voice` | Paraformer ASR, Piper, Kokoro, or IndexTTS notices, right-Alt PTT; user-verified in 0.1.0 |
 | Demo | `deskhelm simulate` | Fake session host with a scripted turn and approval |
 
-Since the release, branch `next` (not pushed) holds the overnight work of
-2026-11-04, done on the user's instruction to keep going without them:
+What 0.2.0 changed since 0.1.0:
 
-- **The page is rebuilt (ADR 0044)**, as the user asked: a mature agent
-  page that stays light. The server folds interaction events with
-  `deskhelm_client.transcript` and sends a snapshot, then revisioned
-  patches; the page is plain ES modules with Markdown replies, tool rows
-  that show the command or path, inline approvals, a stop button, a details
-  panel, a model menu, light and dark themes, an approval count in the tab
-  title, and marks for unseen activity.
-- **A code review of the rebuild** (five finder angles; the parent review
-  agent itself crashed on an API error) found real bugs, all fixed:
-  approvals rebuilt after a Bridge restart could not be answered on the
-  page; the sidebar swallowed clicks while a reply streamed; replays
-  doubled tool output; a refused Codex steer overwrote the prompt; tools
-  kept spinning after their turn; Markdown headings backtracked for
-  seconds and could overflow the stack; declined Codex commands read as
-  done; Grok replies were glued across tool calls and its tool output
-  repeated; long Claude replies were clipped to 8 KiB; and the page kept a
-  second copy of the shared wording.
-- **Protocol additions (ADR 0044 decisions 7 to 11, protocol v2 updated):**
-  the core publishes `approval_resolved`; a completed message carries its
-  whole text and the window drops its deltas; tool output facts may say
-  `replace`; the session view carries `catalog_rev`; a console delta
-  carries only changed sessions.
+- **The web page is rebuilt (ADR 0044):** the server folds interaction
+  events with `deskhelm_client.transcript` and sends a snapshot, then
+  revisioned patches. The page is plain ES modules: Markdown replies, tool
+  rows with their command or path and outcome, approvals that show what they
+  would allow, a stop button, a details panel, a Codex model menu, light and
+  dark themes, and an approval count in the tab title.
+- **Protocol changes:** the Bridge publishes how each approval ended; a
+  completed message carries its whole text; tool output may replace itself;
+  the session view counts catalog pushes; a console delta carries only
+  changed sessions (ADR 0044). A tool's completion states `completed`,
+  `failed`, or `declined`, and a request carries its operator-only detail,
+  also when a host reopens it (ADR 0045).
+- **Drivers:** Claude is ready before its first prompt; Claude and Grok tools
+  show their command or path; no driver invents exit codes; a tool a driver
+  refused reads as declined; Grok replies split at tool calls and its tool
+  output is not repeated; Codex shell wrappers are unwrapped.
 - **Command line:** `deskhelm agent` and `deskhelm codex` have parsers of
   their own, and a stopped host ends by its signal.
-- **Driver fixes from live page checks:** a new Claude session stayed
-  "starting" until its first prompt, because Claude Code 2.1.312 sends
-  `system/init` only then; the driver now sends the SDK `initialize` request
-  and is ready in about 0.2 s. Claude and Grok tool rows showed only the tool
-  name, so an approval on the page hid its command; their start facts now
-  carry the command or path as content (ADR 0043 D1, operator only). Neither
-  driver invents exit codes any more; a failed tool sends error output.
-- **Live checks:** a Bridge restart during a pending Codex approval, real
-  Codex, Claude, and Grok turns on the new page, and an end-to-end run of
-  `deskhelm simulate` with `deskhelm web`.
+- **README:** a screenshot of the page, a Mermaid flowchart of the
+  architecture, and a three-step quick start. The screenshots come from
+  synthetic sessions, not a real project.
 
 `voice/runtime` installs the checkout as an editable path dependency, so no
 command, test, or tool needs `PYTHONPATH`. The two uv projects stay separate
@@ -72,70 +56,61 @@ so model dependencies never enter the root package.
 - ADR 0043 with D1 to D4 accepted as recommended: a bounded in-memory
   interaction window, exact voice phrases only for a single answerable
   approval, and removal of every v1 path.
-- Superseded ADRs keep their text; their status lines name what changed.
-  The v1 protocol documents stay in `protocol/` as the record ADRs link to.
-- AGENTS.md now states the architecture as v2 invariants; component READMEs
-  hold the details.
+- ADR 0045: the Bridge, hosts, and surfaces of one release run together, and
+  no component checks the release of its peer. Breaking changes are preferred
+  over compatibility layers while DeskHelm has no users.
+- A request's detail and a tool's command line are content: only the
+  operator's interaction stream carries them, and console tickets stay
+  content-free for the voice and device tiers.
 - The page has no build step, framework, or dependency; transcript logic and
   wording live in `deskhelm_client`, so the page and the dashboard agree.
+- Superseded ADRs keep their text; their status lines name what changed.
 - uv uses the official PyPI index; the Tsinghua mirror was removed from the
   user's shell configuration at their request.
 
 ## Validation
 
-- Full suite in the voice runtime without `PYTHONPATH`: 334 tests pass on
-  `next` (289 at the release). The root environment passes every test except
-  the ASR provider tests, which need NumPy.
-- `tools/check-web-page.py`: every browser check passes in Chrome with the
-  page's CSP enforced, including a Bridge restart with an open approval,
-  clicks while another session streams, and Markdown that once stalled the
-  page.
-- Every documented command starts from outside the checkout without
-  `PYTHONPATH`, including the voice host through `uv` and the right-Alt
-  listener with the root environment's Python.
-- 2026-11-04, live with Codex CLI 0.166.0 in a private runtime directory:
-  with an approval pending, the Bridge was stopped for 2 s and replaced. The
-  TUI kept running, the host reopened its session on the new Bridge within
-  3.5 s with the approval rebuilt under a new id, approving it finished the
-  turn, and `/quit` exited 0 with no process or socket left.
-- 2026-11-04, live with Grok 1.0.60: prompts, tool output, and turn results
-  flow, and the host stops cleanly. The user's Grok config sets
-  `permission_mode = "always-approve"`, so Grok never asks and its approvals
-  cannot be exercised without changing that config; a session `GROK_CONFIG`
-  overlay of `[ui] permission_mode` did not change it.
-- 2026-11-04, the new page live against a private Bridge: Claude Code
-  2.1.312 was ready in 1.4 s, and approvals approved and rejected from the
-  page, tool rows with their path or command, a refused tool shown as
-  failed, and a stop mid-table all passed; Grok 1.0.60 showed its reply
-  split around a `seq 1 5` row whose output appeared once.
-- Live checks on v2: Codex CLI 0.166.0 (session, one proxied approval,
-  `/quit`, and SIGTERM with nothing left behind), Claude Code 2.1.312
-  (approve and reject), and Grok 1.0.60 (prompt, reply, interrupt). The user
-  verified the Codex TUI, the page and dashboard staying in sync, the voice
-  path with `--default-source`, and the switched commands.
+- Full suite in the voice runtime without `PYTHONPATH`: 340 tests pass (289 at
+  0.1.0). The root environment passes every test except the ASR provider
+  tests, which need NumPy.
+- `tools/check-web-page.py`: all 45 browser checks pass in Chrome with the
+  page's CSP enforced, including approval details, a declined tool, and an
+  approval rebuilt after a Bridge restart that keeps its detail.
+- 2026-11-04, live on the page against private Bridges with the 0.2.0 code:
+  Claude Code 2.1.312 showed each approval's path or command, approved and
+  rejected from the page, read the refused tool as declined, and stopped
+  mid-table; Grok 1.0.60 showed `seq 1 5` once between two replies and its
+  tool as completed; Codex CLI 0.166.0 showed the command of its approval,
+  finished the turn, and `/quit` exited 0 with nothing left behind.
+- The first Grok run after the machine's 09:12 reboot, made alongside the
+  Claude check, never became ready and its host exited 1. A direct ACP probe,
+  a hand-started host, and a rerun all worked; the cause is unknown.
+- Earlier on 2026-11-04 with Codex CLI 0.166.0: with an approval pending, the
+  Bridge was replaced and the host reopened its session within 3.5 s.
 
 ## Remaining Work
 
 - Choose a repository license. The repository is public and has no license
   file.
 - Phase 5: hardware and remote-access ADRs.
-- Not yet verified live: Grok approvals (see Validation) and the Codex
-  `/resume` picker under v2.
-- Push `next` and decide on a release once the user has looked at the
-  rebuilt page.
+- Not verified live: Grok approvals (the user's Grok config is
+  `always-approve`, and a `GROK_CONFIG` overlay did not change it), so
+  whether Grok reports a rejected tool as `failed` is unconfirmed; the Codex
+  `/resume` picker under v2; a Codex file-change approval's paths (the live
+  turn wrote its file through a shell command).
+- Codex approval summaries are English while Claude and Grok summaries are
+  Chinese.
 - Left from the review: a streamed reply still redraws its whole message,
-  throttled from 50 ms to 1 s by its length; the 5 s SSE send timeout may
-  cut a large snapshot to a slow remote browser; `tests.test_host_link`
-  leaves a ResourceWarning.
+  throttled by its length; the 5 s SSE send timeout may cut a large snapshot
+  to a slow remote browser; `tests.test_host_link` leaves a ResourceWarning;
+  test Bridges write their log to the user's `$XDG_RUNTIME_DIR/deskhelm/`.
 - The v1 voice turn timing record (ADR 0029) has no v2 equivalent, and the
   voice host does not enable advisory VAD.
 - Every replay transcript is synthetic; recording a live one needs an
   operator decision and review.
-- Voice selection: production VAD is unselected (it needs Chinese
-  conversation and gain-variant evidence); Paraformer is the alpha ASR, not a
-  final choice; SenseVoice's FunASR Model License 1.1 and Piper's GPL runtime
-  need review before packaging; blinded TTS listening, native cancellation
-  during inference, and acoustic first-audio latency are unmeasured.
+- Voice selection: production VAD is unselected; Paraformer is the alpha
+  ASR, not a final choice; SenseVoice's FunASR Model License 1.1 and Piper's
+  GPL runtime need review before packaging.
 
 ## Risks
 
@@ -145,6 +120,9 @@ so model dependencies never enter the root package.
 - DeskHelm runs from a source checkout: the Codex relay is
   `tools/run-with-pty.py`, and the voice host locates the checkout. A wheel
   install is not supported.
+- A process from another release is not refused at the handshake: a 0.1.0
+  host is disconnected by a 0.2.0 Bridge at its first tool completion and
+  then reconnects again.
 - Approval tracking is bounded at 16 per session; the interaction window is
   bounded and is not history.
 
@@ -152,20 +130,15 @@ so model dependencies never enter the root package.
 
 - After pulling, resynchronize both environments: `uv sync --extra ptt
   --locked` at the root and `uv sync --locked --python 3.12` in
-  `voice/runtime`. Voice fails to import `deskhelm_voice_host` until the
-  voice runtime is resynchronized.
-- To use `next`, stop every DeskHelm process (the sessions, `deskhelm web`,
-  `deskhelm dashboard`, then the Bridge with SIGTERM) and start them again;
-  the first new session starts a new Bridge. A 0.1.0 Bridge still serves
-  `next` hosts and pages, but sends no approval endings or catalog updates
-  and appends output that Grok replaced. A 0.1.0 web process keeps serving
-  the old page, which it loaded at start.
-- For live checks, keep tests off the user's Bridge: Codex accepts a
-  private `XDG_RUNTIME_DIR`, but the user's `grok` wrapper reads proxy
-  settings through `gsettings` and hangs without the real session bus, so
-  isolate Grok with a hand-started Bridge and `--socket` instead.
-- A Claude Code session started before the mirror removal may still carry
-  `UV_INDEX_URL` in its shell snapshot; unset it before running uv.
+  `voice/runtime`.
+- When upgrading, stop every DeskHelm process (agent sessions, `deskhelm
+  web`, `deskhelm dashboard`, voice) and the background Bridge (`pkill -f
+  deskhelm_core`), then start them again; the first session starts a new
+  Bridge.
+- For live checks, keep tests off the user's Bridge: Codex accepts a private
+  `XDG_RUNTIME_DIR`; isolate Grok and Claude with a hand-started Bridge and
+  `--socket`. Give prompts absolute paths, because a nested Claude in the
+  agent sandbox believes it works in the sandbox's directory.
 - `deskhelm codex --voice` needs the configured USB microphone; without it,
   add `--default-source`. The voice host logs to `codex-<digest>-voice.log`
   and the Bridge to `bridge.log`, both in `$XDG_RUNTIME_DIR/deskhelm/`.

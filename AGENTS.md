@@ -558,6 +558,11 @@ names over abbreviations.
 
 ## Testing and Compatibility
 
+DeskHelm has no users yet. Prefer the correct design over compatibility with
+an earlier release: change the protocol when it is wrong, record the change
+in an ADR, and expect every DeskHelm process to restart on upgrade
+(ADR 0045). Do not add compatibility layers or version shims.
+
 Add tests beside their component or under `tests/` for cross-component
 behavior. Protocol and adapter changes require captured or synthetic fixtures,
 including producing runtime versions where applicable. Test malformed input,
