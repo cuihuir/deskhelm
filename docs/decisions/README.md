@@ -143,3 +143,9 @@ makes a tool's completion state whether it completed, failed, or was
 declined, and lets a request carry its detail, such as a command line, to the
 operator only, so an approval says what it would allow. It drops
 compatibility with DeskHelm 0.1.0.
+
+[`0046-answering-agent-questions.md`](0046-answering-agent-questions.md)
+lets an input request carry its questions and options, adds an operator-only
+`answer` command, and makes Codex's questions, including the
+`request_user_input_async` questions it does not wait on, answerable on the
+page.
