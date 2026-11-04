@@ -102,7 +102,7 @@ class DashboardTests(unittest.TestCase):
             self.driver.emit(FactKind.MESSAGE, {"message_ref": "m1", "role": "assistant", "phase": phase}, {"text": piece})
         self.driver.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "start"},
                          {"text": "uv run pytest"})
-        self.driver.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "complete", "exit_code": 2})
+        self.driver.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "complete", "exit_code": 2, "status": "failed"})
         _wait(lambda: "退出码 2" in "\n".join(self.dashboard.render()))
         recent = self.dashboard.render()
         recent = recent[recent.index("  最近活动：") + 1:]

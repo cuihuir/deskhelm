@@ -415,6 +415,7 @@ class Core:
                 "text": content.get("text", ""),
                 "stream": meta.get("stream"),
                 "exit_code": meta.get("exit_code"),
+                "status": meta.get("status"),
             }
             if meta.get("replace"):
                 payload["replace"] = True

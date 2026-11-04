@@ -38,6 +38,7 @@ from deskhelm_protocol import (
 MAX_TEXT_CHARS = 8192
 MAX_TITLE_CHARS = 2048
 MAX_PENDING_PERMISSIONS = 8
+MAX_DECLINED_TOOLS = 64
 APPROVAL_WINDOW_MS = 10 * 60 * 1000
 _LABEL = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
 # The raw input field that says what a tool works on.
@@ -177,6 +178,10 @@ class AcpSession:
         self._echoes: deque[str] = deque(maxlen=8)
         self._pending: dict[str, OpenRequest] = {}
         self._pending_rpc: dict[str, tuple[Any, list[Any]]] = {}
+        # The tool each permission request is about, and the tools refused,
+        # so a refused tool that fails reads as declined.
+        self._pending_tools: dict[str, str] = {}
+        self._declined: dict[str, None] = {}
         self._tools: dict[str, str] = {}
         self._tool_output: dict[str, str] = {}
         # The whole current reply, so its complete fact carries all of it.
@@ -306,12 +311,16 @@ class AcpSession:
             option_id = select_option(pending[1], allow)
             if not option_id:
                 return EffectOutcome.UNSUPPORTED
+            if not allow:
+                # Before the write, so the tool's update cannot arrive first.
+                self._decline_tool(self._pending_tools.get(provider_ref, ""))
         self._vendor.write_line(
             {"jsonrpc": "2.0", "id": pending[0], "result": {"outcome": {"outcome": "selected", "optionId": option_id}}}
         )
         with self._lock:
             self._pending.pop(provider_ref, None)
             self._pending_rpc.pop(provider_ref, None)
+            self._pending_tools.pop(provider_ref, None)
         return EffectOutcome.ACCEPTED
 
     # Vendor output -----------------------------------------------------
@@ -445,16 +454,20 @@ class AcpSession:
         status = update.get("status")
         if status in {"completed", "failed"} and tool_ref not in self._tool_done:
             self._tool_done.add(tool_ref)
+            # ACP has no exit codes; a tool this driver refused fails as declined.
             if status == "failed":
-                # ACP has no exit codes; error output is what marks a failure.
-                self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "output", "stream": "stderr"}, {"text": ""})
-            self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "complete"})
+                status = "declined" if tool_ref in self._declined else "failed"
+            self._declined.pop(tool_ref, None)
+            self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "complete", "status": status})
 
     def _permission(self, rpc_id: Any, params: object) -> None:
         params = params if isinstance(params, dict) else {}
         options = params.get("options") if isinstance(params.get("options"), list) else []
         provider_ref = f"rpc-{rpc_id}"
+        tool = params.get("toolCall") if isinstance(params.get("toolCall"), dict) else {}
+        tool_ref = tool.get("toolCallId") if isinstance(tool.get("toolCallId"), str) else ""
         if len(self._pending) >= MAX_PENDING_PERMISSIONS:
+            self._decline_tool(tool_ref)
             option_id = select_option(options, False)
             outcome = {"outcome": "selected", "optionId": option_id} if option_id else {"outcome": "cancelled"}
             self._vendor_write({"jsonrpc": "2.0", "id": rpc_id, "result": {"outcome": outcome}})
@@ -468,6 +481,7 @@ class AcpSession:
         )
         self._pending[provider_ref] = request
         self._pending_rpc[provider_ref] = (rpc_id, options)
+        self._pending_tools[provider_ref] = tool_ref
         self._emit(
             FactKind.REQUEST_OPENED,
             {
@@ -511,11 +525,13 @@ class AcpSession:
         self._tools.clear()
         self._tool_output.clear()
         self._tool_done.clear()
+        self._declined.clear()
 
     def _expire(self) -> None:
         now = self._clock()
         for provider_ref, request in list(self._pending.items()):
             if request.expires_at <= now:
+                self._decline_tool(self._pending_tools.get(provider_ref, ""))
                 _, options = self._pending_rpc[provider_ref]
                 option_id = select_option(options, False)
                 self._answer_permission(provider_ref, {"outcome": "selected", "optionId": option_id} if option_id else {"outcome": "cancelled"})
@@ -529,7 +545,14 @@ class AcpSession:
     def _settle(self, provider_ref: str, by: str) -> None:
         self._pending.pop(provider_ref, None)
         self._pending_rpc.pop(provider_ref, None)
+        self._pending_tools.pop(provider_ref, None)
         self._emit(FactKind.REQUEST_RESOLVED, {"provider_ref": provider_ref, "by": by})
+
+    def _decline_tool(self, tool_ref: str) -> None:
+        if tool_ref:
+            self._declined[tool_ref] = None
+            while len(self._declined) > MAX_DECLINED_TOOLS:
+                self._declined.pop(next(iter(self._declined)))
 
     def _ended(self) -> None:
         self._flush_delta()

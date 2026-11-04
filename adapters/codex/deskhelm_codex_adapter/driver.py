@@ -402,6 +402,8 @@ class CodexSession:
         }
         if payload.exit_code is not None:
             meta["exit_code"] = payload.exit_code
+        if payload.status is not None:
+            meta["status"] = payload.status.value
         if payload.stream is not None:
             meta["stream"] = payload.stream.value
         self._ensure_turn_locked()

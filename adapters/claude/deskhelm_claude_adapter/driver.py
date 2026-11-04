@@ -38,6 +38,7 @@ from .command import claude_argv
 MAX_TEXT_CHARS = 8192
 MAX_TITLE_CHARS = 2048
 MAX_PENDING_APPROVALS = 8
+MAX_DECLINED_TOOLS = 64
 APPROVAL_WINDOW_MS = 10 * 60 * 1000
 _LABEL = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 # Claude asks the user through this tool. It is input, not an approval, and
@@ -110,6 +111,10 @@ class ClaudeSession:
         self._echoes: deque[str] = deque(maxlen=8)
         self._pending: dict[str, OpenRequest] = {}
         self._pending_input: dict[str, dict[str, Any]] = {}
+        # The tool each permission request is about, and the tools refused,
+        # so a refused tool's error result reads as declined, not failed.
+        self._pending_tools: dict[str, str] = {}
+        self._declined: dict[str, None] = {}
         self._tools: dict[str, str] = {}
         self._assistant_ref = ""
         self._assistant_seen = False
@@ -207,12 +212,16 @@ class ClaudeSession:
         with self._lock:
             request = self._pending.get(provider_ref)
             tool_input = self._pending_input.get(provider_ref, {})
+            if request is not None and not allow:
+                # Before the write, so the tool's result cannot arrive first.
+                self._decline_tool(self._pending_tools.get(provider_ref, ""))
         if request is None:
             return EffectOutcome.UNDELIVERED
         self._write_decision(provider_ref, allow, tool_input, "denied")
         with self._lock:
             self._pending.pop(provider_ref, None)
             self._pending_input.pop(provider_ref, None)
+            self._pending_tools.pop(provider_ref, None)
         return EffectOutcome.ACCEPTED
 
     def _write_decision(self, provider_ref: str, allow: bool, tool_input: dict[str, Any], reason: str) -> None:
@@ -341,16 +350,19 @@ class ClaudeSession:
             tool_ref = block.get("tool_use_id") if isinstance(block.get("tool_use_id"), str) and block["tool_use_id"] else "tool"
             label = self._tools.get(tool_ref, "tool")
             text = _tool_result_text(block.get("content"))
-            # Claude reports a failed or refused tool as an error result, not
-            # an exit code; error output is what marks the tool failed.
+            # Claude reports a failed or refused tool as an error result and
+            # never an exit code.
             failed = bool(block.get("is_error"))
-            if text or failed:
+            if text:
                 self._emit(
                     FactKind.TOOL,
                     {"tool_ref": tool_ref, "label": label, "phase": "output", "stream": "stderr" if failed else "stdout"},
                     {"text": text},
                 )
-            self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "complete"})
+            refused = tool_ref in self._declined
+            self._declined.pop(tool_ref, None)
+            status = "completed" if not failed else "declined" if refused else "failed"
+            self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": label, "phase": "complete", "status": status})
 
     def _result(self, value: dict[str, Any]) -> None:
         self._flush_delta()
@@ -382,10 +394,13 @@ class ClaudeSession:
             )
             return
         tool_input = request.get("input") if isinstance(request.get("input"), dict) else {}
+        tool_use_id = request.get("tool_use_id") if isinstance(request.get("tool_use_id"), str) else ""
         if request.get("tool_name") == _QUESTION_TOOL:
+            self._decline_tool(tool_use_id)
             self._vendor_write_decision(provider_ref, tool_input, "The user cannot answer questions here. Continue without asking.")
             return
         if len(self._pending) >= MAX_PENDING_APPROVALS:
+            self._decline_tool(tool_use_id)
             self._vendor_write_decision(provider_ref, tool_input, "too many pending approvals")
             return
         open_request = OpenRequest(
@@ -397,6 +412,7 @@ class ClaudeSession:
         )
         self._pending[provider_ref] = open_request
         self._pending_input[provider_ref] = tool_input
+        self._pending_tools[provider_ref] = tool_use_id
         self._emit(
             FactKind.REQUEST_OPENED,
             {
@@ -445,13 +461,21 @@ class ClaudeSession:
         now = self._clock()
         for provider_ref, request in list(self._pending.items()):
             if request.expires_at <= now:
+                self._decline_tool(self._pending_tools.get(provider_ref, ""))
                 self._vendor_write_decision(provider_ref, {}, "approval expired")
                 self._settle(provider_ref, "expired")
 
     def _settle(self, provider_ref: str, by: str) -> None:
         self._pending.pop(provider_ref, None)
         self._pending_input.pop(provider_ref, None)
+        self._pending_tools.pop(provider_ref, None)
         self._emit(FactKind.REQUEST_RESOLVED, {"provider_ref": provider_ref, "by": by})
+
+    def _decline_tool(self, tool_use_id: str) -> None:
+        if tool_use_id:
+            self._declined[tool_use_id] = None
+            while len(self._declined) > MAX_DECLINED_TOOLS:
+                self._declined.pop(next(iter(self._declined)))
 
     def _ended(self) -> None:
         self._flush_delta()

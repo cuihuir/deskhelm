@@ -29,6 +29,7 @@ from deskhelm_client import (
     outcome_text,
     resolution_text,
     result_text,
+    tool_status_text,
     tool_text,
 )
 from deskhelm_client.transcript import Transcript
@@ -63,16 +64,7 @@ def item_line(item: dict[str, Any], speaker: str) -> str:
         who = {"user": "你", "system": "系统"}.get(item["role"], speaker)
         return f"{who}：{' '.join(item['text'].split())}{' …' if item['streaming'] else ''}"
     if kind == "tool":
-        if item["status"] == "running":
-            state = "运行中"
-        elif item["status"] == "done":
-            state = "完成"
-        elif item["status"] == "stopped":
-            state = "已停止"
-        elif item["exit_code"] is None:
-            state = "失败"
-        else:
-            state = f"退出码 {item['exit_code']}"
+        state = tool_status_text(item)
         return " ".join(part for part in (tool_text(item["kind"]), " ".join(item["title"].split()), "·", state) if part)
     if kind == "approval":
         ended = resolution_text(item)

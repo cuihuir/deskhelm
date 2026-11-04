@@ -2,7 +2,7 @@
 // deskhelm_client/texts.py, so they have one copy; the page keeps only words
 // of its own. The server's message for a command result wins when it sends one.
 
-const words = { result: {}, activity: {}, outcome: {}, failure: {}, resolution: {}, tool: {} };
+const words = { result: {}, activity: {}, outcome: {}, failure: {}, resolution: {}, tool: {}, tool_status: {} };
 
 export function setWords(shared) {
   if (!shared || typeof shared !== "object") return;
@@ -38,6 +38,15 @@ const TOOL_ICONS = {
 
 export function toolWord(kind) {
   return words.tool[kind] || kind || "工具";
+}
+
+// How a tool item stands, with its exit code when it failed with one.
+export function toolStatusText(item) {
+  const said = words.tool_status;
+  if (item.status === "failed" && Number.isInteger(item.exit_code)) {
+    return (said.exit || "").replace("{code}", String(item.exit_code));
+  }
+  return said[item.status] || item.status || "";
 }
 
 export function toolIcon(kind) {

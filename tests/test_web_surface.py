@@ -14,7 +14,15 @@ TESTS = Path(__file__).resolve().parent
 if str(TESTS) not in sys.path:
     sys.path.insert(0, str(TESTS))
 
-from deskhelm_client.texts import ACTIVITY_TEXT, FAILURE_TEXT, OUTCOME_TEXT, RESOLUTION_TEXT, RESULT_TEXT, TOOL_TEXT  # noqa: E402
+from deskhelm_client.texts import (  # noqa: E402
+    ACTIVITY_TEXT,
+    FAILURE_TEXT,
+    OUTCOME_TEXT,
+    RESOLUTION_TEXT,
+    RESULT_TEXT,
+    TOOL_STATUS_TEXT,
+    TOOL_TEXT,
+)
 from deskhelm_core.server import BridgeServer  # noqa: E402
 from deskhelm_host import BridgeLink  # noqa: E402
 from deskhelm_protocol import EffectKind, EffectOutcome, FactKind, SessionKey  # noqa: E402
@@ -161,7 +169,8 @@ class WebSurfaceTests(unittest.TestCase):
         words = self._get(web, "/api/snapshot")[1]["words"]
 
         self.assertEqual(words, {"result": RESULT_TEXT, "activity": ACTIVITY_TEXT, "outcome": OUTCOME_TEXT,
-                                 "failure": FAILURE_TEXT, "resolution": RESOLUTION_TEXT, "tool": TOOL_TEXT})
+                                 "failure": FAILURE_TEXT, "resolution": RESOLUTION_TEXT, "tool": TOOL_TEXT,
+                                 "tool_status": TOOL_STATUS_TEXT})
 
     def test_a_pending_approval_is_listed_and_decided_by_its_approval_id(self) -> None:
         self._approval()

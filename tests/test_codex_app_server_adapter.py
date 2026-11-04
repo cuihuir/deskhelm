@@ -32,6 +32,7 @@ from deskhelm_codex_adapter.events import (  # noqa: E402
     MessageRole,
     TaskPayload,
     ToolPhase,
+    ToolStatus,
     ToolStream,
     UserInputPayload,
 )
@@ -1860,16 +1861,20 @@ class ThreadItemProjectionTests(unittest.TestCase):
         self.assertEqual(listed[0][2].name, "ls -la")
         declined = _thread_item_drafts("item/completed", {"type": "commandExecution", "id": "d", "command": "rm -rf build",
                                                           "status": "declined", "exitCode": None})
-        self.assertEqual((declined[0][2].text, declined[0][2].stream), ("declined", ToolStream.STDERR))
-        self.assertIsNone(declined[1][2].exit_code)
+        self.assertEqual([(draft[2].phase, draft[2].status) for draft in declined],
+                         [(ToolPhase.COMPLETE, ToolStatus.DECLINED)])
+        self.assertIsNone(declined[0][2].exit_code)
         refused = _thread_item_drafts("item/completed", {"type": "fileChange", "id": "f", "status": "declined",
                                                          "changes": [{"path": "app.py", "kind": "update", "diff": "+x\n"}]})
-        self.assertEqual(refused[0][2].stream, ToolStream.STDERR)
+        self.assertEqual((refused[0][2].stream, refused[1][2].status), (ToolStream.STDOUT, ToolStatus.DECLINED))
         self.assertIn("+x", refused[0][2].text)
+        failed = _thread_item_drafts("item/completed", {"type": "commandExecution", "id": "e", "command": "false",
+                                                        "status": "completed", "exitCode": 1})
+        self.assertEqual((failed[0][2].exit_code, failed[0][2].status), (1, ToolStatus.FAILED))
         self.assertEqual(command[0][2].phase, ToolPhase.OUTPUT)
         self.assertEqual(command[0][2].stream, ToolStream.STDOUT)
         self.assertEqual(command[1][2].phase, ToolPhase.COMPLETE)
-        self.assertEqual(command[1][2].exit_code, 0)
+        self.assertEqual((command[1][2].exit_code, command[1][2].status), (0, ToolStatus.COMPLETED))
         self.assertNotIn("/secret/workdir", _draft_blob(command))
         self.assertEqual(
             _thread_item_drafts("item/completed", {

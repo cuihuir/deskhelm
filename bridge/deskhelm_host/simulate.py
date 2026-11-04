@@ -131,11 +131,12 @@ class DemoSession:
             self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": "command", "phase": "start"}, {"text": "echo demo"})
             self._step()
             if any(word in text.lower() for word in APPROVAL_WORDS) and not self._approved(number):
-                self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": "command", "phase": "complete", "exit_code": 1})
+                self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": "command", "phase": "complete", "status": "declined"})
                 self._reply(f"reply-{number}", "这一步被拒绝了，没有执行。")
             else:
                 self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": "command", "phase": "output", "stream": "stdout"}, {"text": "demo"})
-                self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": "command", "phase": "complete", "exit_code": 0})
+                self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": "command", "phase": "complete",
+                                           "exit_code": 0, "status": "completed"})
                 self._step()
                 self._reply(f"reply-{number}", f"这是模拟会话的回复。你说：{text}")
             meta: dict[str, Any] = {"status": "completed", "turn_ref": command_id}

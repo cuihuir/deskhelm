@@ -4,11 +4,19 @@
 
 import { copyText, h, icon, nearBottom } from "../dom.js";
 import { diffBlock, looksLikeDiff, renderMarkdown } from "../markdown.js";
-import { countdown, historyHint, outcomeText, resolutionText, toolIcon, toolWord } from "../text.js";
+import { countdown, historyHint, outcomeText, resolutionText, toolIcon, toolStatusText, toolWord } from "../text.js";
 
 const STREAM_RENDER_MS = 50;
 const MAX_STREAM_RENDER_MS = 1000;
 const BUSY = new Set(["working", "starting"]);
+// A tool status's tone and icon; a running tool spins instead.
+const TOOL_MARKS = {
+  running: ["", ""],
+  done: ["ok", "check"],
+  failed: ["danger", "cross"],
+  declined: ["muted", "cross"],
+  stopped: ["muted", "stop"],
+};
 
 export function mountTranscript(store, { scroller, root, jump }, actions) {
   const list = h("div", { class: "items" });
@@ -100,12 +108,9 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
 
   function tool(item) {
     const open = expanded.has(`${key}\u001f${item.id}`);
-    let status;
-    if (item.status === "running") status = h("span", { class: "tool-status" }, h("span", { class: "spinner" }), "运行中");
-    else if (item.status === "stopped") status = h("span", { class: "tool-status tone-muted" }, icon("stop"), "已停止");
-    else if (item.status === "failed") {
-      status = h("span", { class: "tool-status tone-danger" }, icon("cross"), item.exit_code === null ? "失败" : `退出码 ${item.exit_code}`);
-    } else status = h("span", { class: "tool-status tone-ok" }, icon("check"), "完成");
+    const [tone, mark] = TOOL_MARKS[item.status] || TOOL_MARKS.done;
+    const status = h("span", { class: `tool-status${tone ? ` tone-${tone}` : ""}` },
+      mark ? icon(mark) : h("span", { class: "spinner" }), toolStatusText(item));
     const head = h(
       "button",
       { class: "tool-head", type: "button", "aria-expanded": open ? "true" : "false", on: { click: () => toggle(item.id) } },

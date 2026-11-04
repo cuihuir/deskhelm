@@ -36,6 +36,7 @@ from .events import (
     TaskPayload,
     ToolPayload,
     ToolPhase,
+    ToolStatus,
     ToolStream,
     UserInputPayload,
 )
@@ -2203,19 +2204,21 @@ def _thread_item_drafts(
     if item_type == "webSearch":
         query = _clip_text(item.get("query"), 240).strip()
         name = f"web search: {query}" if query else "web search"
-        return _tool_lifecycle(item_id, name, started=started, output="")
+        return _tool_lifecycle(item_id, name, started=started, output="", status=_tool_status(item))
     if item_type == "mcpToolCall":
         tool = item.get("tool") if isinstance(item.get("tool"), str) else ""
         server = item.get("server") if isinstance(item.get("server"), str) else ""
         name = _clip_text(f"{server} {tool}".strip() or "mcp", 240)
         output = ""
         stream = ToolStream.STDOUT
+        status = _tool_status(item)
         if not started:
             error = item.get("error")
             result = item.get("result")
             if isinstance(error, str) and error.strip():
                 output = _clip_text(error, MAX_ITEM_TEXT_CHARS)
                 stream = ToolStream.STDERR
+                status = ToolStatus.FAILED
             elif isinstance(result, str) and result.strip():
                 output = _clip_text(result, MAX_ITEM_TEXT_CHARS)
         return _tool_lifecycle(
@@ -2224,6 +2227,7 @@ def _thread_item_drafts(
             started=started,
             output=output,
             stream=stream,
+            status=status,
         )
     return []
 
@@ -2247,7 +2251,16 @@ def _user_item_text(item: dict[str, Any]) -> str:
 
 
 _SHELLS = frozenset({"bash", "sh", "zsh"})
-_UNFINISHED = frozenset({"failed", "declined"})
+
+
+def _tool_status(item: dict[str, Any], exit_code: int | None = None) -> ToolStatus:
+    """How an item ended: Codex says declined or failed, or a nonzero exit code does."""
+    status = item.get("status")
+    if status == "declined":
+        return ToolStatus.DECLINED
+    if status == "failed" or exit_code not in (None, 0):
+        return ToolStatus.FAILED
+    return ToolStatus.COMPLETED
 
 
 def _shell_script(command: str | list[Any]) -> str:
@@ -2276,15 +2289,12 @@ def _command_drafts(
         name = _clip_text(command.strip(), MAX_COMMAND_CHARS)
     if started:
         return [_tool(item_id, name, ToolPhase.START)]
-    status = item.get("status")
     exit_code = _exit_code(item)
     output = item.get("aggregatedOutput")
     text = _clip_text(output, MAX_ITEM_TEXT_CHARS) if isinstance(output, str) else ""
-    if not text.strip():
-        text = str(status) if status in _UNFINISHED else ""
-    # A declined or failed command may carry no exit code; its error stream says it failed.
-    stream = ToolStream.STDERR if status in _UNFINISHED and exit_code is None else ToolStream.STDOUT
-    return _tool_lifecycle(item_id, name, started=False, output=text, exit_code=exit_code, stream=stream)
+    return _tool_lifecycle(
+        item_id, name, started=False, output=text, exit_code=exit_code, status=_tool_status(item, exit_code)
+    )
 
 
 def _file_drafts(
@@ -2308,11 +2318,7 @@ def _file_drafts(
             lines.append(_ITEM_TEXT_MARKER.strip())
     name = _clip_text(", ".join(names) or "file change", MAX_COMMAND_CHARS)
     output = _clip_text("\n".join(lines), MAX_ITEM_TEXT_CHARS) if not started else ""
-    status = item.get("status")
-    if started or status not in _UNFINISHED:
-        return _tool_lifecycle(item_id, name, started=started, output=output)
-    # A change that was declined or failed was not applied.
-    return _tool_lifecycle(item_id, name, started=False, output=output or str(status), stream=ToolStream.STDERR)
+    return _tool_lifecycle(item_id, name, started=started, output=output, status=_tool_status(item))
 
 
 def _tool_lifecycle(
@@ -2323,6 +2329,7 @@ def _tool_lifecycle(
     output: str,
     exit_code: int | None = None,
     stream: ToolStream = ToolStream.STDOUT,
+    status: ToolStatus = ToolStatus.COMPLETED,
 ) -> list[tuple[InteractionKind, str, ToolPayload]]:
     if started:
         return [_tool(item_id, name, ToolPhase.START)]
@@ -2337,7 +2344,7 @@ def _tool_lifecycle(
                 stream=stream,
             )
         )
-    drafts.append(_tool(item_id, name, ToolPhase.COMPLETE, exit_code=exit_code))
+    drafts.append(_tool(item_id, name, ToolPhase.COMPLETE, exit_code=exit_code, status=status))
     return drafts
 
 
@@ -2348,6 +2355,7 @@ def _tool(
     text: str = "",
     stream: ToolStream | None = None,
     exit_code: int | None = None,
+    status: ToolStatus | None = None,
 ) -> tuple[InteractionKind, str, ToolPayload]:
     return (
         InteractionKind.TOOL,
@@ -2359,6 +2367,7 @@ def _tool(
             text=text,
             stream=stream,
             exit_code=exit_code,
+            status=status,
         ),
     )
 

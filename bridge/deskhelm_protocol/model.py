@@ -291,6 +291,14 @@ class ToolPhase(StrEnum):
     COMPLETE = "complete"
 
 
+class ToolStatus(StrEnum):
+    """How a tool ended. ``declined`` means a person or policy refused it."""
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+    DECLINED = "declined"
+
+
 class TurnStatus(StrEnum):
     COMPLETED = "completed"
     INTERRUPTED = "interrupted"
@@ -364,7 +372,12 @@ def _validate_message(meta: dict[str, Any], content: dict[str, Any]) -> None:
 def _validate_tool(meta: dict[str, Any], content: dict[str, Any]) -> None:
     identity_field(meta.get("tool_ref"), "tool_ref")
     text_field(meta.get("label"), "label", MAX_LABEL_CHARS)
-    enum_field(ToolPhase, meta.get("phase"), "tool phase")
+    phase = enum_field(ToolPhase, meta.get("phase"), "tool phase")
+    # Every completion says how the tool ended; nothing else may.
+    if phase is ToolPhase.COMPLETE:
+        enum_field(ToolStatus, meta.get("status"), "tool status")
+    elif "status" in meta:
+        raise ProtocolViolation("only a complete tool fact has a status")
     if meta.get("exit_code") is not None:
         if not isinstance(meta["exit_code"], int) or isinstance(meta["exit_code"], bool):
             raise ProtocolViolation("exit_code must be an integer")

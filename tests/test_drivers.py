@@ -221,6 +221,7 @@ class ClaudeDriverTests(_DriverCase):
         self.assertEqual([(meta["label"], meta["phase"]) for meta, _ in tools],
                          [("Read", "start"), ("Read", "output"), ("Read", "complete")])
         self.assertEqual(tools[0][1], {"text": "secret-argument"})
+        self.assertEqual(tools[2][0]["status"], "completed")
         self.assertNotIn("exit_code", tools[2][0])
         self.assertEqual((first["status"], second["status"], second["failure"]), ("completed", "failed", "provider"))
         self.assertNotIn("secret-argument", json.dumps([meta for _, meta, _ in self.facts.facts]))
@@ -228,19 +229,27 @@ class ClaudeDriverTests(_DriverCase):
         for private in ("hidden thought", "private vendor boom"):
             self.assertNotIn(private, blob)
 
-    def test_a_refused_tool_fails_with_error_output_and_no_exit_code(self) -> None:
+    def test_a_tool_it_refused_is_declined_and_another_error_result_failed(self) -> None:
         self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "delete it"})
         bash = {"command": "rm hello.py", "description": "Delete hello.py"}
-        self.feed(
-            {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": bash}]}},
-            {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "is_error": True, "content": ""}]}},
-        )
-        self.facts.wait_for(FactKind.TOOL, 3)
+        tools = [{"type": "tool_use", "id": "t1", "name": "Bash", "input": bash},
+                 {"type": "tool_use", "id": "t2", "name": "Read", "input": {"file_path": "missing.txt"}}]
+        request = {"subtype": "can_use_tool", "tool_name": "Bash", "input": bash, "tool_use_id": "t1"}
+        self.feed({"type": "assistant", "message": {"content": tools}},
+                  {"type": "control_request", "request_id": "req-1", "request": request})
+        self.facts.wait_for(FactKind.REQUEST_OPENED)
+        self.driver.perform(EffectKind.RESPOND, {"command_id": "a", "provider_ref": "req-1", "decision": "reject"})
+        self.feed({"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t1", "is_error": True, "content": "The user refused"},
+            {"type": "tool_result", "tool_use_id": "t2", "is_error": True, "content": "File does not exist."}]}})
+        self.facts.wait_for(FactKind.TOOL, 6)
 
-        start, output, complete = self.facts.of(FactKind.TOOL)
-        self.assertEqual(start, ({"tool_ref": "t1", "label": "Bash", "phase": "start"}, {"text": "rm hello.py"}))
-        self.assertEqual(output[0]["stream"], "stderr")
-        self.assertNotIn("exit_code", complete[0])
+        facts = self.facts.of(FactKind.TOOL)
+        completes = [meta for meta, _ in facts if meta["phase"] == "complete"]
+        self.assertEqual(facts[0], ({"tool_ref": "t1", "label": "Bash", "phase": "start"}, {"text": "rm hello.py"}))
+        self.assertEqual([(meta["tool_ref"], meta["status"]) for meta in completes], [("t1", "declined"), ("t2", "failed")])
+        self.assertEqual({meta["stream"] for meta, _ in facts if meta["phase"] == "output"}, {"stderr"})
+        self.assertFalse(any("exit_code" in meta for meta in completes))
 
     def test_closed_vendor_makes_submit_undelivered(self) -> None:
         self.vendor.terminate()
@@ -339,6 +348,7 @@ class AcpDriverTests(_DriverCase):
         self.assertEqual(catalog["model"], "example-model")
         self.assertEqual([meta["label"] for meta, _ in tools], ["Read", "Read", "Read"])
         self.assertEqual(tools[0][1], {"text": "secret-argument"})
+        self.assertEqual(tools[-1][0]["status"], "completed")
         self.assertNotIn("exit_code", tools[-1][0])
         self.assertEqual(self.facts.of(FactKind.TURN_TERMINAL)[0][0]["status"], "completed")
         self.assertNotIn("secret-argument", json.dumps([meta for _, meta, _ in self.facts.facts]))
@@ -364,22 +374,33 @@ class AcpDriverTests(_DriverCase):
         for unpublished in ("rm -rf", "<workspace>", "notes.txt"):
             self.assertNotIn(unpublished, json.dumps(self.facts.facts))
 
-    def test_a_tool_takes_its_command_from_raw_input_and_fails_without_an_exit_code(self) -> None:
-        # The shape Grok 1.0.60 sent in a local check; every value is synthetic.
+    def test_a_tool_takes_its_command_from_raw_input_and_a_refused_one_is_declined(self) -> None:
+        # The tool_call shape Grok 1.0.60 sent in a local check; every value is synthetic.
+        def update(**fields) -> dict:
+            return {"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "vendor-session", "update": fields}}
+
+        options = [{"optionId": "allow-once", "name": "Yes", "kind": "allow_once"},
+                   {"optionId": "reject-once", "name": "No", "kind": "reject_once"}]
         self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "work"})
         self.feed(
-            {"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "vendor-session", "update": {
-                "sessionUpdate": "tool_call", "toolCallId": "tool-x", "title": "run_terminal_command",
-                "rawInput": {"command": "false", "description": "Fail on purpose"}}}},
-            {"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "vendor-session", "update": {
-                "sessionUpdate": "tool_call_update", "toolCallId": "tool-x", "status": "failed"}}},
+            update(sessionUpdate="tool_call", toolCallId="tool-x", title="run_terminal_command",
+                   rawInput={"command": "false", "description": "Fail on purpose"}),
+            update(sessionUpdate="tool_call", toolCallId="tool-y", title="run_terminal_command", rawInput={"command": "rm -rf build"}),
+            {"jsonrpc": "2.0", "id": 31, "method": "session/request_permission",
+             "params": {"toolCall": {"toolCallId": "tool-y", "title": "run_terminal_command"}, "options": options}},
         )
-        self.facts.wait_for(FactKind.TOOL, 3)
+        self.facts.wait_for(FactKind.REQUEST_OPENED)
+        self.driver.perform(EffectKind.RESPOND, {"command_id": "a", "provider_ref": "rpc-31", "decision": "reject"})
+        self.feed(update(sessionUpdate="tool_call_update", toolCallId="tool-x", status="failed"),
+                  update(sessionUpdate="tool_call_update", toolCallId="tool-y", status="failed"))
+        self.facts.wait_for(FactKind.TOOL, 4)
 
-        start, output, complete = self.facts.of(FactKind.TOOL)
-        self.assertEqual(start, ({"tool_ref": "tool-x", "label": "run_terminal_command", "phase": "start"}, {"text": "false"}))
-        self.assertEqual((output[0]["stream"], output[1]), ("stderr", {"text": ""}))
-        self.assertNotIn("exit_code", complete[0])
+        facts = self.facts.of(FactKind.TOOL)
+        completes = [meta for meta, _ in facts if meta["phase"] == "complete"]
+        self.assertEqual(facts[0], ({"tool_ref": "tool-x", "label": "run_terminal_command", "phase": "start"}, {"text": "false"}))
+        self.assertEqual([(meta["tool_ref"], meta["status"]) for meta in completes], [("tool-x", "failed"), ("tool-y", "declined")])
+        self.assertFalse(any(meta["phase"] == "output" for meta, _ in facts))
+        self.assertFalse(any("exit_code" in meta for meta in completes))
 
     def test_unknown_agent_request_gets_an_error(self) -> None:
         self.feed({"jsonrpc": "2.0", "id": 41, "method": "fs/read_text_file", "params": {"path": "/etc/hosts"}})

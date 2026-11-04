@@ -48,6 +48,12 @@ class ToolStream(StrEnum):
     STDERR = "stderr"
 
 
+class ToolStatus(StrEnum):
+    COMPLETED = "completed"
+    FAILED = "failed"
+    DECLINED = "declined"
+
+
 class AttentionReason(StrEnum):
     APPROVAL = "approval"
 
@@ -80,10 +86,13 @@ class ToolPayload:
     text: str = ""
     stream: ToolStream | None = None
     exit_code: int | None = None
+    status: ToolStatus | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.phase, ToolPhase):
             raise ValueError("tool phase is invalid")
+        if (self.phase is ToolPhase.COMPLETE) != isinstance(self.status, ToolStatus):
+            raise ValueError("a complete tool event, and only one, has a status")
         if self.stream is not None and not isinstance(self.stream, ToolStream):
             raise ValueError("tool stream is invalid")
         _validate_non_empty_string(self.tool_call_id, "tool_call_id")
@@ -110,6 +119,7 @@ class ToolPayload:
             "text": self.text,
             "stream": None if self.stream is None else self.stream.value,
             "exit_code": self.exit_code,
+            "status": None if self.status is None else self.status.value,
         }
 
 

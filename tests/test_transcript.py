@@ -58,7 +58,7 @@ class TranscriptTests(unittest.TestCase):
         start = transcript.apply(_tool("t1", "start", text="uv run pytest"))
         first = transcript.apply(_tool("t1", "output", text="..F\n", stream="stdout"))
         more = transcript.apply(_tool("t1", "output", text="1 failed\n", stream="stdout"))
-        done = transcript.apply(_tool("t1", "complete", exit_code=1))
+        done = transcript.apply(_tool("t1", "complete", exit_code=1, status="failed"))
 
         item = start[0]["item"]
         self.assertEqual((item["kind"], item["title"], item["status"]), ("command", "uv run pytest", "running"))
@@ -67,25 +67,30 @@ class TranscriptTests(unittest.TestCase):
         self.assertEqual((done[0]["item"]["status"], done[0]["item"]["exit_code"]), ("failed", 1))
         self.assertEqual(done[0]["item"]["output"], "..F\n1 failed\n")
 
-    def test_a_tool_without_an_exit_code_or_with_zero_is_done(self) -> None:
+    def test_a_tool_ends_as_its_status_says(self) -> None:
         transcript = Transcript()
-        transcript.apply(_tool("t1", "complete", name="file_change"))
-        transcript.apply(_tool("t2", "complete", exit_code=0))
+        transcript.apply(_tool("t1", "complete", name="file_change", status="completed"))
+        transcript.apply(_tool("t2", "complete", exit_code=0, status="completed"))
+        transcript.apply(_tool("t3", "complete", name="mcp", status="failed"))
+        transcript.apply(_tool("t4", "complete", status="declined"))
 
-        self.assertEqual([item["status"] for item in transcript.items()], ["done", "done"])
-        self.assertEqual([item["exit_code"] for item in transcript.items()], [None, 0])
+        self.assertEqual([item["status"] for item in transcript.items()], ["done", "done", "failed", "declined"])
+        self.assertEqual([item["exit_code"] for item in transcript.items()], [None, 0, None, None])
 
-    def test_a_tool_with_error_output_and_no_exit_code_failed(self) -> None:
+    def test_error_output_alone_does_not_fail_a_tool(self) -> None:
         transcript = Transcript()
-        transcript.apply(_tool("t1", "output", name="mcp", text="403 Forbidden", stream="stderr"))
-        transcript.apply(_tool("t1", "complete", name="mcp"))
+        transcript.apply(_tool("t1", "output", name="command", text="warning: deprecated\n", stream="stderr"))
+        transcript.apply(_tool("t1", "complete", exit_code=0, status="completed"))
+        # Without a status, a nonzero exit code is the only sign of failure.
+        transcript.apply(_tool("t2", "complete", exit_code=2))
 
-        self.assertEqual((transcript.items()[0]["status"], transcript.items()[0]["exit_code"]), ("failed", None))
+        self.assertEqual([item["status"] for item in transcript.items()], ["done", "failed"])
+        self.assertTrue(transcript.items()[0]["stderr"])
 
     def test_a_tool_keeps_the_label_it_started_with(self) -> None:
         transcript = Transcript()
         transcript.apply(_tool("t1", "start", name="read"))
-        transcript.apply(_tool("t1", "complete", name="edit", exit_code=0))
+        transcript.apply(_tool("t1", "complete", name="edit", exit_code=0, status="completed"))
 
         self.assertEqual(transcript.items()[0]["kind"], "read")
 
@@ -239,7 +244,7 @@ class TranscriptTests(unittest.TestCase):
             _tool("t1", "output", text="x" * (MAX_OUTPUT_CHARS + 5)),
             _tool("t1", "output", text="tail", stream="stderr"),
             _tool("t1", "output", text="more"),
-            _tool("t1", "complete", exit_code=1),
+            _tool("t1", "complete", exit_code=1, status="failed"),
             _message("a1", "assistant", "complete", "Looking now."),
             _event("approval_request", {"request_id": "a-9", "summary": "Edit", "expires_at": 5}, correlation="a-9"),
             _message("u2", "user", "complete", "go"),

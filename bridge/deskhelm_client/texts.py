@@ -70,6 +70,16 @@ TOOL_TEXT = {
     "tool": "工具",
 }
 
+# A tool item's status; "exit" words a failure that has an exit code.
+TOOL_STATUS_TEXT = {
+    "running": "运行中",
+    "done": "完成",
+    "failed": "失败",
+    "exit": "退出码 {code}",
+    "declined": "已拒绝",
+    "stopped": "已停止",
+}
+
 _AGENT_LABELS = {"codex": "Codex", "claude": "Claude", "grok": "Grok"}
 
 
@@ -94,6 +104,14 @@ def outcome_text(outcome: dict[str, Any] | None) -> str:
 def tool_text(kind: str) -> str:
     """A tool's fixed kind in words; a vendor's bare tool name stays as it is."""
     return TOOL_TEXT.get(kind, kind or TOOL_TEXT["tool"])
+
+
+def tool_status_text(item: dict[str, Any]) -> str:
+    """How a transcript tool item stands, with its exit code when it failed with one."""
+    status = str(item.get("status") or "")
+    if status == "failed" and isinstance(item.get("exit_code"), int):
+        return TOOL_STATUS_TEXT["exit"].format(code=item["exit_code"])
+    return TOOL_STATUS_TEXT.get(status, status)
 
 
 def resolution_text(item: dict[str, Any]) -> str:

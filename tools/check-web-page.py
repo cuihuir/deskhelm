@@ -189,9 +189,14 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     check("a tool row shows its command line", page.locator(".tool .tool-title").first.text_content() == "uv run pytest")
     page.locator(".tool.is-failed .tool-head").click()
     check("a failed tool opens to its output", "1 failed" in page.locator(".tool.is-failed pre").text_content())
-    codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "complete", "exit_code": 1}, {"text": ""})
+    codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "complete", "exit_code": 1, "status": "failed"}, {"text": ""})
     page.wait_for_timeout(300)
     check("an open tool stays open across an update", page.locator(".tool.is-failed.is-open").count() == 1)
+    check("a failed tool shows its exit code", page.locator(".tool.is-failed .tool-status").text_content() == "退出码 1")
+    codex.emit(FactKind.TOOL, {"tool_ref": "t2", "label": "command", "phase": "start"}, {"text": "rm -rf build"})
+    codex.emit(FactKind.TOOL, {"tool_ref": "t2", "label": "command", "phase": "complete", "status": "declined"}, {"text": ""})
+    page.locator(".tool.is-declined").wait_for(timeout=5000)
+    check("a declined tool says it was declined", page.locator(".tool.is-declined .tool-status").text_content() == "已拒绝")
 
     # Streaming.
     codex.emit(FactKind.TURN_STARTED, {"turn_ref": "x2"})
@@ -406,7 +411,7 @@ def main() -> int:
         codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "start"}, {"text": "uv run pytest"})
         codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "output", "stream": "stdout"},
                    {"text": "..F\n1 failed\n"})
-        codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "complete", "exit_code": 1}, {"text": ""})
+        codex.emit(FactKind.TOOL, {"tool_ref": "t1", "label": "command", "phase": "complete", "exit_code": 1, "status": "failed"}, {"text": ""})
         codex.emit(FactKind.MESSAGE, {"message_ref": "a1", "role": "assistant", "phase": "complete"}, {"text": REPLY})
         codex.emit(FactKind.TURN_TERMINAL, {"status": "completed", "reusable": True, "turn_ref": "x1"}, {})
         claude.emit(FactKind.MESSAGE, {"message_ref": "c1", "role": "user", "phase": "complete"},

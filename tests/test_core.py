@@ -475,6 +475,25 @@ class ProjectionTests(unittest.TestCase):
 
         self.assertEqual((replaced["replace"], "replace" in extended), (True, False))
 
+    def test_a_tool_completion_states_its_outcome(self) -> None:
+        harness = _Harness()
+        harness.host("host")
+        harness.client("web", streams=("interaction",))
+        harness.take("web")
+        harness.fact("host", "tool", {"tool_ref": "t1", "label": "command", "phase": "complete", "status": "declined"})
+        declined = harness.take("web", "interaction")[0]["event"]["payload"]
+        harness.fact("host", "tool", {"tool_ref": "t2", "label": "command", "phase": "complete", "exit_code": 0})
+
+        self.assertEqual((declined["status"], declined["exit_code"]), ("declined", None))
+        self.assertEqual(harness.closed["host"], "protocol_violation")
+
+    def test_only_a_tool_completion_carries_a_status(self) -> None:
+        harness = _Harness()
+        harness.host("host")
+        harness.fact("host", "tool", {"tool_ref": "t1", "label": "command", "phase": "start", "status": "completed"})
+
+        self.assertEqual(harness.closed["host"], "protocol_violation")
+
     def test_a_completed_message_leaves_its_deltas_out_of_the_window(self) -> None:
         harness = _Harness()
         harness.host("host")

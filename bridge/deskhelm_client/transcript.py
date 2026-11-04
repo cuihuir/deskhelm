@@ -35,6 +35,8 @@ MAX_PREVIEW_CHARS = 160
 
 _ROLES = frozenset({"user", "assistant", "system"})
 _RESOLUTIONS = frozenset({"deskhelm", "native", "cancelled", "expired"})
+# A tool item is running, then done, failed, declined, or stopped.
+_TOOL_ENDINGS = {"completed": "done", "failed": "failed", "declined": "declined"}
 
 
 class Transcript:
@@ -187,9 +189,8 @@ class Transcript:
             if isinstance(exit_code, bool) or not isinstance(exit_code, int):
                 exit_code = None
             item["exit_code"] = exit_code
-            # Without an exit code, error output is how a tool reports failure.
-            failed = exit_code not in (None, 0) or (exit_code is None and item["stderr"])
-            item["status"] = "failed" if failed else "done"
+            fallback = "failed" if exit_code not in (None, 0) else "done"
+            item["status"] = _TOOL_ENDINGS.get(payload.get("status"), fallback)
         return [self._upsert(item)]
 
     def _approval(self, event: dict[str, Any], payload: dict[str, Any]) -> list[dict[str, Any]]:

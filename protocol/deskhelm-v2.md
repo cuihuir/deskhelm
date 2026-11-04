@@ -1,10 +1,11 @@
 # DeskHelm Protocol v2
 
 Status: the only DeskHelm protocol since 0.1.0 (ADR 0043), implemented by
-`bridge/deskhelm_protocol` and `bridge/deskhelm_core`. The user Bridge listens
-on `$XDG_RUNTIME_DIR/deskhelm/bridge.sock`, or `/tmp/deskhelm-<uid>/bridge.sock`
-without `XDG_RUNTIME_DIR`. Hosts start it on demand, and
-`deskhelm bridge [--socket PATH]` runs it in the foreground.
+`bridge/deskhelm_protocol` and `bridge/deskhelm_core`. DeskHelm 0.2.0 changed
+it without compatibility with 0.1.0 (ADR 0044, ADR 0045). The user Bridge
+listens on `$XDG_RUNTIME_DIR/deskhelm/bridge.sock`, or
+`/tmp/deskhelm-<uid>/bridge.sock` without `XDG_RUNTIME_DIR`. Hosts start it
+on demand, and `deskhelm bridge [--socket PATH]` runs it in the foreground.
 
 ## Framing
 
@@ -75,7 +76,7 @@ interaction stream.
 | `ready` | — | — |
 | `turn_started` | `turn_ref`, optional `command_id` | — |
 | `message` | `message_ref`, `role` (`user`, `assistant`, `system`), `phase` (`delta`, `complete`), optional `command_id` | `text` |
-| `tool` | `tool_ref`, `label`, `phase` (`start`, `output`, `complete`), optional `exit_code`, `stream`, `replace` | `text` |
+| `tool` | `tool_ref`, `label`, `phase` (`start`, `output`, `complete`), on `complete` a `status` (`completed`, `failed`, `declined`), optional `exit_code`, `stream`, `replace` | `text` |
 | `request_opened` | `provider_ref`, `kind` (`approval`, `input`), `summary`, `expires_at`, `answerable` | — |
 | `request_resolved` | `provider_ref`, `by` (`native`, `deskhelm`, `cancelled`, `expired`) | — |
 | `turn_terminal` | `status` (`completed`, `interrupted`, `failed`), optional `failure`, `reusable`, `turn_ref` | optional `message` |
@@ -85,7 +86,11 @@ interaction stream.
 | `session_ended` | `reason` | — |
 
 An `output` fact's text extends the tool's output; with `replace: true` it
-replaces it, for a vendor that reports the whole output each time.
+replaces it, for a vendor that reports the whole output each time. A `start`
+fact's text is the tool's command line or paths. A `complete` fact states how
+the tool ended: `completed`, `failed`, or `declined` when a person or policy
+refused it before it ran. Only a `complete` fact has a status. `exit_code`
+comes only from the vendor, and error output alone is not a failure.
 
 A `capabilities` fact replaces the matrix once the driver knows what its
 vendor allows, for example after the vendor handshake.
@@ -155,8 +160,9 @@ written to disk, and dropped when the session ends. A message's `complete`
 fact carries its whole text, even after deltas, so the window drops that
 message's deltas once it completes and a long streamed reply cannot push
 earlier activity out. Interaction events keep
-the v1 `InteractionEvent` shape; approval events name the Bridge approval id
-as `request_id`. When an approval ends, an `approval_resolved` event names its
+the v1 `InteractionEvent` shape; a tool event carries its fact's `status`,
+and approval events name the Bridge approval id as `request_id`. When an
+approval ends, an `approval_resolved` event names its
 `request_id` and `by` (`deskhelm`, `native`, `cancelled` when its turn ended,
 or `expired`); a DeskHelm decision adds `decision` and, if its delivery is
 unknown, `"unknown": true`. An approval dropped because its host left gets

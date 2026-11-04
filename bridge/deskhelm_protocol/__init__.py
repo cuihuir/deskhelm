@@ -28,6 +28,7 @@ from .model import (
     Stream,
     Tier,
     ToolPhase,
+    ToolStatus,
     TurnStatus,
 )
 from .wire import MAX_FRAME_BYTES, PROTOCOL_VERSION, FrameDecoder, WireError, encode_frame
@@ -63,6 +64,7 @@ __all__ = [
     "Stream",
     "Tier",
     "ToolPhase",
+    "ToolStatus",
     "TurnStatus",
     "WireError",
     "encode_frame",
