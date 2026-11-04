@@ -137,3 +137,9 @@ folds interaction events into a server-built transcript that any surface can
 reuse, sends the page revisioned patches, and rebuilds the page as plain ES
 modules with no build step. It also makes the Bridge publish how each
 approval ended and keep whole replies, not their deltas, in its window.
+
+[`0045-tool-outcomes-and-request-details.md`](0045-tool-outcomes-and-request-details.md)
+makes a tool's completion state whether it completed, failed, or was
+declined, and lets a request carry its detail, such as a command line, to the
+operator only, so an approval says what it would allow. It drops
+compatibility with DeskHelm 0.1.0.

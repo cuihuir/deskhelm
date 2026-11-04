@@ -2,7 +2,8 @@
 
 Date: 2026-11-04
 
-Status: Accepted. Amends ADR 0036.
+Status: Accepted. Amends ADR 0036. ADR 0045 also puts the approvals a host
+reopens into the transcript.
 
 ## Context
 
