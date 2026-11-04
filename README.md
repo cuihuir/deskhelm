@@ -2,106 +2,128 @@
 
 **A local-first control surface for coding agents.**
 
-DeskHelm is an open hardware and software platform that brings coding agents
-out of the terminal and onto the desk. It combines live status, deliberate
-controls, voice interaction, device firmware, and a local Bridge that works
-across agent runtimes.
+DeskHelm shows what every coding agent on your computer is doing and lets you
+answer it from one place: approve or reject a command, stop a turn, or send
+the next prompt, from a browser page, a terminal dashboard, or your voice.
+Your prompts and code never leave your machine. A desk device with physical
+controls is the long-term goal.
 
-The project is designed around a simple idea: you should be able to see what every agent is doing and respond without hunting through windows.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/web-page-dark.png">
+  <img alt="The DeskHelm web page: Codex, Claude Code, and Grok sessions on the left, and a Claude Code session with a file diff and an approval that shows the command it would run" src="docs/images/web-page-light.png">
+</picture>
 
-## Vision
+## How It Works
 
-- Make concurrent agent work visible at a glance.
-- Provide deliberate physical controls for approve, reject, interrupt, switch, and speak.
-- Support multiple coding agents through an open event model.
-- Keep prompts, code, and event data local by default.
-- Build hardware that is expressive, modular, and genuinely fun to use.
+```mermaid
+flowchart LR
+  subgraph agents ["Coding agents"]
+    codex["Codex CLI"]
+    claude["Claude Code"]
+    grok["Grok"]
+  end
+  subgraph hosts ["Session hosts · one per session"]
+    hcodex["deskhelm codex"]
+    hclaude["deskhelm agent claude"]
+    hgrok["deskhelm agent grok"]
+  end
+  bridge{{"Bridge<br/>sessions · approvals · focus"}}
+  subgraph surfaces ["Surfaces"]
+    web["Web page"]
+    dashboard["Terminal dashboard"]
+    voice["Voice"]
+    device["Desk device (planned)"]
+  end
+  codex <--> hcodex
+  claude <--> hclaude
+  grok <--> hgrok
+  hcodex & hclaude & hgrok <--> bridge
+  bridge <--> web & dashboard & voice
+  bridge <-.-> device
+  classDef planned stroke-dasharray: 5 4, color: #777
+  class device planned
+```
+
+- **Session hosts** run each agent in your project directory and translate
+  its own protocol (Codex app-server, Claude Code stream-json, or ACP) into
+  facts. Codex keeps its TUI in your terminal; DeskHelm proxies its approvals.
+- **The Bridge** is one local Unix socket that knows every session's state,
+  its open approvals, and which session voice talks to. It runs no agent,
+  keeps only a short recent window in memory, and can restart without
+  stopping an agent.
+- **Surfaces** read that state and send commands. Only the page and the
+  dashboard see command lines and output; voice hears fixed notices.
+
+## Quick Start
+
+You need Linux, Python 3.11 or newer, [uv](https://docs.astral.sh/uv/), and
+the agent CLIs you use: `codex`, `claude`, or `grok`.
+
+1. Install DeskHelm from a clone and put `deskhelm` on your path:
+
+   ```bash
+   git clone https://github.com/cuihuir/deskhelm.git && cd deskhelm
+   uv sync --extra ptt --locked
+   ln -s "$PWD/tools/deskhelm-user-launcher" ~/.local/bin/deskhelm
+   ```
+
+2. In your project directory, start an agent session. The first session
+   starts the Bridge in the background.
+
+   ```bash
+   deskhelm codex           # Codex in this terminal
+   deskhelm agent claude    # or Claude Code; deskhelm agent grok for Grok
+   deskhelm simulate        # or a demo session that needs no agent
+   ```
+
+3. In another terminal, serve the page and open the link it prints, once per
+   browser:
+
+   ```bash
+   deskhelm web             # prints http://127.0.0.1:8766/?token=...
+   ```
+
+On the page you read replies and tool output, approve or reject what an
+agent asks after seeing the command or files it would touch, send the next
+prompt, stop a turn, and choose a Codex model.
+
+| Command | What it does |
+|---|---|
+| `deskhelm dashboard` | The same in a terminal: `j`/`k` move, `a`/`r` approve or reject, `i` interrupts, `f` focuses, `q` quits |
+| `deskhelm sessions` | List sessions and their pending approvals |
+| `deskhelm codex --check` | Check Codex and the Bridge without starting a session |
+| `deskhelm codex --voice` | Also attach voice: hold right Alt to talk to the session; `批准` or `拒绝` answers its one pending approval |
+
+Voice is optional and runs local models from a separate environment:
+`(cd voice/runtime && uv sync --locked --python 3.12)`, then set the model
+and audio settings described in [`bridge/README.md`](bridge/README.md#voice-host).
+
+## Status
+
+DeskHelm 0.2.0 runs from a source checkout on Linux and needs no hardware.
+It was checked live with Codex CLI 0.166.0, Claude Code 2.1.312, and Grok
+1.0.60. The Codex integration uses Codex's experimental app-server and is
+alpha. Hardware, firmware, and the device transport stay exploratory until
+an ADR records them.
 
 ## Repository
 
 | Path | Purpose |
 |---|---|
-| [`docs/`](docs/) | Research, architecture, product, and engineering documentation |
-| [`hardware/`](hardware/) | Electronics, PCB, mechanical, manufacturing, and test assets |
-| [`firmware/`](firmware/) | Device firmware and bootloader integration |
 | [`bridge/`](bridge/) | The Bridge, session hosts, surfaces, and voice host |
-| [`adapters/`](adapters/) | Integrations for individual coding-agent runtimes |
-| [`voice/`](voice/) | Isolated PTT, ASR, TTS, and playback gateway |
+| [`adapters/`](adapters/) | Drivers for Codex, Claude Code, and ACP agents such as Grok |
 | [`protocol/`](protocol/) | The local protocol v2 specification |
-| [`configurator/`](configurator/) | Device setup and customization application |
-| [`tools/`](tools/) | Development, manufacturing, and validation utilities |
-| [`tests/`](tests/) | Cross-component fixtures and system tests |
-
-## Status
-
-DeskHelm 0.1.0 is the first release of the protocol v2 architecture
-(ADR 0043). It runs from a source checkout on Linux and needs no DeskHelm
-hardware yet.
-
-- **Bridge**: a local control plane on one Unix socket. It owns session facts,
-  focus, and approvals, runs no agent process, and can restart without
-  stopping an agent.
-- **Session hosts**: `deskhelm codex` runs the Codex TUI in your terminal and
-  routes its approvals through a local proxy. `deskhelm agent claude` and
-  `deskhelm agent grok` run Claude Code and Grok.
-- **Surfaces**: a loopback web page, a terminal dashboard, and the `sessions`
-  and `focus` commands, all reading one console projection.
-- **Voice**: hold right Alt to speak to the focused session, with local
-  Paraformer ASR and Piper, Kokoro, or IndexTTS notices. Exact phrases answer
-  a single pending approval. Voice is optional and needs its own runtime.
-
-Hardware, firmware, and device transport remain exploratory until recorded in
-an ADR. The VAD, ASR, and TTS evaluations behind the voice choices are in
-[`voice/README.md`](voice/README.md) and [`docs/research/`](docs/research/).
-
-## Quickstart
-
-DeskHelm needs Python 3.11 or newer, [uv](https://docs.astral.sh/uv/), and
-the agent CLIs you want to use. From a clone:
-
-```bash
-uv sync --extra ptt --locked
-ln -s "$PWD/tools/deskhelm-user-launcher" ~/.local/bin/deskhelm
-```
-
-Then, from an agent project directory:
-
-```bash
-deskhelm codex --check     # find Codex and check the Bridge socket
-deskhelm codex             # the managed Codex TUI as one session
-deskhelm agent claude      # or: deskhelm agent grok
-deskhelm web               # open the printed http://127.0.0.1:8766/?token=... link
-deskhelm dashboard         # or watch and steer from a terminal
-deskhelm simulate          # a demo session that needs no agent
-```
-
-The first host starts the Bridge at `$XDG_RUNTIME_DIR/deskhelm/bridge.sock`
-and leaves it running. `deskhelm --help` lists every command, and
-[`bridge/README.md`](bridge/README.md) describes them.
-
-Local voice needs the pinned voice runtime and model directories kept outside
-Git:
-
-```bash
-(cd voice/runtime && uv sync --locked --python 3.12)
-deskhelm codex --voice     # or attach to a running Bridge: deskhelm voice
-```
-
-The launcher loads `DESKHELM_ALPHA_VOICE_SOURCE`,
-`DESKHELM_ALPHA_ASR_MODEL_DIRECTORY`, and `DESKHELM_ALPHA_TTS_DIRECTORY`
-(plus an optional `DESKHELM_ALPHA_VOICE_SINK`) through `project-secrets`.
-Without that tool, export them and run `.venv/bin/deskhelm` directly. Add
-`--default-source` to use the computer's current microphone. Inspect audio
-devices with `deskhelm audio status --list`.
+| [`voice/`](voice/) | The voice gateway: push-to-talk, ASR, TTS, and benchmarks |
+| [`docs/`](docs/) | Research, architecture, product documents, and decisions |
+| [`tests/`](tests/) | Cross-component, compatibility, and replay tests |
+| [`tools/`](tools/) | The launcher, the PTY relay, the page check, and voice tools |
+| [`hardware/`](hardware/), [`firmware/`](firmware/), [`configurator/`](configurator/) | Future device work |
 
 ## Development
 
-- [`bridge/README.md`](bridge/README.md): the Bridge, hosts, surfaces, and
-  voice host.
-- [`adapters/README.md`](adapters/README.md) and
-  [`adapters/codex/README.md`](adapters/codex/README.md): the agent drivers.
-- [`voice/README.md`](voice/README.md): the Voice Gateway, providers, and
-  benchmarks.
+- [`bridge/README.md`](bridge/README.md) and
+  [`adapters/README.md`](adapters/README.md): the components and their
+  commands.
 - [`protocol/deskhelm-v2.md`](protocol/deskhelm-v2.md): the wire contract.
 - [`docs/decisions/`](docs/decisions/): decisions recorded before
   implementation spreads across components.
@@ -116,8 +138,12 @@ uv run --project voice/runtime --locked --no-sync python -m unittest discover -s
 
 ## Principles
 
-1. **Agent-agnostic** — no single coding agent owns the experience.
-2. **Local-first** — device control must not require uploading private work.
-3. **Open interfaces** — integrations communicate through documented events and protocols.
-4. **Safe controls** — consequential actions require clear target and state feedback.
-5. **Great hardware** — this is a new physical computing product, not a terminal shortcut accessory.
+1. **Agent-agnostic**: no single coding agent owns the experience.
+2. **Local-first**: controlling agents must not require uploading private
+   work.
+3. **Open interfaces**: integrations communicate through documented events
+   and protocols.
+4. **Safe controls**: a consequential action shows its target and state
+   before you take it.
+5. **Great hardware**: a new physical computing product, not a terminal
+   shortcut accessory.
