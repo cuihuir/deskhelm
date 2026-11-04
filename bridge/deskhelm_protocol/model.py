@@ -18,6 +18,12 @@ MAX_SUMMARY_CHARS = 512
 MAX_TEXT_CHARS = 64 * 1024
 MAX_DETAIL_CHARS = 8 * 1024
 MAX_OPEN_REQUESTS = 16
+# A request's questions and the answers to them (ADR 0046).
+MAX_QUESTIONS = 8
+MAX_OPTIONS = 16
+MAX_QUESTION_CHARS = 1024
+MAX_OPTION_CHARS = 512
+MAX_ANSWER_CHARS = 4 * 1024
 MAX_CATALOG_BYTES = 256 * 1024
 
 
@@ -244,7 +250,10 @@ class OpenRequest:
     """A vendor request waiting for a person, as the host reports it.
 
     ``summary`` is content-free. ``detail`` says what the request would do,
-    such as a command line, so it is content and reaches only the operator.
+    such as a command line, and ``questions`` are what an input request asks;
+    both are content and reach only the operator. A request that is not
+    ``blocking`` lets the vendor go on without the answer, so it outlives its
+    turn.
     """
 
     provider_ref: str
@@ -253,18 +262,77 @@ class OpenRequest:
     expires_at: int
     answerable: bool
     detail: str = ""
+    blocking: bool = True
+    questions: tuple[dict[str, Any], ...] = ()
 
     @classmethod
     def from_dict(cls, value: Any) -> OpenRequest:
         value = object_field(value, "request")
+        kind = enum_field(RequestKind, value.get("kind"), "request kind")
+        questions = questions_field(value.get("questions", []))
+        if questions and kind is not RequestKind.INPUT:
+            raise ProtocolViolation("only an input request has questions")
         return cls(
             provider_ref=identity_field(value.get("provider_ref"), "provider_ref"),
-            kind=enum_field(RequestKind, value.get("kind"), "request kind"),
+            kind=kind,
             summary=text_field(value.get("summary"), "summary", MAX_SUMMARY_CHARS),
             expires_at=int_field(value.get("expires_at"), "expires_at", minimum=1),
             answerable=bool_field(value.get("answerable"), "answerable"),
             detail=text_field(value.get("detail", ""), "detail", MAX_DETAIL_CHARS, allow_empty=True),
+            blocking=bool_field(value.get("blocking", True), "blocking"),
+            questions=questions,
         )
+
+
+def questions_field(value: Any) -> tuple[dict[str, Any], ...]:
+    """An input request's questions, each with an id, a title, optional
+    options, and whether it takes free text or is secret."""
+    if not isinstance(value, list) or len(value) > MAX_QUESTIONS:
+        raise ProtocolViolation(f"questions must be a list of at most {MAX_QUESTIONS}")
+    questions, ids = [], set()
+    for item in value:
+        item = object_field(item, "question")
+        question_id = identity_field(item.get("id"), "question id")
+        if question_id in ids:
+            raise ProtocolViolation("question ids must be unique")
+        ids.add(question_id)
+        raw_options = item.get("options", [])
+        if not isinstance(raw_options, list) or len(raw_options) > MAX_OPTIONS:
+            raise ProtocolViolation(f"options must be a list of at most {MAX_OPTIONS}")
+        options = []
+        for option in raw_options:
+            option = object_field(option, "option")
+            options.append({
+                "label": text_field(option.get("label"), "option label", MAX_OPTION_CHARS),
+                "description": text_field(option.get("description", ""), "option description", MAX_OPTION_CHARS,
+                                          allow_empty=True),
+            })
+        other = bool_field(item.get("other", not options), "other")
+        if not options and not other:
+            raise ProtocolViolation("a question without options takes free text")
+        questions.append({
+            "id": question_id,
+            "header": text_field(item.get("header", ""), "question header", MAX_LABEL_CHARS, allow_empty=True),
+            "title": text_field(item.get("title"), "question title", MAX_QUESTION_CHARS),
+            "options": options,
+            "other": other,
+            "secret": bool_field(item.get("secret", False), "secret"),
+        })
+    return tuple(questions)
+
+
+def answers_field(value: Any) -> dict[str, list[str]]:
+    """Answers by question id; a question may take several answers."""
+    value = object_field(value, "answers")
+    if not value or len(value) > MAX_QUESTIONS:
+        raise ProtocolViolation(f"answers must name between 1 and {MAX_QUESTIONS} questions")
+    answers = {}
+    for question_id, items in value.items():
+        identity_field(question_id, "question id")
+        if not isinstance(items, list) or not 1 <= len(items) <= MAX_OPTIONS:
+            raise ProtocolViolation(f"each question takes between 1 and {MAX_OPTIONS} answers")
+        answers[question_id] = [text_field(item, "answer", MAX_ANSWER_CHARS) for item in items]
+    return answers
 
 
 class FactKind(StrEnum):
@@ -393,18 +461,25 @@ def _validate_tool(meta: dict[str, Any], content: dict[str, Any]) -> None:
     text_field(content.get("text", ""), "text", MAX_TEXT_CHARS, allow_empty=True)
 
 
+_REQUEST_CONTENT = frozenset({"detail", "questions"})
+
+
 def _validate_request_opened(meta: dict[str, Any], content: dict[str, Any]) -> None:
-    if "detail" in meta:
-        raise ProtocolViolation("a request's detail is content")
-    if set(content) - {"detail"}:
-        raise ProtocolViolation("a request carries only its detail as content")
-    OpenRequest.from_dict({**meta, "detail": content.get("detail", "")})
+    if _REQUEST_CONTENT & set(meta):
+        raise ProtocolViolation("a request's detail and questions are content")
+    if set(content) - _REQUEST_CONTENT:
+        raise ProtocolViolation("a request carries only its detail and questions as content")
+    OpenRequest.from_dict({**meta, **content})
 
 
 def _validate_request_resolved(meta: dict[str, Any], content: dict[str, Any]) -> None:
     identity_field(meta.get("provider_ref"), "provider_ref")
     enum_field(ResolvedBy, meta.get("by"), "resolved by")
-    _no_content(content)
+    # How a question was answered is content, for the operator only.
+    if set(content) - {"answers"}:
+        raise ProtocolViolation("a resolution carries only its answers as content")
+    if "answers" in content:
+        answers_field(content["answers"])
 
 
 def _validate_turn_terminal(meta: dict[str, Any], content: dict[str, Any]) -> None:
@@ -458,6 +533,7 @@ class CommandKind(StrEnum):
     INTERRUPT = "interrupt"
     APPROVE = "approve"
     REJECT = "reject"
+    ANSWER = "answer"
     CONFIGURE_SESSION = "configure_session"
 
 
@@ -529,6 +605,13 @@ def _decision_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {"approval_id": identity_field(payload["approval_id"], "approval_id")}
 
 
+def _answer_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if set(payload) != {"approval_id", "answers"}:
+        raise ProtocolViolation("an answer takes exactly an approval_id and answers")
+    return {"approval_id": identity_field(payload["approval_id"], "approval_id"),
+            "answers": answers_field(payload["answers"])}
+
+
 def _configure_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not payload or not set(payload) <= CONFIGURE_FIELDS:
         raise ProtocolViolation("configure_session takes model and/or effort")
@@ -544,6 +627,7 @@ _COMMAND_PAYLOADS = {
     CommandKind.INTERRUPT: _empty_payload,
     CommandKind.APPROVE: _decision_payload,
     CommandKind.REJECT: _decision_payload,
+    CommandKind.ANSWER: _answer_payload,
     CommandKind.CONFIGURE_SESSION: _configure_payload,
 }
 
@@ -552,6 +636,7 @@ class EffectKind(StrEnum):
     SUBMIT = "submit"
     INTERRUPT = "interrupt"
     RESPOND = "respond"
+    ANSWER = "answer"
     CONFIGURE = "configure"
 
 

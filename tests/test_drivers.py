@@ -577,6 +577,90 @@ class CodexDriverTests(unittest.TestCase):
     def turn_started(self, turn_id: str = "turn-1") -> dict:
         return {"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": turn_id, "items": [], "status": "inProgress"}}}
 
+    def async_question(self, call_id: str = "call_q1") -> dict:
+        # The agentMessage Codex 0.166.0 sent for request_user_input_async; values are synthetic.
+        return {"method": "item/completed", "params": {"threadId": "thread-1", "item": {
+            "type": "agentMessage", "id": call_id, "text": "Which board?\n- A\n- B", "phase": "final_answer",
+            "questions": [{"title": "Which board?", "options": ["A", "B"]}]}}}
+
+    def question_reply(self, call_id: str, answer: str, item_id: str = "reply-1") -> dict:
+        # The user message the Codex 0.166.0 TUI sent to answer one.
+        reply = [{"answer": answer, "question": "Which board?",
+                  "questionItemId": json.dumps(["request_user_input_async", call_id, 0], separators=(",", ":"))}]
+        text = ("<send_user_message_question_reply>\n" + json.dumps(reply, ensure_ascii=False, separators=(",", ":"))
+                + "\n</send_user_message_question_reply>")
+        return {"method": "item/completed", "params": {"threadId": "thread-1", "item": {
+            "type": "userMessage", "id": item_id, "content": [{"type": "text", "text": text}]}}}
+
+    def test_an_async_question_is_answerable_and_outlives_its_turn(self) -> None:
+        self.inject(self.turn_started(), self.async_question())
+        self.facts.wait_for(FactKind.REQUEST_OPENED)
+        meta, content = self.facts.of(FactKind.REQUEST_OPENED)[0]
+        self.inject({"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {
+            "id": "turn-1", "items": [], "status": "completed"}}})
+        self.facts.wait_for(FactKind.TURN_TERMINAL)
+        still_open = [request.provider_ref for request in self.driver.state().open_requests]
+
+        outcome = self.driver.perform(EffectKind.ANSWER, {"command_id": "q1", "provider_ref": meta["provider_ref"],
+                                                          "answers": {"0": ["B"]}})
+        start = self.outgoing(lambda message: message.get("method") == "turn/start")
+        self.inject(self.question_reply("call_q1", "B"))
+
+        self.assertEqual((meta["kind"], meta["answerable"], meta["blocking"]), ("input", True, False))
+        self.assertEqual(content, {"detail": "Which board?", "questions": [{
+            "id": "0", "header": "", "title": "Which board?", "other": True, "secret": False,
+            "options": [{"label": "A", "description": ""}, {"label": "B", "description": ""}]}]})
+        self.assertEqual(still_open, [meta["provider_ref"]])
+        self.assertIs(outcome, EffectOutcome.ACCEPTED)
+        self.assertEqual(start["params"]["input"][0]["text"], (
+            '<send_user_message_question_reply>\n[{"answer":"B","question":"Which board?",'
+            '"questionItemId":"[\\"request_user_input_async\\",\\"call_q1\\",0]"}]\n</send_user_message_question_reply>'))
+        # The card replaces the question's message, and the answer's echo is not a message either.
+        self.assertEqual(self.facts.of(FactKind.MESSAGE), [])
+        self.assertEqual(self.facts.of(FactKind.REQUEST_RESOLVED), [])
+
+    def test_an_answer_in_the_tui_resolves_the_question_with_what_was_chosen(self) -> None:
+        self.inject(self.turn_started(), self.async_question())
+        self.facts.wait_for(FactKind.REQUEST_OPENED)
+        ref = self.facts.of(FactKind.REQUEST_OPENED)[0][0]["provider_ref"]
+        self.inject(self.question_reply("call_q1", "A"),
+                    self.question_reply("call_unseen", "Use the red board", item_id="reply-2"))
+        self.facts.wait_for(FactKind.REQUEST_RESOLVED)
+        self.facts.wait_for(FactKind.MESSAGE)
+
+        self.assertEqual(self.facts.of(FactKind.REQUEST_RESOLVED)[0], ({"provider_ref": ref, "by": "native"},
+                                                                      {"answers": {"0": ["A"]}}))
+        # An answer to a question DeskHelm never saw reads as what the user said.
+        self.assertEqual([(meta["role"], content["text"]) for meta, content in self.facts.of(FactKind.MESSAGE)],
+                         [("user", "Use the red board")])
+        self.assertNotIn("send_user_message_question_reply", json.dumps(self.facts.facts))
+
+    def test_a_codex_question_request_is_answered_by_question_id(self) -> None:
+        questions = [
+            {"id": "env", "header": "Target", "question": "Which environment?", "isSecret": False, "isOther": True,
+             "options": [{"label": "staging", "description": "the test one"}, {"label": "prod", "description": ""}]},
+            {"id": "notes", "header": "Notes", "question": "Anything else?", "isSecret": False, "options": None},
+        ]
+        self.inject(self.turn_started(), {"method": "item/tool/requestUserInput", "id": 78, "params": {
+            "threadId": "thread-1", "turnId": "turn-1", "itemId": "input-2", "questions": questions}})
+        self.inject({"method": "item/tool/requestUserInput", "id": 79, "params": {
+            "threadId": "thread-1", "turnId": "turn-1", "itemId": "input-3",
+            "questions": [{"id": "token", "header": "Token", "question": "Paste the token", "isSecret": True}]}})
+        self.facts.wait_for(FactKind.REQUEST_OPENED, 2)
+        (meta, content), (secret, _) = self.facts.of(FactKind.REQUEST_OPENED)
+
+        outcome = self.driver.perform(EffectKind.ANSWER, {"command_id": "q2", "provider_ref": meta["provider_ref"],
+                                                          "answers": {"env": ["staging"], "notes": ["none"]}})
+        reply = self.outgoing(lambda message: message.get("id") == 78)
+
+        self.assertEqual(content["questions"][0], {"id": "env", "header": "Target", "title": "Which environment?",
+                                                   "other": True, "secret": False, "options": [
+                                                       {"label": "staging", "description": "the test one"},
+                                                       {"label": "prod", "description": ""}]})
+        self.assertEqual((meta["answerable"], "blocking" in meta, secret["answerable"]), (True, False, False))
+        self.assertIs(outcome, EffectOutcome.ACCEPTED)
+        self.assertEqual(reply["result"], {"answers": {"env": {"answers": ["staging"]}, "notes": {"answers": ["none"]}}})
+
     def test_a_tui_turn_keeps_tool_labels_fixed_and_commands_in_content(self) -> None:
         command = {"type": "commandExecution", "id": "item-1", "command": "rm -rf build", "status": "inProgress"}
         self.inject(
@@ -651,11 +735,16 @@ class CodexDriverTests(unittest.TestCase):
         outcome = self.driver.perform(EffectKind.SUBMIT, {"command_id": "c9", "text": "option one"})
         reply = self.outgoing(lambda message: message.get("id") == 77)
 
-        self.assertEqual((opened["kind"], opened["answerable"]), ("input", False))
+        question = {"id": "choice", "header": "Private header", "title": "Private question", "options": [],
+                    "other": True, "secret": False}
+        self.assertEqual((opened["kind"], opened["answerable"]), ("input", True))
+        self.assertEqual(self.facts.of(FactKind.REQUEST_OPENED)[0][1],
+                         {"detail": "Private question", "questions": [question]})
         self.assertIs(outcome, EffectOutcome.ACCEPTED)
         self.assertEqual(reply["result"], {"answers": {"choice": {"answers": ["option one"]}}})
         self.assertEqual(self.facts.of(FactKind.REQUEST_RESOLVED)[0][0], {"provider_ref": opened["provider_ref"], "by": "deskhelm"})
-        self.assertNotIn("Private", json.dumps(self.facts.facts))
+        # The question is content; no meta carries it.
+        self.assertNotIn("Private", json.dumps([meta for _, meta, _ in self.facts.facts]))
 
     def test_a_model_choice_waits_for_a_fresh_catalog(self) -> None:
         stale = self.driver.perform(EffectKind.CONFIGURE, {"command_id": "m1", "model": "example-model"})

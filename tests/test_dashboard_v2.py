@@ -125,6 +125,9 @@ class DashboardTests(unittest.TestCase):
         detailed = item_line({"type": "approval", "summary": "请求使用工具 Bash", "detail": "git push\n  --force",
                               "resolution": "deskhelm", "decision": "reject"}, "Claude")
         self.assertEqual(detailed, "批准请求：请求使用工具 Bash：git push --force · 已拒绝")
+        asked = item_line({"type": "input", "prompt": "Codex requested user input", "resolution": "native",
+                           "questions": [{"title": "Which  board?"}], "answers": {"0": ["A"]}}, "Codex")
+        self.assertEqual(asked, "提问：Which board? · 已在 Agent 里回答：A")
 
     def test_a_lost_bridge_is_a_notice_and_q_quits(self) -> None:
         self.dashboard.on_connection(False)

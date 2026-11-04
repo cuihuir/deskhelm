@@ -25,6 +25,11 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
   const nodes = new Map();
   const expanded = new Set();
   const dirty = new Set();
+  // What the user chose or typed for a question lives outside its node, and a
+  // question card is redrawn only when its state changes, so the agent's
+  // other activity never takes a half-typed answer away.
+  const drafts = new Map();
+  const cardStates = new Map();
   let key = null;
   let timer = 0;
 
@@ -190,14 +195,156 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
     );
   }
 
+  function questionStatus(item) {
+    const session = store.selected();
+    const found = session && item.approval_id ? session.approvals.find((entry) => entry.approval_id === item.approval_id) : null;
+    // A ticket can outlive its expiry until the Bridge's next tick removes it.
+    const ticket = found && found.expires_at > Date.now() ? found : null;
+    const questions = Array.isArray(item.questions) ? item.questions : [];
+    const answerable = Boolean(ticket && ticket.answerable && questions.length && session.capabilities
+      && session.capabilities.user_input === "answerable");
+    const busy = store.state.deciding.has(item.approval_id) || !store.state.connected;
+    return { found, ticket, questions, answerable, busy, signature: `${Boolean(ticket)}|${answerable}|${busy}|${item.resolution || ""}` };
+  }
+
   function input(item) {
+    const status = questionStatus(item);
+    const name = `${key}\u001f${item.approval_id || item.id}`;
+    cardStates.set(`${key}\u001f${item.id}`, status.signature);
+    const node = h(
+      "div",
+      { class: status.ticket ? "question-card is-live" : "question-card" },
+      h(
+        "div",
+        { class: "notice-head" },
+        icon("question"),
+        h("strong", { text: status.ticket ? "Agent 在提问" : "Agent 的提问" }),
+        status.ticket ? h("span", { class: "approval-time", dataset: { expires: String(status.ticket.expires_at) }, text: countdown(status.ticket.expires_at) }) : null,
+      ),
+    );
+    if (!status.questions.length) {
+      if (item.prompt) node.append(h("p", { class: "question-title", text: item.prompt }));
+      if (item.detail) node.append(h("pre", { class: "approval-detail", text: item.detail }));
+    }
+    if (status.answerable) {
+      node.append(questionForm(item, status, name));
+      return node;
+    }
+    for (const question of status.questions) node.append(questionView(question, (item.answers || {})[question.id], Boolean(status.ticket)));
+    if (status.ticket) {
+      node.append(h("p", { class: "hint", text: "这个提问要在 Agent 自己的界面里回答。" }));
+    } else if (item.approval_id) {
+      drafts.delete(name);
+      node.append(h("p", { class: "approval-state", text: resolutionText(item, Boolean(status.found)) }));
+    }
+    return node;
+  }
+
+  // One choice per question: an option, or a free-text answer where the agent
+  // takes one. The first option starts chosen, as in Codex's own picker.
+  function questionForm(item, status, name) {
+    const draft = drafts.get(name) || new Map();
+    drafts.set(name, draft);
+    const submit = h("button", { class: "button primary", type: "submit", disabled: status.busy }, icon("check"), "提交回答");
+    const chosen = () => {
+      const answers = {};
+      for (const question of status.questions) {
+        const state = draft.get(question.id);
+        const answer = state.choice === "other" ? state.text.trim() : ((question.options[state.choice] || {}).label || "");
+        if (!answer) return null;
+        answers[question.id] = [answer];
+      }
+      return answers;
+    };
+    const sync = () => {
+      submit.disabled = status.busy || !chosen();
+    };
+    const form = h("form", {
+      class: "question-form",
+      on: {
+        submit: (event) => {
+          event.preventDefault();
+          const answers = chosen();
+          if (!answers || status.busy) return;
+          actions.answer(item.approval_id, answers).then((sent) => {
+            if (sent) drafts.delete(name);
+          });
+        },
+      },
+    });
+    status.questions.forEach((question, index) => {
+      if (!draft.has(question.id)) draft.set(question.id, { choice: question.options.length ? 0 : "other", text: "" });
+      const state = draft.get(question.id);
+      const group = `question-${item.approval_id}-${index}`;
+      const block = h(
+        "fieldset",
+        { class: "question", disabled: status.busy },
+        h("legend", { class: "question-title" }, question.header ? h("span", { class: "question-header", text: question.header }) : null, question.title),
+      );
+      question.options.forEach((option, choice) => {
+        const radio = h("input", { type: "radio", name: group, checked: state.choice === choice, on: { change: () => { state.choice = choice; sync(); } } });
+        block.append(h(
+          "label",
+          { class: "answer-option" },
+          radio,
+          h("span", { class: "answer-option-text" }, h("span", { class: "answer-option-label", text: option.label }), option.description ? h("span", { class: "answer-option-description", text: option.description }) : null),
+        ));
+      });
+      if (question.other) {
+        const withOptions = question.options.length > 0;
+        const other = withOptions ? h("input", { type: "radio", name: group, checked: state.choice === "other", "aria-label": "其他回答" }) : null;
+        const field = h("input", {
+          class: "answer-input",
+          type: "text",
+          maxLength: 4096,
+          value: state.text,
+          placeholder: withOptions ? "其他回答" : "写下你的回答",
+          "aria-label": withOptions ? "其他回答" : question.title,
+        });
+        const pickOther = () => {
+          state.choice = "other";
+          if (other) other.checked = true;
+          sync();
+        };
+        field.addEventListener("input", () => {
+          state.text = field.value;
+          pickOther();
+        });
+        if (other) {
+          field.addEventListener("focus", pickOther);
+          other.addEventListener("change", () => {
+            pickOther();
+            field.focus();
+          });
+          block.append(h("div", { class: "answer-option is-other" }, other, field));
+        } else {
+          block.append(field);
+        }
+      }
+      form.append(block);
+    });
+    form.append(h(
+      "div",
+      { class: "question-actions" },
+      submit,
+      item.blocking === false ? h("span", { class: "hint", text: "Agent 没有停下来等这个回答" }) : null,
+    ));
+    sync();
+    return form;
+  }
+
+  function questionView(question, answers, live) {
+    let after = null;
+    if (Array.isArray(answers) && answers.length) {
+      after = h("p", { class: "question-answer" }, "回答：", h("strong", { text: answers.join("；") }));
+    } else if (live && question.options.length) {
+      after = h("ul", { class: "answer-list" }, question.options.map((option) => h("li", { text: option.label })));
+    }
     return h(
       "div",
-      { class: "notice-card" },
-      h("div", { class: "notice-head" }, icon("question"), h("strong", { text: "Agent 在提问" })),
-      item.prompt ? h("p", { text: item.prompt }) : null,
-      item.detail ? h("pre", { class: "approval-detail", text: item.detail }) : null,
-      h("p", { class: "hint", text: "这个提问要在 Agent 自己的界面里回答。" }),
+      { class: "question" },
+      h("p", { class: "question-title" }, question.header ? h("span", { class: "question-header", text: question.header }) : null, question.title),
+      after,
     );
   }
 
@@ -221,7 +368,7 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
         if (ticket.kind === "approval" && !transcript.has(`a:${ticket.approval_id}`)) {
           nodesInTail.push(approval({ approval_id: ticket.approval_id, summary: ticket.summary }));
         } else if (ticket.kind === "input" && !transcript.has(`i:${ticket.approval_id}`)) {
-          nodesInTail.push(input({ prompt: ticket.summary }));
+          nodesInTail.push(input({ type: "input", approval_id: ticket.approval_id, prompt: ticket.summary }));
         }
       }
       if (session.attention && !session.approvals.some((ticket) => ticket.kind === "approval")) nodesInTail.push(attention());
@@ -324,10 +471,14 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
     });
     // The transcript is not a live region, so the few changes worth hearing are said once.
     if (arrived && item.type === "approval") actions.announce("有新的批准请求");
+    else if (arrived && item.type === "input") actions.announce("Agent 在提问");
     else if (arrived && item.type === "turn") actions.announce(outcomeText(item));
   });
   const refreshApprovals = () => {
-    for (const item of store.items(key).values()) if (item.type === "approval") place(item);
+    for (const item of store.items(key).values()) {
+      if (item.type === "approval") place(item);
+      else if (item.type === "input" && cardStates.get(`${key}\u001f${item.id}`) !== questionStatus(item).signature) place(item);
+    }
   };
   store.on("sessions", () => {
     if (!store.selected()) {

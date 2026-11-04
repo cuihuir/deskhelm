@@ -122,10 +122,12 @@ export function outcomeText(item) {
 // How an approval item ended, as deskhelm_client.texts.resolution_text says it.
 export function resolutionText(item, expired) {
   const said = words.resolution;
+  const question = item.type === "input";
   if (item.resolution === "deskhelm") {
-    const text = said[item.decision === "reject" ? "reject" : "approve"] || "";
+    const text = said[question ? "answered" : item.decision === "reject" ? "reject" : "approve"] || "";
     return item.uncertain ? `${text}，${said.uncertain || ""}` : text;
   }
+  if (question && item.resolution === "native") return said.answered_native || "";
   return said[item.resolution] || (expired ? said.expired || "" : "已结束");
 }
 

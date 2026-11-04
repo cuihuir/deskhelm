@@ -200,14 +200,20 @@ access ADRs) has not started.
   not canonical, and dropped when the session ends. Never promise durable
   history or replay. A message's complete fact carries its whole text, so
   the window keeps a completed message, not its deltas.
-- When an approval ends, the core publishes `approval_resolved` with how it
-  ended, so every surface says the same; a surface never infers it.
+- When an approval or a question ends, the core publishes `approval_resolved`
+  or `input_resolved` with how it ended, and a question's answers when known,
+  so every surface says the same; a surface never infers it.
 - The voice tier may only submit prompts and answer approvals. The device and
   voice tiers and logs never receive command lines, command output, or diffs.
 - A request's `detail`, such as the command line or paths an approval would
-  allow, is content: only the operator's interaction stream carries it, and
-  console tickets stay content-free. Requests a host reopens are announced
-  again with their detail (ADR 0045).
+  allow, and an input request's `questions` and answers are content: only
+  the operator's interaction stream carries them, and console tickets stay
+  content-free. Requests a host reopens are announced again with their detail
+  and questions (ADR 0045, ADR 0046).
+- Only the operator tier answers questions, by question id and only where the
+  session's `user_input` is `answerable`. A request that is not `blocking`
+  lets the agent work on, outlives its turn, and makes the session wait for
+  input only once no turn runs.
 
 ### Session Hosts and Drivers
 
@@ -262,6 +268,12 @@ access ADRs) has not started.
   requested subset for the current turn and is never persisted.
 - Map the `waitingOnApproval` status to notification-only attention, never by
   itself to an answerable approval.
+- Codex questions become input requests the page answers (ADR 0046):
+  `item/tool/requestUserInput` on its own JSON-RPC channel unless a question
+  is secret, and a `request_user_input_async` question, whose `agentMessage`
+  carries `questions`, as a non-blocking request answered with the TUI's own
+  `<send_user_message_question_reply>` user message. A TUI answer resolves
+  the question with what was chosen; the wrapper is never shown.
 - Attach directly to one unambiguous loaded thread, then retry bounded
   `thread/resume` calls until this connection is subscribed. Only a resume
   result, a server request, or turn events on this connection prove the
@@ -339,7 +351,8 @@ access ADRs) has not started.
   framework, or dependency. Agent text is never parsed as HTML: it reaches
   the DOM as text, and only `http`, `https`, and `mailto` URLs become links.
   The page names its command ids, never retries a command, and labels an
-  unknown outcome as unknown.
+  unknown outcome as unknown. A question card keeps a half-typed answer
+  outside the DOM and redraws only when its state changes.
 - Every web request needs the token stored with mode 0600 in the runtime
   directory. The printed `?token=` link sets an HttpOnly, SameSite=Strict
   cookie and redirects to a token-free path. A loopback bind accepts only

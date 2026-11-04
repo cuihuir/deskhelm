@@ -21,6 +21,7 @@ class InteractionKind(StrEnum):
     APPROVAL_REQUEST = "approval_request"
     ATTENTION = "attention"
     USER_INPUT_REQUIRED = "user_input_required"
+    USER_INPUT_ANSWERED = "user_input_answered"
     TASK_COMPLETED = "task_completed"
     TASK_FAILED = "task_failed"
 
@@ -161,12 +162,34 @@ class AttentionPayload:
 @dataclass(frozen=True, slots=True)
 class UserInputPayload:
     prompt: str
+    # The normalized questions (ADR 0046); they are content.
+    questions: tuple[dict[str, Any], ...] = ()
+    # False for an async question, which Codex does not wait on.
+    blocking: bool = True
 
     def __post_init__(self) -> None:
         _validate_non_empty_string(self.prompt, "input prompt")
+        if not isinstance(self.questions, tuple) or not all(isinstance(item, dict) for item in self.questions):
+            raise ValueError("input questions must be a tuple of objects")
+        if not isinstance(self.blocking, bool):
+            raise ValueError("input blocking must be a boolean")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"prompt": self.prompt}
+        return {"prompt": self.prompt, "questions": [dict(item) for item in self.questions], "blocking": self.blocking}
+
+
+@dataclass(frozen=True, slots=True)
+class UserInputAnswerPayload:
+    """How a question was answered in the TUI, by question id."""
+
+    answers: dict[str, tuple[str, ...]]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.answers, dict):
+            raise ValueError("answers must be an object")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"answers": {question_id: list(items) for question_id, items in self.answers.items()}}
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,7 +208,13 @@ class TaskPayload:
 
 
 InteractionPayload = (
-    MessagePayload | ToolPayload | ApprovalRequestPayload | AttentionPayload | UserInputPayload | TaskPayload
+    MessagePayload
+    | ToolPayload
+    | ApprovalRequestPayload
+    | AttentionPayload
+    | UserInputPayload
+    | UserInputAnswerPayload
+    | TaskPayload
 )
 
 _EXPECTED_PAYLOAD = {
@@ -194,6 +223,7 @@ _EXPECTED_PAYLOAD = {
     InteractionKind.APPROVAL_REQUEST: ApprovalRequestPayload,
     InteractionKind.ATTENTION: AttentionPayload,
     InteractionKind.USER_INPUT_REQUIRED: UserInputPayload,
+    InteractionKind.USER_INPUT_ANSWERED: UserInputAnswerPayload,
     InteractionKind.TASK_COMPLETED: TaskPayload,
     InteractionKind.TASK_FAILED: TaskPayload,
 }

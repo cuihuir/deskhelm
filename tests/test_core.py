@@ -454,6 +454,124 @@ class ApprovalTests(unittest.TestCase):
         self.assertEqual(harness.core.session(KEY)["activity"], "idle")
 
 
+QUESTION = {"id": "0", "title": "Which board?", "options": [{"label": "A"}, {"label": "B"}], "other": True}
+
+
+def _input_meta(harness: _Harness, provider_ref: str = "call-1", *, blocking: bool = False) -> dict[str, Any]:
+    meta = {"provider_ref": provider_ref, "kind": "input", "summary": "Codex requested user input",
+            "expires_at": harness.now + 3_600_000, "answerable": True}
+    return meta if blocking else {**meta, "blocking": False}
+
+
+class QuestionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.harness = _Harness()
+        self.harness.host("host", capabilities={**CAPS, "user_input": "answerable"})
+        self.harness.fact("host", "ready")
+        self.harness.client("web", streams=("console", "interaction"))
+        self.harness.client("voice", tier="voice")
+        self.harness.take("host")
+
+    def question(self, provider_ref: str = "call-1", *, blocking: bool = False) -> str:
+        meta = _input_meta(self.harness, provider_ref, blocking=blocking)
+        self.harness.fact("host", "request_opened", meta, {"detail": "Which board?", "questions": [QUESTION]})
+        return self.harness.core.session(KEY)["approvals"][-1]["approval_id"]
+
+    def test_a_question_is_answered_by_question_id(self) -> None:
+        harness = self.harness
+        approval_id = self.question()
+        opened = harness.take("web", "interaction")[-1]["event"]
+        harness.command("web", "answer", {"approval_id": approval_id, "answers": {"0": ["B"]}})
+        effect = harness.take("host", "effect")[0]
+        harness.send("host", {"type": "effect_result", "effect_id": effect["effect_id"], "outcome": "accepted"})
+        frames = harness.take("web")
+
+        self.assertEqual((opened["kind"], opened["payload"]["request_id"], opened["payload"]["blocking"]),
+                         ("user_input_required", approval_id, False))
+        self.assertEqual(opened["payload"]["questions"][0]["options"][1], {"label": "B", "description": ""})
+        self.assertEqual((effect["kind"], effect["payload"]["provider_ref"], effect["payload"]["answers"]),
+                         ("answer", "call-1", {"0": ["B"]}))
+        self.assertEqual([frame["event"] for frame in frames if frame["type"] == "interaction"][-1]["payload"],
+                         {"request_id": approval_id, "by": "deskhelm", "answers": {"0": ["B"]}})
+        self.assertEqual([frame["code"] for frame in frames if frame["type"] == "command_result"], ["dispatched"])
+        self.assertEqual(harness.core.session(KEY)["approvals"], [])
+        # The voice tier sees only the ticket's summary, never the question or its answer.
+        self.assertNotIn("Which board?", repr(harness.take("voice")))
+
+    def test_an_answer_names_the_questions_of_an_input_and_comes_from_the_operator(self) -> None:
+        harness = self.harness
+        approval_id = self.question()
+        approval = harness.approval("host", provider_ref="rpc-9")
+        harness.take("web")
+        harness.take("voice")
+        harness.command("web", "answer", {"approval_id": approval_id, "answers": {"9": ["B"]}}, command_id="a1")
+        harness.command("web", "answer", {"approval_id": approval, "answers": {"0": ["B"]}}, command_id="a2")
+        harness.command("web", "answer", {"approval_id": approval_id, "answers": {}}, command_id="a3")
+        harness.command("voice", "answer", {"approval_id": approval_id, "answers": {"0": ["B"]}}, command_id="a4")
+
+        self.assertEqual([frame["code"] for frame in harness.take("web", "command_result")],
+                         ["invalid_command", "approval_not_found", "invalid_command"])
+        self.assertEqual([frame["code"] for frame in harness.take("voice", "command_result")], ["not_permitted"])
+
+    def test_a_session_whose_agent_answers_natively_refuses_answers(self) -> None:
+        harness = _Harness()
+        harness.host("host")
+        harness.client("web")
+        harness.fact("host", "request_opened", _input_meta(harness), {"questions": [QUESTION]})
+        approval_id = harness.core.session(KEY)["approvals"][0]["approval_id"]
+        harness.take("web")
+        harness.command("web", "answer", {"approval_id": approval_id, "answers": {"0": ["A"]}})
+
+        self.assertEqual(harness.take("web", "command_result")[0]["code"], "unsupported")
+
+    def test_a_question_the_agent_does_not_wait_on_outlives_its_turn(self) -> None:
+        harness = self.harness
+        harness.fact("host", "turn_started", {"turn_ref": "t1"})
+        waiting_on = self.question()
+        working = harness.core.session(KEY)["activity"]
+        harness.fact("host", "turn_terminal", {"status": "completed", "turn_ref": "t1"})
+        after = harness.core.session(KEY)
+        harness.fact("host", "turn_started", {"turn_ref": "t2"})
+        blocking = self.question("call-2", blocking=True)
+        during = harness.core.session(KEY)["activity"]
+        harness.fact("host", "turn_terminal", {"status": "completed", "turn_ref": "t2"})
+        left = [ticket["approval_id"] for ticket in harness.core.session(KEY)["approvals"]]
+
+        # An agent that asked without waiting is still working; after its turn it waits for the answer.
+        self.assertEqual((working, after["activity"]), ("working", "waiting_input"))
+        self.assertEqual(during, "waiting_input")
+        self.assertEqual(left, [waiting_on])
+        self.assertNotIn(blocking, left)
+
+    def test_an_answer_given_in_the_agent_reaches_the_operator(self) -> None:
+        harness = self.harness
+        approval_id = self.question()
+        harness.take("web")
+        harness.fact("host", "request_resolved", {"provider_ref": "call-1", "by": "native"}, {"answers": {"0": ["A"]}})
+
+        self.assertEqual(harness.take("web", "interaction")[-1]["event"]["payload"],
+                         {"request_id": approval_id, "by": "native", "answers": {"0": ["A"]}})
+
+    def test_questions_and_answers_are_checked_at_the_boundary(self) -> None:
+        cases = [
+            ("input", {"questions": [QUESTION, QUESTION]}),
+            ("input", {"questions": [{"id": "0", "title": "Pick", "options": [], "other": False}]}),
+            ("approval", {"questions": [QUESTION]}),
+        ]
+        closed = []
+        for kind, content in cases:
+            harness = _Harness()
+            harness.host("host")
+            harness.fact("host", "request_opened", {**_input_meta(harness), "kind": kind}, content)
+            closed.append(harness.closed.get("host"))
+        bad_answer = _Harness()
+        bad_answer.host("host")
+        bad_answer.fact("host", "request_resolved", {"provider_ref": "call-1", "by": "native"}, {"answers": {"0": []}})
+
+        self.assertEqual(closed, ["protocol_violation"] * 3)
+        self.assertEqual(bad_answer.closed.get("host"), "protocol_violation")
+
+
 class ProjectionTests(unittest.TestCase):
     def test_late_interaction_subscriber_gets_the_session_window(self) -> None:
         harness = _Harness(window_events=2)

@@ -25,6 +25,7 @@ from deskhelm_protocol import (
     EffectOutcome,
     Fact,
     FactKind,
+    InputSupport,
     MessageType,
     OpenRequest,
     PromptWhileBusy,
@@ -110,6 +111,10 @@ class Ticket:
     summary: str
     expires_at: int
     answerable: bool
+    # A request that is not blocking lets its turn go on and outlives it.
+    blocking: bool = True
+    # The ids an answer may name; the questions themselves are content.
+    question_ids: tuple[str, ...] = ()
     reserved: bool = False
     # How the vendor resolved it while a DeskHelm decision was in flight.
     resolved_by: str = ""
@@ -423,8 +428,7 @@ class Core:
                 payload["replace"] = True
             self._interaction(record, "tool", payload, meta["tool_ref"], now)
         elif fact.kind is FactKind.REQUEST_OPENED:
-            request = OpenRequest.from_dict({**meta, "detail": content.get("detail", "")})
-            self._open_ticket(record, request, now, announce=True)
+            self._open_ticket(record, OpenRequest.from_dict({**meta, **content}), now, announce=True)
         elif fact.kind is FactKind.REQUEST_RESOLVED:
             ticket = record.ticket_for(meta["provider_ref"])
             if ticket is not None:
@@ -433,7 +437,7 @@ class Core:
                 else:
                     del record.tickets[ticket.approval_id]
                     record.decided[ticket.approval_id] = ticket.expires_at
-                    self._resolved(record, ticket, meta["by"], now)
+                    self._resolved(record, ticket, meta["by"], now, answers=content.get("answers"))
         elif fact.kind is FactKind.TURN_TERMINAL:
             self._turn_terminal(record, meta, content, now)
         elif fact.kind is FactKind.STATUS:
@@ -466,6 +470,8 @@ class Core:
             summary=request.summary,
             expires_at=request.expires_at,
             answerable=request.answerable,
+            blocking=request.blocking,
+            question_ids=tuple(question["id"] for question in request.questions),
         )
         record.tickets[ticket.approval_id] = ticket
         if not announce:
@@ -480,7 +486,15 @@ class Core:
             }
             self._interaction(record, "approval_request", payload, ticket.approval_id, now)
         else:
-            payload = {"prompt": ticket.summary, "detail": request.detail}
+            payload = {
+                "request_id": ticket.approval_id,
+                "prompt": ticket.summary,
+                "detail": request.detail,
+                "questions": [dict(question) for question in request.questions],
+                "expires_at": ticket.expires_at,
+                "answerable": ticket.answerable,
+                "blocking": ticket.blocking,
+            }
             self._interaction(record, "user_input_required", payload, ticket.approval_id, now)
 
     def _turn_terminal(
@@ -497,8 +511,9 @@ class Core:
         correlation = record.turn_correlation or ""
         record.turn_id = record.turn_correlation = None
         record.attention = False
+        # A request the vendor does not wait on, such as an async question, outlives the turn.
         for approval_id in [
-            approval_id for approval_id, ticket in record.tickets.items() if not ticket.reserved
+            approval_id for approval_id, ticket in record.tickets.items() if not ticket.reserved and ticket.blocking
         ]:
             self._resolved(record, record.tickets.pop(approval_id), "cancelled", now)
         message = content.get("message", "")
@@ -694,11 +709,19 @@ class Core:
         approval_id = command.payload["approval_id"]
         if approval_id in record.decided:
             return ResultCode.APPROVAL_ALREADY_DECIDED
+        wanted = RequestKind.INPUT if command.kind is CommandKind.ANSWER else RequestKind.APPROVAL
         ticket = record.tickets.get(approval_id)
-        if ticket is None or ticket.kind is not RequestKind.APPROVAL or ticket.expires_at <= now:
+        if ticket is None or ticket.kind is not wanted or ticket.expires_at <= now:
             return ResultCode.APPROVAL_NOT_FOUND
         if ticket.reserved:
             return ResultCode.APPROVAL_ALREADY_DECIDED
+        if command.kind is CommandKind.ANSWER:
+            if not ticket.answerable or capabilities.user_input is not InputSupport.ANSWERABLE:
+                return ResultCode.UNSUPPORTED
+            answers = command.payload["answers"]
+            if not set(answers) <= set(ticket.question_ids):
+                return ResultCode.INVALID_COMMAND
+            return EffectKind.ANSWER, {"provider_ref": ticket.provider_ref, "answers": answers}, ticket.approval_id
         if not ticket.answerable or capabilities.approvals is not ApprovalSupport.ANSWERABLE:
             return ResultCode.UNSUPPORTED
         decision = "approve" if command.kind is CommandKind.APPROVE else "reject"
@@ -719,9 +742,13 @@ class Core:
                     del record.tickets[flight.approval_id]
                     record.decided[flight.approval_id] = ticket.expires_at
                     if delivered:
-                        decision = "approve" if flight.command.kind is CommandKind.APPROVE else "reject"
                         unknown = code is not ResultCode.DISPATCHED
-                        self._resolved(record, ticket, "deskhelm", now, decision=decision, unknown=unknown)
+                        if flight.command.kind is CommandKind.ANSWER:
+                            answers = flight.command.payload["answers"]
+                            self._resolved(record, ticket, "deskhelm", now, answers=answers, unknown=unknown)
+                        else:
+                            decision = "approve" if flight.command.kind is CommandKind.APPROVE else "reject"
+                            self._resolved(record, ticket, "deskhelm", now, decision=decision, unknown=unknown)
                     else:
                         self._resolved(record, ticket, ticket.resolved_by, now)
                 else:
@@ -763,13 +790,17 @@ class Core:
     # Shared helpers ----------------------------------------------------
 
     def _recompute(self, record: SessionRecord) -> None:
-        kinds = {ticket.kind for ticket in record.tickets.values()}
-        if RequestKind.APPROVAL in kinds or record.attention:
+        tickets = record.tickets.values()
+        inputs = [ticket for ticket in tickets if ticket.kind is RequestKind.INPUT]
+        if any(ticket.kind is RequestKind.APPROVAL for ticket in tickets) or record.attention:
             activity = Activity.WAITING_APPROVAL
-        elif RequestKind.INPUT in kinds:
+        elif any(ticket.blocking for ticket in inputs):
             activity = Activity.WAITING_INPUT
         elif record.turn_id is not None:
+            # An agent that asked without waiting is still working.
             activity = Activity.WORKING
+        elif inputs:
+            activity = Activity.WAITING_INPUT
         elif record.ready:
             activity = Activity.IDLE
         else:
@@ -814,17 +845,27 @@ class Core:
                 self._send(state.connection_id, frame)
 
     def _resolved(
-        self, record: SessionRecord, ticket: Ticket, by: str, now: int, *, decision: str = "", unknown: bool = False
+        self,
+        record: SessionRecord,
+        ticket: Ticket,
+        by: str,
+        now: int,
+        *,
+        decision: str = "",
+        answers: dict[str, list[str]] | None = None,
+        unknown: bool = False,
     ) -> None:
-        """Tell every surface how an approval ended, so they all say the same."""
-        if ticket.kind is not RequestKind.APPROVAL:
-            return
+        """Tell every surface how a request ended, so they all say the same."""
         payload: dict[str, Any] = {"request_id": ticket.approval_id, "by": by}
         if decision:
             payload["decision"] = decision
+        if answers:
+            # The answers are content; only the operator's interaction stream carries them.
+            payload["answers"] = answers
         if unknown:
             payload["unknown"] = True
-        self._interaction(record, "approval_resolved", payload, ticket.approval_id, now)
+        kind = "approval_resolved" if ticket.kind is RequestKind.APPROVAL else "input_resolved"
+        self._interaction(record, kind, payload, ticket.approval_id, now)
 
     def _drop_deltas(self, record: SessionRecord, correlation: str, role: object) -> None:
         kept: deque[dict[str, Any]] = deque()

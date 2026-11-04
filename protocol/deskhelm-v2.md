@@ -2,7 +2,8 @@
 
 Status: the only DeskHelm protocol since 0.1.0 (ADR 0043), implemented by
 `bridge/deskhelm_protocol` and `bridge/deskhelm_core`. DeskHelm 0.2.0 changed
-it without compatibility with 0.1.0 (ADR 0044, ADR 0045). The user Bridge
+it without compatibility with 0.1.0 (ADR 0044, ADR 0045), and ADR 0046 adds
+questions and answers. The user Bridge
 listens on `$XDG_RUNTIME_DIR/deskhelm/bridge.sock`, or
 `/tmp/deskhelm-<uid>/bridge.sock` without `XDG_RUNTIME_DIR`. Hosts start it
 on demand, and `deskhelm bridge [--socket PATH]` runs it in the foreground.
@@ -48,8 +49,8 @@ The answer is `session_open_result` with `status` `opened` or `rejected`. A
 session that is still active on another connection is rejected with
 `already_active`. A disconnected session may be reopened; its approvals are
 rebuilt from `open_requests` with new approval ids and announced to the
-operator again. An entry's optional `detail` is content, as in
-`request_opened`.
+operator again. An entry may carry `detail`, `questions`, and `blocking` as
+in `request_opened`.
 
 `capabilities` describes what the vendor really does, and the Bridge enforces
 it:
@@ -79,8 +80,8 @@ interaction stream.
 | `turn_started` | `turn_ref`, optional `command_id` | — |
 | `message` | `message_ref`, `role` (`user`, `assistant`, `system`), `phase` (`delta`, `complete`), optional `command_id` | `text` |
 | `tool` | `tool_ref`, `label`, `phase` (`start`, `output`, `complete`), on `complete` a `status` (`completed`, `failed`, `declined`), optional `exit_code`, `stream`, `replace` | `text` |
-| `request_opened` | `provider_ref`, `kind` (`approval`, `input`), `summary`, `expires_at`, `answerable` | optional `detail`, at most 8 KiB |
-| `request_resolved` | `provider_ref`, `by` (`native`, `deskhelm`, `cancelled`, `expired`) | — |
+| `request_opened` | `provider_ref`, `kind` (`approval`, `input`), `summary`, `expires_at`, `answerable`, optional `blocking` (default true) | optional `detail` (at most 8 KiB) and, for an input, `questions` |
+| `request_resolved` | `provider_ref`, `by` (`native`, `deskhelm`, `cancelled`, `expired`) | optional `answers` |
 | `turn_terminal` | `status` (`completed`, `interrupted`, `failed`), optional `failure`, `reusable`, `turn_ref` | optional `message` |
 | `status` | `attention` (boolean) | — |
 | `catalog` | — | `catalog` object, at most 256 KiB |
@@ -100,7 +101,15 @@ vendor allows, for example after the vendor handshake.
 `summary` and `label` must be content-free: a tool kind or a bare tool name,
 never a command line or a path. A request's `detail` says what it would do,
 such as the command line, paths, or URL it would allow, so it is content and
-never part of `meta`. `failure` is one of `provider`,
+never part of `meta`.
+
+An input request's `questions` (at most 8) each have an `id`, a `title` of at
+most 1 KiB, an optional `header`, up to 16 `options` with a `label` and an
+optional `description`, `other` when a free-text answer is allowed (always
+when there are no options), and `secret`. `answers` map question ids to one
+or more answers of at most 4 KiB. A request that is not `blocking` lets the
+vendor go on without the answer: its turn keeps working, and it outlives its
+turn. `failure` is one of `provider`,
 `usage_limit`, `auth`, `protocol`, `transport_lost`, `process_exit`, or
 `timeout`.
 
@@ -117,6 +126,7 @@ The Bridge asks the host to act:
 | `submit` | `text` |
 | `interrupt` | — |
 | `respond` | `provider_ref`, `decision` (`approve`, `reject`) |
+| `answer` | `provider_ref`, `answers` |
 | `configure` | `model` and/or `effort` |
 
 The host answers every effect promptly with
@@ -148,7 +158,8 @@ deltas when the Bridge still holds them, otherwise a snapshot.
 
 A `SessionView` carries the key, `runtime`, `capabilities`, `lifecycle`
 (`active`, `disconnected`), `activity` (`starting`, `idle`, `working`,
-`waiting_approval`, `waiting_input`), `turn_id`, `last_outcome`,
+`waiting_approval`, `waiting_input`; a question that is not blocking reads
+`waiting_input` only once no turn runs), `turn_id`, `last_outcome`,
 `approvals` (each with `approval_id`, `kind`, `summary`, `expires_at`,
 `answerable`), `attention`, `opened_at`, and `catalog_rev`, which counts the
 catalogs the host has pushed (0 before the first), so a client knows when to
@@ -166,13 +177,17 @@ message's deltas once it completes and a long streamed reply cannot push
 earlier activity out. Interaction events keep
 the v1 `InteractionEvent` shape; a tool event carries its fact's `status`.
 `approval_request` and `user_input_required` events carry the request's
-`detail`, and approval events name the Bridge approval id as `request_id`.
-Console tickets never carry a detail. When an
-approval ends, an `approval_resolved` event names its
+`detail` and name the Bridge approval id as `request_id`; a
+`user_input_required` event also carries `questions`, `expires_at`,
+`answerable`, and `blocking`. Console tickets never carry a detail or
+questions. When an approval ends, an `approval_resolved` event names its
 `request_id` and `by` (`deskhelm`, `native`, `cancelled` when its turn ended,
 or `expired`); a DeskHelm decision adds `decision` and, if its delivery is
-unknown, `"unknown": true`. An approval dropped because its host left gets
-no event; a reopened host reports it again under a new id.
+unknown, `"unknown": true`. When an input request ends, an `input_resolved`
+event does the same and carries the `answers` when they are known, given
+through DeskHelm or in the vendor's own interface. A request dropped because
+its host left gets no event; a reopened host reports it again under a new
+id.
 
 ### Commands
 
@@ -189,12 +204,15 @@ no event; a reopened host reports it again under a new id.
 | `submit_prompt` | `text` | operator, voice |
 | `interrupt` | — | operator, device |
 | `approve`, `reject` | `approval_id` | operator, voice, device |
+| `answer` | `approval_id` of an input request, `answers` by question id | operator |
 | `configure_session` | `model` and/or `effort` | operator |
 
 `issued_by` must equal the client's `client_id`. Every valid command gets one
 `command_result` with `command_id`, `status` (`accepted`, `rejected`),
 `code`, and `duplicate`. A dispatched command is answered only after the
-host's `effect_result`.
+host's `effect_result`. An `answer` that names a question its request did not
+ask is `invalid_command`; one for a session whose `user_input` is not
+`answerable` is `unsupported`.
 
 | Code | Meaning |
 |---|---|
@@ -204,7 +222,7 @@ host's `effect_result`.
 | `target_not_found`, `target_inactive` | no active session has that key |
 | `not_permitted` | the client's tier may not send it |
 | `unsupported` | the session's capabilities exclude it |
-| `approval_not_found`, `approval_already_decided` | the approval id is unknown, expired, or decided |
+| `approval_not_found`, `approval_already_decided` | the approval id is unknown, expired, decided, or of the other kind |
 | `undelivered` | the host proved nothing reached the vendor |
 | `dispatch_failed` | the outcome is unknown: no receipt within 5 seconds or the host left |
 
@@ -228,7 +246,8 @@ and the session's cached `catalog`. Only the operator tier reads catalogs.
 - When a host connection closes, its session becomes `disconnected`, its
   approvals are dropped, and in-flight effects answer `dispatch_failed`. A
   disconnected session is removed after two minutes unless a host reopens it.
-- Expired approvals leave the console on the next tick.
+- Expired requests leave the console on the next tick. When a turn ends, its
+  open requests are cancelled, except those that are not blocking.
 - Defaults: 32 sessions, 32 hosts, 16 clients, 64 connections, 1024
   receipts, 16 approvals per session, 512 queued frames per connection. A
   full outbound queue closes that connection; the client resubscribes.

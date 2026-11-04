@@ -22,6 +22,7 @@ held in memory only (ADR 0043 D1, ADR 0044).
 from __future__ import annotations
 
 from collections import OrderedDict
+import json
 from typing import Any
 
 MAX_ITEMS = 200
@@ -32,6 +33,9 @@ MAX_TITLE_CHARS = 2 * 1024
 MAX_OUTPUT_CHARS = 32 * 1024
 MAX_SUMMARY_CHARS = 512
 MAX_DETAIL_CHARS = 8 * 1024
+MAX_QUESTIONS = 8
+MAX_OPTIONS = 16
+MAX_ANSWER_CHARS = 4 * 1024
 MAX_PREVIEW_CHARS = 160
 
 _ROLES = frozenset({"user", "assistant", "system"})
@@ -53,7 +57,7 @@ class Transcript:
         self._last_sequence = 0
 
     def items(self) -> list[dict[str, Any]]:
-        # Item values are immutable, so a shallow copy is a full one.
+        # Item values are replaced, never changed in place, so a shallow copy is a full one.
         return [dict(item) for item in self._items.values()]
 
     def item(self, item_id: str) -> dict[str, Any] | None:
@@ -88,6 +92,8 @@ class Transcript:
             patches = self._approval(event, payload)
         elif kind == "approval_resolved":
             patches = self._resolution(payload)
+        elif kind == "input_resolved":
+            patches = self._input_resolution(payload)
         elif kind == "user_input_required":
             patches = self._input(event, payload)
         elif kind in ("task_completed", "task_failed"):
@@ -222,13 +228,31 @@ class Transcript:
         return [self._upsert(item)]
 
     def _input(self, event: dict[str, Any], payload: dict[str, Any]) -> list[dict[str, Any]]:
-        item_id = "i:" + _reference(event)
+        reference = _identity(payload.get("request_id")) or _reference(event)
+        item_id = "i:" + reference
         if item_id in self._items:
             return []
+        expires_at = payload.get("expires_at")
         item = self._create(
-            item_id, "input", event, prompt=_text(payload.get("prompt"))[:MAX_SUMMARY_CHARS],
+            item_id, "input", event, approval_id=reference,
+            prompt=_text(payload.get("prompt"))[:MAX_SUMMARY_CHARS],
             detail=_text(payload.get("detail"))[:MAX_DETAIL_CHARS],
+            questions=_questions(payload.get("questions")),
+            expires_at=expires_at if isinstance(expires_at, int) and not isinstance(expires_at, bool) else 0,
+            answerable=payload.get("answerable") is True,
+            blocking=payload.get("blocking") is not False,
+            resolution="", answers={}, uncertain=False,
         )
+        return [self._upsert(item)]
+
+    def _input_resolution(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        item = self._items.get("i:" + _identity(payload.get("request_id")))
+        by = payload.get("by")
+        if item is None or by not in _RESOLUTIONS:
+            return []
+        item["resolution"] = by
+        item["answers"] = _answers(payload.get("answers"))
+        item["uncertain"] = payload.get("unknown") is True
         return [self._upsert(item)]
 
     def _turn(self, event: dict[str, Any], payload: dict[str, Any], *, failed: bool) -> list[dict[str, Any]]:
@@ -268,7 +292,11 @@ class Transcript:
         return item
 
     def _account(self, item: dict[str, Any]) -> None:
-        size = 64 + sum(len(value) for value in item.values() if isinstance(value, str))
+        size = 64 + sum(
+            len(value) if isinstance(value, str) else len(json.dumps(value, ensure_ascii=False))
+            for value in item.values()
+            if isinstance(value, (str, list, dict))
+        )
         self._chars += size - self._sizes.get(item["id"], 0)
         self._sizes[item["id"]] = size
 
@@ -302,6 +330,39 @@ def _reference(event: dict[str, Any]) -> str:
 
 def _text(value: object) -> str:
     return value if isinstance(value, str) else ""
+
+
+def _questions(value: object) -> list[dict[str, Any]]:
+    """An input request's questions, bounded; the Bridge has checked their shape."""
+    questions = []
+    for question in value[:MAX_QUESTIONS] if isinstance(value, list) else []:
+        if not isinstance(question, dict) or not _identity(question.get("id")):
+            continue
+        options = [
+            {"label": _text(option.get("label"))[:MAX_SUMMARY_CHARS],
+             "description": _text(option.get("description"))[:MAX_SUMMARY_CHARS]}
+            for option in (question.get("options") if isinstance(question.get("options"), list) else [])[:MAX_OPTIONS]
+            if isinstance(option, dict) and _text(option.get("label")).strip()
+        ]
+        questions.append({
+            "id": _identity(question.get("id")),
+            "header": _text(question.get("header"))[:MAX_SUMMARY_CHARS],
+            "title": _text(question.get("title"))[:MAX_DETAIL_CHARS],
+            "options": options,
+            "other": question.get("other") is True or not options,
+            "secret": question.get("secret") is True,
+        })
+    return questions
+
+
+def _answers(value: object) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        _identity(question_id): [item[:MAX_ANSWER_CHARS] for item in items[:MAX_OPTIONS] if isinstance(item, str)]
+        for question_id, items in list(value.items())[:MAX_QUESTIONS]
+        if _identity(question_id) and isinstance(items, list)
+    }
 
 
 def _one_line(text: str) -> str:

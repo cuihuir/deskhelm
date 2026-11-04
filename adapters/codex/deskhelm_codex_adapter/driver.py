@@ -35,10 +35,21 @@ from deskhelm_protocol import (
     RuntimeIdentity,
     SessionKey,
 )
-from deskhelm_protocol.model import MAX_CATALOG_BYTES, MAX_DETAIL_CHARS, MAX_IDENTITY_CHARS, MAX_OPEN_REQUESTS, MAX_TEXT_CHARS
+from deskhelm_protocol.model import (
+    MAX_ANSWER_CHARS,
+    MAX_CATALOG_BYTES,
+    MAX_DETAIL_CHARS,
+    MAX_IDENTITY_CHARS,
+    MAX_OPEN_REQUESTS,
+    MAX_OPTIONS,
+    MAX_TEXT_CHARS,
+    ProtocolViolation,
+    questions_field,
+)
 
 from .app_server import CodexAppServerAdapter
 from .controls import (
+    AnswerInputPayload,
     ApprovalDecisionPayload,
     ConfigureSessionPayload,
     ControlCommand,
@@ -60,6 +71,8 @@ ISSUER = "deskhelm-host"
 COMMAND_WINDOW_MS = 60_000
 # The adapter's default; it does not report when an input request expires.
 INPUT_WINDOW_MS = 300_000
+# How long an async question, which Codex does not wait on, stays answerable.
+ASYNC_INPUT_WINDOW_MS = 3_600_000
 # The adapter accepts a model choice for 120 seconds after a catalog read.
 CATALOG_FRESH_SECONDS = 110.0
 CATALOG_REFRESH_SECONDS = 60.0
@@ -156,7 +169,7 @@ class CodexSession:
             approvals=approvals,
             # Approvals past the adapter's bound stay answerable in the TUI.
             approval_overflow=ApprovalOverflow.NATIVE_UI,
-            user_input=InputSupport.NATIVE_UI,
+            user_input=InputSupport.ANSWERABLE,
             resume=True,
             configure=frozenset({"model", "effort"}),
             catalog=frozenset({"models", "mcp", "skills"}),
@@ -202,6 +215,8 @@ class CodexSession:
             return self._call(self._adapter.interrupt, ControlKind.INTERRUPT, InterruptPayload(), payload["command_id"])
         if kind is EffectKind.RESPOND:
             return self._respond(payload["command_id"], payload["provider_ref"], payload["decision"] == "approve")
+        if kind is EffectKind.ANSWER:
+            return self._answer(payload["command_id"], payload["provider_ref"], payload["answers"])
         if kind is EffectKind.CONFIGURE:
             return self._configure(payload)
         return EffectOutcome.UNSUPPORTED
@@ -241,7 +256,7 @@ class CodexSession:
             if self._turn is None and self._pending_turn is None:
                 self._pending_turn = command_id
             self._submitting = command_id
-            inputs = [ref for ref, request in self._requests.items() if request.kind is RequestKind.INPUT]
+            inputs = [ref for ref, request in self._requests.items() if request.kind is RequestKind.INPUT and request.blocking]
         outcome = EffectOutcome.UNSUPPORTED
         answered = False
         try:
@@ -278,6 +293,18 @@ class CodexSession:
             (ControlKind.APPROVE, self._adapter.approve) if allow else (ControlKind.REJECT, self._adapter.reject)
         )
         outcome = self._call(handler, kind, payload, command_id, expires_at=request.expires_at)
+        if outcome is EffectOutcome.ACCEPTED:
+            with self._lock:
+                self._requests.pop(provider_ref, None)
+        return outcome
+
+    def _answer(self, command_id: str, provider_ref: str, answers: dict[str, list[str]]) -> EffectOutcome:
+        with self._lock:
+            request = self._requests.get(provider_ref)
+        if request is None or request.kind is not RequestKind.INPUT:
+            return EffectOutcome.UNDELIVERED
+        payload = AnswerInputPayload(provider_ref, {question_id: tuple(items) for question_id, items in answers.items()})
+        outcome = self._call(self._adapter.answer_input, ControlKind.ANSWER_INPUT, payload, command_id)
         if outcome is EffectOutcome.ACCEPTED:
             with self._lock:
                 self._requests.pop(provider_ref, None)
@@ -364,9 +391,9 @@ class CodexSession:
                     payload.request_id, RequestKind.APPROVAL, payload.summary, payload.expires_at, True, payload.detail
                 )
             elif kind is InteractionKind.USER_INPUT_REQUIRED:
-                self._request_locked(
-                    event.correlation_id, RequestKind.INPUT, event.payload.prompt, self._clock() + INPUT_WINDOW_MS, False
-                )
+                self._question_locked(event)
+            elif kind is InteractionKind.USER_INPUT_ANSWERED:
+                self._settle_locked(_ref(event.correlation_id), ResolvedBy.NATIVE, event.payload.answers)
             elif kind is InteractionKind.ATTENTION:
                 self._attention_locked(event.payload.active)
             elif kind is InteractionKind.TASK_COMPLETED:
@@ -411,27 +438,60 @@ class CodexSession:
         self._ensure_turn_locked()
         self._emit(FactKind.TOOL, meta, {"text": _clip(text)})
 
+    def _question_locked(self, event: InteractionEvent) -> None:
+        """A Codex question becomes an input request; one Codex does not wait
+        on outlives its turn and stays answerable for an hour (ADR 0046)."""
+        payload = event.payload
+        try:
+            questions = questions_field([dict(question) for question in payload.questions])
+        except ProtocolViolation:
+            questions = ()
+        window = INPUT_WINDOW_MS if payload.blocking else ASYNC_INPUT_WINDOW_MS
+        self._request_locked(
+            event.correlation_id,
+            RequestKind.INPUT,
+            payload.prompt,
+            self._clock() + window,
+            bool(questions) and not any(question["secret"] for question in questions),
+            "\n".join(question["title"] for question in questions),
+            questions=questions,
+            blocking=payload.blocking,
+        )
+
     def _request_locked(
-        self, ref: str, kind: RequestKind, summary: str, expires_at: int, answerable: bool, detail: str = ""
+        self,
+        ref: str,
+        kind: RequestKind,
+        summary: str,
+        expires_at: int,
+        answerable: bool,
+        detail: str = "",
+        *,
+        questions: tuple[dict[str, Any], ...] = (),
+        blocking: bool = True,
     ) -> None:
         ref = _ref(ref)
         if ref in self._requests or len(self._requests) >= MAX_OPEN_REQUESTS:
             return
-        self._ensure_turn_locked()
+        # A question Codex asks without waiting opens no turn of its own.
+        if blocking:
+            self._ensure_turn_locked()
         detail = _clip(detail, MAX_DETAIL_CHARS)
-        request = OpenRequest(ref, kind, summary, expires_at, answerable, detail)
+        request = OpenRequest(ref, kind, summary, expires_at, answerable, detail, blocking, questions)
         self._requests[ref] = request
-        self._emit(
-            FactKind.REQUEST_OPENED,
-            {
-                "provider_ref": ref,
-                "kind": kind.value,
-                "summary": summary,
-                "expires_at": expires_at,
-                "answerable": answerable,
-            },
-            {"detail": detail} if detail else None,
-        )
+        meta: dict[str, Any] = {
+            "provider_ref": ref,
+            "kind": kind.value,
+            "summary": summary,
+            "expires_at": expires_at,
+            "answerable": answerable,
+        }
+        if not blocking:
+            meta["blocking"] = False
+        content: dict[str, Any] = {"detail": detail} if detail else {}
+        if questions:
+            content["questions"] = list(questions)
+        self._emit(FactKind.REQUEST_OPENED, meta, content or None)
 
     def _attention_locked(self, active: bool) -> None:
         if active:
@@ -485,14 +545,24 @@ class CodexSession:
         if self._turn is not None:
             meta = {**meta, "turn_ref": self._turn.ref}
         self._emit(FactKind.TURN_TERMINAL, meta, {"message": message[:512]} if message else {})
-        # The Bridge drops the turn's open requests and attention with it.
+        # The Bridge drops the turn's open requests and attention with it; a
+        # question Codex does not wait on stays open.
         self._turn, self._attention = None, False
-        self._requests.clear()
+        self._requests = {ref: request for ref, request in self._requests.items() if not request.blocking}
         return self._refresh_enabled and time.monotonic() - self._catalog_at >= CATALOG_REFRESH_SECONDS
 
-    def _settle_locked(self, ref: str, by: ResolvedBy) -> None:
+    def _settle_locked(self, ref: str, by: ResolvedBy, answers: dict[str, tuple[str, ...]] | None = None) -> None:
         if self._requests.pop(ref, None) is not None:
-            self._emit(FactKind.REQUEST_RESOLVED, {"provider_ref": ref, "by": by.value})
+            # How the TUI answered is content, bounded as the protocol requires.
+            bounded = {
+                question_id: [_clip(item, MAX_ANSWER_CHARS) for item in items[:MAX_OPTIONS] if item.strip()]
+                for question_id, items in (answers or {}).items()
+                if question_id and len(question_id) <= MAX_IDENTITY_CHARS
+            }
+            bounded = {question_id: items for question_id, items in bounded.items() if items}
+            self._emit(
+                FactKind.REQUEST_RESOLVED, {"provider_ref": ref, "by": by.value}, {"answers": bounded} if bounded else None
+            )
 
     # Background work ---------------------------------------------------
 
@@ -500,7 +570,7 @@ class CodexSession:
         while not self._closed.wait(WATCH_SECONDS):
             attached = bool(self._adapter.attached_thread_id())
             with self._lock:
-                inputs = [ref for ref, request in self._requests.items() if request.kind is RequestKind.INPUT]
+                inputs = [ref for ref, request in self._requests.items() if request.kind is RequestKind.INPUT and request.blocking]
             # Codex answered in the TUI, or the question expired.
             unanswered = self._adapter.pending_user_input_count() if inputs else 0
             became_ready = False

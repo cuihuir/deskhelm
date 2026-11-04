@@ -991,7 +991,10 @@ class CodexAppServerAdapterTests(unittest.TestCase):
         self.assertIs(input_event.kind, InteractionKind.USER_INPUT_REQUIRED)
         self.assertIsInstance(input_event.payload, UserInputPayload)
         self.assertEqual(input_event.payload.prompt, "Codex requested user input")
-        self.assertNotIn("Private", input_event.to_json())
+        # The question travels as content for the operator; the prompt stays fixed.
+        self.assertEqual([(question["id"], question["header"], question["title"])
+                          for question in input_event.payload.questions],
+                         [("choice", "Private header", "Private question")])
 
         command = self._prompt("use option one", "input-answer")
         result = self.router.route(command, now_ms=command.issued_at)

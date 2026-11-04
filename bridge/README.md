@@ -90,12 +90,13 @@ approvals, and a mark for activity you have not looked at; the tab title
 counts the approvals waiting anywhere. A reply renders Markdown; a tool row
 shows its command or path, opens to its output, and says whether it
 completed, failed, or was declined; an approval waits inline with the
-command or paths it would allow and a countdown, then says how it ended; the
-stop button interrupts a working turn; and a details panel shows the
-runtime, capabilities, model, MCP servers, and skills. Enter sends and
-Shift+Enter adds a line. The server
-builds each transcript with `deskhelm_client.transcript` and sends a
-snapshot, then revisioned patches (ADR 0044); the page is plain ES modules in
+command or paths it would allow and a countdown, then says how it ended; a
+question from the agent shows its options and takes an answer, or says how
+it was answered in the agent; the stop button interrupts a working turn; and
+a details panel shows the runtime, capabilities, model, MCP servers, and
+skills. Enter sends and Shift+Enter adds a line. The server builds each
+transcript with `deskhelm_client.transcript` and sends a snapshot, then
+revisioned patches (ADR 0044); the page is plain ES modules in
 `deskhelm_web/assets/js/` with no build step. `tools/check-web-page.py`
 checks it in Chrome.
 

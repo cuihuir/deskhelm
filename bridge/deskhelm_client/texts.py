@@ -56,6 +56,8 @@ FAILURE_TEXT = {
 RESOLUTION_TEXT = {
     "approve": "已批准",
     "reject": "已拒绝",
+    "answered": "已回答",
+    "answered_native": "已在 Agent 里回答",
     "native": "已在 Agent 里处理",
     "cancelled": "已取消",
     "expired": "已过期",
@@ -115,11 +117,15 @@ def tool_status_text(item: dict[str, Any]) -> str:
 
 
 def resolution_text(item: dict[str, Any]) -> str:
-    """How a transcript approval item ended, or "" while that is unknown."""
-    if item.get("resolution") == "deskhelm":
-        text = RESOLUTION_TEXT["reject" if item.get("decision") == "reject" else "approve"]
+    """How a transcript approval or question item ended, or "" while that is unknown."""
+    resolution = str(item.get("resolution") or "")
+    question = item.get("type") == "input"
+    if resolution == "deskhelm":
+        text = RESOLUTION_TEXT["answered" if question else "reject" if item.get("decision") == "reject" else "approve"]
         return f"{text}，{RESOLUTION_TEXT['uncertain']}" if item.get("uncertain") else text
-    return RESOLUTION_TEXT.get(str(item.get("resolution") or ""), "")
+    if question and resolution == "native":
+        return RESOLUTION_TEXT["answered_native"]
+    return RESOLUTION_TEXT.get(resolution, "")
 
 
 def agent_label(agent_id: str, runtime_name: str = "") -> str:

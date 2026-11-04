@@ -71,7 +71,11 @@ def item_line(item: dict[str, Any], speaker: str) -> str:
         detail = " ".join(item.get("detail", "").split())
         return f"批准请求：{item['summary']}" + (f"：{detail}" if detail else "") + (f" · {ended}" if ended else "")
     if kind == "input":
-        return f"提问：{item['prompt']}"
+        asked = " / ".join(" ".join(question["title"].split()) for question in item.get("questions") or [])
+        ended = resolution_text(item)
+        answers = "；".join(" ".join(answer.split()) for items in (item.get("answers") or {}).values() for answer in items)
+        return (f"提问：{asked or item['prompt']}" + (f" · {ended}" if ended else "")
+                + (f"：{answers}" if ended and answers else ""))
     return outcome_text({"status": item["status"], "failure": item["code"] or None})
 
 

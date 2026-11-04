@@ -1,0 +1,26 @@
+{"type":"header","format":"deskhelm-replay-v1","runtime":"codex","scenario":"async_question","source_type":"synthetic","notes":"Synthetic. Codex CLI 0.166.0 sent an agentMessage with `questions` for request_user_input_async and the TUI answered with this <send_user_message_question_reply> message in a live check on 2026-11-04; these frames copy that shape, not its values. One question is answered through DeskHelm, whose echo is dropped, and one in the TUI."}
+{"type":"outbound","frame":{"method":"initialize","id":"$init","params":{"clientInfo":{"name":"deskhelm"},"capabilities":{"experimentalApi":true}}}}
+{"type":"inbound","frame":{"id":"$init","result":{}}}
+{"type":"outbound","frame":{"method":"initialized"}}
+{"type":"outbound","frame":{"method":"thread/loaded/list","id":"$list"}}
+{"type":"inbound","frame":{"id":"$list","result":{"data":["thread-1"],"nextCursor":null}}}
+{"type":"control","kind":"submit_prompt","text":"Ask me which board to use"}
+{"type":"outbound","frame":{"method":"turn/start","id":"$turn1","params":{"threadId":"thread-1","input":[{"type":"text","text":"Ask me which board to use"}]}}}
+{"type":"inbound","frame":{"id":"$turn1","result":{"turn":{"id":"turn-1","items":[],"status":"inProgress"}}}}
+{"type":"inbound","frame":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1","items":[],"status":"inProgress"}}}}
+{"type":"inbound","frame":{"method":"item/completed","params":{"threadId":"thread-1","item":{"type":"agentMessage","id":"call_q1","phase":"final_answer","text":"Which board?\n- A\n- B","questions":[{"title":"Which board?","options":["A","B"]}]}}}}
+{"type":"events","kinds":["message","user_input_required"]}
+{"type":"inbound","frame":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","items":[],"status":"completed"}}}}
+{"type":"events","kinds":["task_completed"]}
+{"type":"control","kind":"answer","answers":{"0":["B"]}}
+{"type":"outbound","frame":{"method":"turn/start","id":"$turn2","params":{"threadId":"thread-1","input":[{"type":"text","text":"<send_user_message_question_reply>\n[{\"answer\":\"B\",\"question\":\"Which board?\",\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"call_q1\\\",0]\"}]\n</send_user_message_question_reply>"}]}}}
+{"type":"events","kinds":["input_resolved"]}
+{"type":"inbound","frame":{"id":"$turn2","result":{"turn":{"id":"turn-2","items":[],"status":"inProgress"}}}}
+{"type":"inbound","frame":{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-2","items":[],"status":"inProgress"}}}}
+{"type":"inbound","frame":{"method":"item/completed","params":{"threadId":"thread-1","item":{"type":"userMessage","id":"reply-1","content":[{"type":"text","text":"<send_user_message_question_reply>\n[{\"answer\":\"B\",\"question\":\"Which board?\",\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"call_q1\\\",0]\"}]\n</send_user_message_question_reply>"}]}}}}
+{"type":"inbound","frame":{"method":"item/completed","params":{"threadId":"thread-1","item":{"type":"agentMessage","id":"msg-b","phase":"final_answer","text":"B"}}}}
+{"type":"inbound","frame":{"method":"item/completed","params":{"threadId":"thread-1","item":{"type":"agentMessage","id":"call_q2","phase":"final_answer","text":"Which port?\n- 8080\n- 9090","questions":[{"title":"Which port?","options":["8080","9090"]}]}}}}
+{"type":"inbound","frame":{"method":"item/completed","params":{"threadId":"thread-1","item":{"type":"userMessage","id":"reply-2","content":[{"type":"text","text":"<send_user_message_question_reply>\n[{\"answer\":\"9090\",\"question\":\"Which port?\",\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"call_q2\\\",0]\"}]\n</send_user_message_question_reply>"}]}}}}
+{"type":"inbound","frame":{"method":"item/completed","params":{"threadId":"thread-1","item":{"type":"agentMessage","id":"msg-port","phase":"final_answer","text":"9090"}}}}
+{"type":"inbound","frame":{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-2","items":[],"status":"completed"}}}}
+{"type":"events","kinds":["message","user_input_required","input_resolved","message","task_completed"]}

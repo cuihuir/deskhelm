@@ -191,6 +191,23 @@ class TranscriptTests(unittest.TestCase):
 
         self.assertEqual(transcript.items()[0]["detail"], "git push --force")
 
+    def test_a_question_keeps_its_questions_and_how_it_was_answered(self) -> None:
+        transcript = Transcript()
+        question = {"id": "0", "header": "", "title": "Which board?", "options": [{"label": "A", "description": ""}],
+                    "other": True, "secret": False}
+        transcript.apply(_event("user_input_required", {
+            "request_id": "a-5", "prompt": "Codex requested user input", "detail": "Which board?",
+            "questions": [question], "expires_at": 9000, "answerable": True, "blocking": False}, correlation="a-5"))
+        asked = transcript.items()[0]
+        answered = transcript.apply(_event("input_resolved", {"request_id": "a-5", "by": "native",
+                                                              "answers": {"0": ["A"]}}, correlation="a-5"))
+        item = transcript.items()[0]
+
+        self.assertEqual((asked["id"], asked["approval_id"], asked["questions"], asked["blocking"], asked["answerable"]),
+                         ("i:a-5", "a-5", [question], False, True))
+        self.assertEqual(answered[0]["op"], "upsert")
+        self.assertEqual((item["resolution"], item["answers"], item["uncertain"]), ("native", {"0": ["A"]}, False))
+
     def test_an_approval_records_how_it_ended(self) -> None:
         transcript = Transcript()
         transcript.apply(_event("approval_request", {"request_id": "a-1", "summary": "Run", "expires_at": 9}, correlation="a-1"))

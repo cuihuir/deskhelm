@@ -4,6 +4,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
 import hashlib
+import json
 import os
 from pathlib import Path
 from queue import Empty, Full, Queue
@@ -14,6 +15,7 @@ import time
 from typing import Any
 
 from .controls import (
+    AnswerInputPayload,
     ApprovalDecisionPayload,
     ConfigureSessionPayload,
     ControlCommand,
@@ -38,6 +40,7 @@ from .events import (
     ToolPhase,
     ToolStatus,
     ToolStream,
+    UserInputAnswerPayload,
     UserInputPayload,
 )
 
@@ -71,6 +74,12 @@ _COMMAND_APPROVAL_METHOD = "item/commandExecution/requestApproval"
 _FILE_APPROVAL_METHOD = "item/fileChange/requestApproval"
 _PERMISSIONS_APPROVAL_METHOD = "item/permissions/requestApproval"
 _USER_INPUT_METHOD = "item/tool/requestUserInput"
+# Codex 0.166.0 asks without waiting through this tool: its agentMessage
+# carries `questions`, and the TUI sends the answers back as a user message
+# in these tags, naming each question as [tool, call id, index].
+_ASYNC_QUESTION_TOOL = "request_user_input_async"
+_QUESTION_REPLY_OPEN = "<send_user_message_question_reply>"
+_QUESTION_REPLY_CLOSE = "</send_user_message_question_reply>"
 
 _COMMAND_APPROVAL_SUMMARY = "Codex command execution approval"
 _FILE_APPROVAL_SUMMARY = "Codex file change approval"
@@ -84,6 +93,13 @@ _MAX_SUBMITTED_PROMPTS = 8
 MAX_COMMAND_CHARS = 2_000
 MAX_APPROVAL_DETAIL_CHARS = 8 * 1024
 MAX_ITEM_TITLES = 64
+ASYNC_QUESTION_TIMEOUT_MS = 60 * 60 * 1000
+MAX_PENDING_QUESTIONS = 8
+MAX_QUESTIONS = 8
+MAX_QUESTION_OPTIONS = 16
+MAX_QUESTION_CHARS = 1024
+MAX_QUESTION_HEADER_CHARS = 128
+MAX_OPTION_CHARS = 512
 MAX_FILE_CHANGES = 12
 _ITEM_TEXT_MARKER = "\n…[truncated]"
 
@@ -134,6 +150,15 @@ class _PendingUserInput:
     rpc_key: tuple[str, str]
     question_ids: tuple[str, ...]
     contains_secret: bool
+    expires_at: int
+
+
+@dataclass(frozen=True, slots=True)
+class _AsyncQuestion:
+    """A question Codex asked without waiting, with its titles by question id."""
+
+    call_id: str
+    titles: dict[str, str]
     expires_at: int
 
 
@@ -245,6 +270,18 @@ class CodexAppServerAdapter:
         init=False,
         repr=False,
     )
+    # Async questions by DeskHelm request id, and the call ids DeskHelm
+    # answered, whose echoed reply is no answer from the TUI.
+    _pending_questions: dict[str, _AsyncQuestion] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _answered_questions: dict[str, None] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
     _pending_user_inputs: dict[tuple[str, str], _PendingUserInput] = field(
         default_factory=dict,
         init=False,
@@ -336,6 +373,12 @@ class CodexAppServerAdapter:
                     control_router.register_handler(
                         ControlKind.REJECT,
                         self.reject,
+                    )
+                )
+                unregister.append(
+                    control_router.register_handler(
+                        ControlKind.ANSWER_INPUT,
+                        self.answer_input,
                     )
                 )
                 unregister.append(
@@ -447,44 +490,98 @@ class CodexAppServerAdapter:
                 ):
                     self._active_correlation_id = command.command_id
                 submitted = True
-            elif self._turn_submission_pending:
-                raise RuntimeError("a Codex turn submission is already pending")
-            elif self._active_turn_id:
-                self._queue_request_locked(
-                    "turn/steer",
-                    {
-                        "threadId": thread_id,
-                        "input": [{"type": "text", "text": payload.text}],
-                        "expectedTurnId": self._active_turn_id,
-                    },
-                    _TURN_STEER,
-                    command_id=command.command_id,
-                    thread_id=thread_id,
-                    prompt=payload.text,
-                )
-                if self._active_correlation_id == self._active_turn_id:
-                    self._active_correlation_id = command.command_id
-                submitted = True
             else:
-                turn_params: dict[str, Any] = {
-                    "threadId": thread_id,
-                    "input": [{"type": "text", "text": payload.text}],
-                }
-                if self._model_override:
-                    turn_params["model"] = self._model_override
-                if self._effort_override:
-                    turn_params["effort"] = self._effort_override
-                self._queue_request_locked(
-                    "turn/start",
-                    turn_params,
-                    _TURN_START,
-                    command_id=command.command_id,
-                    thread_id=thread_id,
-                )
-                self._turn_submission_pending = command.command_id
+                self._send_user_text_locked(thread_id, payload.text, command.command_id)
                 submitted = True
         if submitted:
             self._publish_submitted_prompt(command.command_id, payload.text)
+
+    def _send_user_text_locked(self, thread_id: str, text: str, command_id: str) -> None:
+        """Steer the active turn with a user message, or start a turn with it."""
+        if self._turn_submission_pending:
+            raise RuntimeError("a Codex turn submission is already pending")
+        if self._active_turn_id:
+            self._queue_request_locked(
+                "turn/steer",
+                {
+                    "threadId": thread_id,
+                    "input": [{"type": "text", "text": text}],
+                    "expectedTurnId": self._active_turn_id,
+                },
+                _TURN_STEER,
+                command_id=command_id,
+                thread_id=thread_id,
+                prompt=text,
+            )
+            if self._active_correlation_id == self._active_turn_id:
+                self._active_correlation_id = command_id
+            return
+        turn_params: dict[str, Any] = {
+            "threadId": thread_id,
+            "input": [{"type": "text", "text": text}],
+        }
+        if self._model_override:
+            turn_params["model"] = self._model_override
+        if self._effort_override:
+            turn_params["effort"] = self._effort_override
+        self._queue_request_locked(
+            "turn/start",
+            turn_params,
+            _TURN_START,
+            command_id=command_id,
+            thread_id=thread_id,
+        )
+        self._turn_submission_pending = command_id
+
+    def answer_input(self, command: ControlCommand) -> None:
+        """Answer a Codex question: a requestUserInput request on its own
+        JSON-RPC channel, or an async question with the reply message the TUI
+        would send (ADR 0046)."""
+        self._validate_target(command)
+        payload = command.payload
+        if not isinstance(payload, AnswerInputPayload):
+            raise ValueError("answer_input command has an invalid payload")
+        now_ms = int(time.time() * 1000)
+        with self._lock:
+            thread_id = self._require_attached_thread_locked()
+            self._purge_user_inputs_locked(now_ms)
+            self._purge_questions_locked(now_ms)
+            question = self._pending_questions.get(payload.request_id)
+            if question is not None:
+                if not set(payload.answers) <= set(question.titles):
+                    raise ValueError("the answers name an unknown question")
+                self._send_user_text_locked(thread_id, _question_reply(question, payload.answers), command.command_id)
+                del self._pending_questions[payload.request_id]
+                self._answered_questions[question.call_id] = None
+                while len(self._answered_questions) > MAX_PENDING_QUESTIONS:
+                    self._answered_questions.pop(next(iter(self._answered_questions)))
+                return
+            pending = next(
+                (
+                    item
+                    for item in self._pending_user_inputs.values()
+                    if _deskhelm_request_id(self.session, item.rpc_key) == payload.request_id
+                ),
+                None,
+            )
+            if pending is None:
+                raise RuntimeError("the Codex question is no longer open")
+            if pending.contains_secret:
+                raise ValueError("a secret question is answered in the Codex TUI")
+            if not set(payload.answers) <= set(pending.question_ids):
+                raise ValueError("the answers name an unknown question")
+            self._queue_message_locked(
+                {
+                    "id": pending.rpc_id,
+                    "result": {
+                        "answers": {
+                            question_id: {"answers": list(items)}
+                            for question_id, items in payload.answers.items()
+                        }
+                    },
+                }
+            )
+            del self._pending_user_inputs[pending.rpc_key]
 
     def interrupt(self, command: ControlCommand) -> None:
         self._validate_target(command)
@@ -1424,16 +1521,17 @@ class CodexAppServerAdapter:
                 self._queue_error_response_locked(rpc_id)
             return
         question_ids: list[str] = []
+        shaped: list[dict[str, Any]] = []
         contains_secret = False
         for question_value in questions:
             question = _mapping(question_value, "user input question")
-            question_ids.append(
-                _bounded_string(question.get("id"), "question.id")
-            )
+            question_id = _bounded_string(question.get("id"), "question.id")
+            question_ids.append(question_id)
             is_secret = question.get("isSecret", False)
             if not isinstance(is_secret, bool):
                 raise ValueError("question.isSecret must be a boolean")
             contains_secret = contains_secret or is_secret
+            shaped.append(_input_question(question, question_id, is_secret))
         now_ms = int(time.time() * 1000)
         auto_resolution = params.get("autoResolutionMs")
         timeout_ms = self.user_input_timeout_ms
@@ -1464,9 +1562,111 @@ class CodexAppServerAdapter:
                 sequence=self._next_sequence(),
                 occurred_at=now_ms,
                 correlation_id=request_id,
-                payload=UserInputPayload(prompt=_USER_INPUT_PROMPT),
+                payload=UserInputPayload(prompt=_USER_INPUT_PROMPT, questions=tuple(shaped)),
             )
         )
+
+    def _open_async_question(self, item: dict[str, Any]) -> bool:
+        """Track a question Codex asked without waiting; False if it cannot be."""
+        call_id = item.get("id")
+        raw = item.get("questions")
+        if not isinstance(call_id, str) or not call_id.strip() or len(call_id) > MAX_IDENTIFIER_CHARS:
+            return False
+        questions: list[dict[str, Any]] = []
+        # A question's id is its index in the call, which the reply names.
+        for index, value in enumerate(raw if isinstance(raw, list) else []):
+            title = _clip_line(value.get("title"), MAX_QUESTION_CHARS) if isinstance(value, dict) else ""
+            if not title or len(questions) >= MAX_QUESTIONS:
+                continue
+            labels = (_clip_line(option, MAX_OPTION_CHARS) for option in value.get("options") or [])
+            options = [{"label": label, "description": ""} for label in labels if label][:MAX_QUESTION_OPTIONS]
+            # Codex takes a free-text answer as well as a suggested one.
+            questions.append({"id": str(index), "header": "", "title": title, "options": options,
+                              "other": True, "secret": False})
+        if not questions:
+            return False
+        now_ms = int(time.time() * 1000)
+        request_id = _deskhelm_request_id(self.session, ("async", call_id))
+        with self._lock:
+            self._purge_questions_locked(now_ms)
+            if request_id in self._pending_questions:
+                return True
+            if len(self._pending_questions) >= MAX_PENDING_QUESTIONS:
+                return False
+            self._pending_questions[request_id] = _AsyncQuestion(
+                call_id=call_id,
+                titles={question["id"]: question["title"] for question in questions},
+                expires_at=now_ms + ASYNC_QUESTION_TIMEOUT_MS,
+            )
+        self._publish_event(
+            InteractionEvent(
+                kind=InteractionKind.USER_INPUT_REQUIRED,
+                agent_id=self.session.agent_id,
+                session_id=self.session.session_id,
+                project_id=self.session.project_id,
+                source=self.source,
+                source_version=self.source_version,
+                sequence=self._next_sequence(),
+                occurred_at=now_ms,
+                correlation_id=request_id,
+                payload=UserInputPayload(prompt=_USER_INPUT_PROMPT, questions=tuple(questions), blocking=False),
+            )
+        )
+        return True
+
+    def _question_replied(self, item_id: str, replies: list[tuple[str, int, str]]) -> None:
+        """A user message that answers async questions. An answer from the TUI
+        resolves its question, the echo of a DeskHelm answer is dropped, and an
+        answer to a question DeskHelm never saw is shown as what the user said."""
+        by_call: dict[str, dict[str, list[str]]] = {}
+        for call_id, index, answer in replies:
+            by_call.setdefault(call_id, {}).setdefault(str(index), []).append(answer)
+        answered: list[tuple[str, dict[str, list[str]]]] = []
+        unknown: list[str] = []
+        with self._lock:
+            for call_id, answers in by_call.items():
+                if call_id in self._answered_questions:
+                    del self._answered_questions[call_id]
+                    continue
+                request_id = _deskhelm_request_id(self.session, ("async", call_id))
+                if self._pending_questions.pop(request_id, None) is not None:
+                    answered.append((request_id, answers))
+                else:
+                    unknown.extend(answer for items in answers.values() for answer in items)
+        for request_id, answers in answered:
+            self._publish_event(
+                InteractionEvent(
+                    kind=InteractionKind.USER_INPUT_ANSWERED,
+                    agent_id=self.session.agent_id,
+                    session_id=self.session.session_id,
+                    project_id=self.session.project_id,
+                    source=self.source,
+                    source_version=self.source_version,
+                    sequence=self._next_sequence(),
+                    correlation_id=request_id,
+                    payload=UserInputAnswerPayload(
+                        answers={question_id: tuple(items) for question_id, items in answers.items()}
+                    ),
+                )
+            )
+        if unknown:
+            self._publish_event(
+                InteractionEvent(
+                    kind=InteractionKind.MESSAGE,
+                    agent_id=self.session.agent_id,
+                    session_id=self.session.session_id,
+                    project_id=self.session.project_id,
+                    source=self.source,
+                    source_version=self.source_version,
+                    sequence=self._next_sequence(),
+                    correlation_id=item_id,
+                    payload=MessagePayload(
+                        role=MessageRole.USER,
+                        phase=MessagePhase.COMPLETE,
+                        text=_clip_text("\n".join(unknown), MAX_ITEM_TEXT_CHARS),
+                    ),
+                )
+            )
 
     def _handle_server_request_resolved(self, params: dict[str, Any]) -> None:
         thread_id = _bounded_string(params.get("threadId"), "threadId")
@@ -1669,6 +1869,12 @@ class CodexAppServerAdapter:
         if target != self.session:
             raise RuntimeError("control target does not match Codex app-server session")
 
+    def _purge_questions_locked(self, now_ms: int) -> None:
+        for request_id in [
+            request_id for request_id, question in self._pending_questions.items() if question.expires_at <= now_ms
+        ]:
+            del self._pending_questions[request_id]
+
     def _purge_user_inputs_locked(self, now_ms: int) -> None:
         expired = tuple(
             rpc_key
@@ -1711,11 +1917,20 @@ class CodexAppServerAdapter:
         item = params_value.get("item")
         if not isinstance(item, dict):
             return
+        if item.get("type") == "agentMessage" and item.get("questions"):
+            # A question card replaces the message that lists the question.
+            if method != "item/completed" or self._open_async_question(item):
+                return
         try:
             drafts = _thread_item_drafts(method, item)
         except (TypeError, ValueError):
             return
         for kind, correlation_id, payload in drafts:
+            if isinstance(payload, MessagePayload) and payload.role is MessageRole.USER:
+                replies = _question_replies(payload.text)
+                if replies is not None:
+                    self._question_replied(correlation_id, replies)
+                    continue
             if isinstance(payload, ToolPayload) and payload.phase is ToolPhase.START:
                 with self._lock:
                     self._item_titles[payload.tool_call_id] = payload.name
@@ -2293,6 +2508,74 @@ def _shell_script(command: str | list[Any]) -> str:
     if len(parts) == 3 and parts[1] in ("-lc", "-c") and os.path.basename(parts[0]) in _SHELLS and parts[2].strip():
         return parts[2]
     return command if isinstance(command, str) else " ".join(parts)
+
+
+def _clip_line(value: object, limit: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    return value if len(value) <= limit else value[: limit - 1] + "…"
+
+
+def _input_question(question: dict[str, Any], question_id: str, secret: bool) -> dict[str, Any]:
+    """A requestUserInput question in DeskHelm's shape (ADR 0046)."""
+    raw_options = question.get("options")
+    options = []
+    for option in raw_options if isinstance(raw_options, list) else []:
+        label = _clip_line(option.get("label"), MAX_OPTION_CHARS) if isinstance(option, dict) else ""
+        if label and len(options) < MAX_QUESTION_OPTIONS:
+            options.append({"label": label, "description": _clip_line(option.get("description"), MAX_OPTION_CHARS)})
+    title = _clip_line(question.get("question"), MAX_QUESTION_CHARS)
+    header = _clip_line(question.get("header"), MAX_QUESTION_HEADER_CHARS)
+    return {
+        "id": question_id,
+        "header": header if title else "",
+        "title": title or header or "Codex question",
+        "options": options,
+        "other": question.get("isOther") is True or not options,
+        "secret": secret,
+    }
+
+
+def _question_reply(question: _AsyncQuestion, answers: dict[str, tuple[str, ...]]) -> str:
+    """The user message the Codex TUI sends to answer an async question."""
+    replies = [
+        {
+            "answer": answer,
+            "question": question.titles[question_id],
+            "questionItemId": json.dumps([_ASYNC_QUESTION_TOOL, question.call_id, int(question_id)], separators=(",", ":")),
+        }
+        for question_id in sorted(answers, key=int)
+        for answer in answers[question_id]
+    ]
+    body = json.dumps(replies, ensure_ascii=False, separators=(",", ":"))
+    return f"{_QUESTION_REPLY_OPEN}\n{body}\n{_QUESTION_REPLY_CLOSE}"
+
+
+def _question_replies(text: str) -> list[tuple[str, int, str]] | None:
+    """The (call id, question index, answer) of each reply in a TUI answer
+    message, or None when the text is not one."""
+    body = text.strip()
+    if not (body.startswith(_QUESTION_REPLY_OPEN) and body.endswith(_QUESTION_REPLY_CLOSE)):
+        return None
+    try:
+        values = json.loads(body[len(_QUESTION_REPLY_OPEN):-len(_QUESTION_REPLY_CLOSE)])
+    except ValueError:
+        return None
+    if not isinstance(values, list) or not values:
+        return None
+    replies = []
+    for value in values:
+        if not isinstance(value, dict) or not isinstance(value.get("answer"), str):
+            return None
+        try:
+            tool, call_id, index = json.loads(value.get("questionItemId"))
+        except (TypeError, ValueError):
+            return None
+        if tool != _ASYNC_QUESTION_TOOL or not isinstance(call_id, str) or type(index) is not int:
+            return None
+        replies.append((call_id, index, value["answer"]))
+    return replies
 
 
 def _approval_detail(method: str, params: dict[str, Any], title: str) -> str:

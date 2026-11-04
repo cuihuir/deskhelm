@@ -336,6 +336,41 @@ pre.output.stderr { color: var(--danger); }
 .notice-card.is-warn .notice-head { color: var(--warn); }
 .notice-head { color: var(--accent); }
 .notice-card p { margin: 6px 0 0; }
+
+/* Questions an agent asks */
+.question-card { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.question-card.is-live { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); }
+.question-card .notice-head { color: var(--accent); }
+.question-card:not(.is-live) .notice-head { color: var(--text-3); }
+.question-card > .question-title, .question-card > .approval-detail { margin-top: 8px; }
+.question { min-width: 0; margin: 10px 0 0; padding: 0; border: 0; }
+.question + .question { margin-top: 16px; }
+.question-title { margin: 0; padding: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.question-header {
+  display: inline-block; margin-right: 8px; padding: 1px 8px; border-radius: 999px;
+  background: var(--panel-2); color: var(--text-2); font-size: 12px; vertical-align: 1px;
+}
+.answer-option {
+  display: flex; align-items: flex-start; gap: 10px; margin-top: 6px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer;
+}
+.answer-option:hover { border-color: var(--line-2); }
+.answer-option:has(input:checked) { border-color: var(--accent); }
+.answer-option input[type="radio"] { flex: none; margin: 3px 0 0; accent-color: var(--accent-2); }
+.answer-option-text { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.answer-option-description { color: var(--text-3); font-size: 12.5px; }
+.answer-option.is-other { align-items: center; cursor: default; }
+.answer-input {
+  flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); outline: none;
+}
+.answer-input:focus { border-color: var(--accent); }
+.question > .answer-input { display: block; width: 100%; margin-top: 8px; }
+.question-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+.question-answer { margin: 6px 0 0; color: var(--text-2); }
+.question-answer strong { color: var(--text); font-weight: 600; }
+.answer-list { margin: 6px 0 0; padding-left: 20px; color: var(--text-2); }
+.question-card > .approval-state, .question-card > .hint { margin-top: 10px; }
 .turn { display: flex; align-items: center; gap: 10px; color: var(--text-3); font-size: 12px; }
 .turn::before, .turn::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .turn.tone-danger { color: var(--danger); }

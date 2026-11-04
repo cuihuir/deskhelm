@@ -33,7 +33,7 @@ from deskhelm_client.texts import (
 )
 from deskhelm_client.transcript import Transcript
 from deskhelm_protocol import SessionKey
-from deskhelm_protocol.model import MAX_IDENTITY_CHARS, MAX_LABEL_CHARS, MAX_TEXT_CHARS
+from deskhelm_protocol.model import MAX_IDENTITY_CHARS, MAX_LABEL_CHARS, MAX_TEXT_CHARS, answers_field
 
 from .http import WebHttp
 
@@ -315,6 +315,10 @@ def _control(value: object) -> tuple[str, SessionKey, dict[str, Any], str | None
         return kind, key, {"text": text}, command_id
     if kind in ("approve", "reject"):
         return kind, key, {"approval_id": _identity(value.get("approval_id"))}, command_id
+    if kind == "answer":
+        # Answers by question id; the protocol's own check bounds them.
+        answers = answers_field(value.get("answers"))
+        return kind, key, {"approval_id": _identity(value.get("approval_id")), "answers": answers}, command_id
     if kind == "configure_session":
         payload: dict[str, Any] = {}
         for name in ("model", "effort"):

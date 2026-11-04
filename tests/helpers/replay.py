@@ -343,6 +343,12 @@ class _DriverReplay(_ReplayRun):
             if len(approvals) != 1:
                 raise ReplayMismatch(f"{where}: expected one pending approval, found {len(approvals)}")
             payload = {"approval_id": approvals[0]["approval_id"]}
+        elif kind == "answer":
+            with self._lock:
+                questions = [ticket for ticket in self.core.session(self.key)["approvals"] if ticket["kind"] == "input"]
+            if len(questions) != 1:
+                raise ReplayMismatch(f"{where}: expected one open question, found {len(questions)}")
+            payload = {"approval_id": questions[0]["approval_id"], "answers": step["answers"]}
         command_id = f"replay-{index}"
         deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
         while True:

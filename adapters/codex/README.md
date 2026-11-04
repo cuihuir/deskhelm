@@ -69,12 +69,30 @@ record; a DeskHelm answer suppresses the later TUI response for that request.
 Proxy disconnect, expiry, or capacity fails closed without inferring a
 decision, and excess approvals stay answerable from the keyboard. A permission
 approval grants only the requested subset for the current turn and is never
-persisted. Approval facts carry fixed summaries, not command text, file
-changes, or reasons.
+persisted. Approval summaries are fixed; the command, the paths of the item
+an approval names, or Codex's reason travel as operator-only detail
+(ADR 0045).
 
 The `waitingOnApproval` thread status alone is notification-only attention
-with no request id; the proxy supplies the real request. Secret input and
-multi-question input stay in the TUI.
+with no request id; the proxy supplies the real request.
+
+## Questions
+
+Codex asks in two ways, and the page answers both (ADR 0046). An
+`item/tool/requestUserInput` request waits for its answer, which DeskHelm
+sends on its JSON-RPC channel by question id. A request with a secret
+question stays in the TUI, and while one question is open, a prompt answers
+it.
+
+The `request_user_input_async` tool does not wait. Its `agentMessage` carries
+`questions`, and DeskHelm shows them as a card in place of that message,
+answerable for an hour, also after its turn. A DeskHelm answer is the user
+message the TUI would send: a `<send_user_message_question_reply>` JSON list
+that names each question as `[tool, call id, index]`, steering the active
+turn or starting one. Codex CLI 0.166.0's TUI then takes the question off its
+queue and shows the answer as its own. An answer chosen in the TUI
+(`shift+←`, then Enter) resolves the card with that answer, and the wrapper
+is never shown.
 
 ## Catalog and Configuration
 

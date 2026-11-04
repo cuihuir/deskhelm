@@ -25,6 +25,7 @@ class ControlKind(StrEnum):
     INTERRUPT = "interrupt"
     APPROVE = "approve"
     REJECT = "reject"
+    ANSWER_INPUT = "answer_input"
     CONFIGURE_SESSION = "configure_session"
 
 
@@ -69,6 +70,23 @@ class ApprovalDecisionPayload:
 
 
 @dataclass(frozen=True, slots=True)
+class AnswerInputPayload:
+    """Answers to one Codex question request, by question id."""
+
+    request_id: str
+    answers: dict[str, tuple[str, ...]]
+
+    def __post_init__(self) -> None:
+        _validate_non_empty_string(self.request_id, "request_id")
+        if not isinstance(self.answers, dict) or not self.answers:
+            raise ValueError("answers must name at least one question")
+        for question_id, items in self.answers.items():
+            _validate_non_empty_string(question_id, "question id")
+            if not isinstance(items, tuple) or not items or not all(isinstance(item, str) and item.strip() for item in items):
+                raise ValueError("each question takes non-empty answers")
+
+
+@dataclass(frozen=True, slots=True)
 class ConfigureSessionPayload:
     model_set: bool
     model: str
@@ -84,13 +102,16 @@ class ConfigureSessionPayload:
         _validate_config_value(self.reasoning_effort, "reasoning_effort", 64)
 
 
-ControlPayload = SubmitPromptPayload | InterruptPayload | ApprovalDecisionPayload | ConfigureSessionPayload
+ControlPayload = (
+    SubmitPromptPayload | InterruptPayload | ApprovalDecisionPayload | AnswerInputPayload | ConfigureSessionPayload
+)
 
 _EXPECTED_PAYLOAD = {
     ControlKind.SUBMIT_PROMPT: SubmitPromptPayload,
     ControlKind.INTERRUPT: InterruptPayload,
     ControlKind.APPROVE: ApprovalDecisionPayload,
     ControlKind.REJECT: ApprovalDecisionPayload,
+    ControlKind.ANSWER_INPUT: AnswerInputPayload,
     ControlKind.CONFIGURE_SESSION: ConfigureSessionPayload,
 }
 

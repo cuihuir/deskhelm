@@ -309,6 +309,52 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     answered.locator(".approval-state", has_text="已在 Agent 里处理").wait_for(timeout=5000)
     check("an approval answered in the agent's own interface says so", True)
 
+    # Questions: answered on the page, a half-typed answer kept while the agent
+    # works, and an answer given in the agent's own interface.
+    def question(ref: str, title: str, options: list[str]) -> None:
+        meta = {"provider_ref": ref, "kind": "input", "summary": "Codex requested user input",
+                "expires_at": int(time.time() * 1000) + 3_600_000, "answerable": True, "blocking": False}
+        asked = {"id": "0", "title": title, "options": [{"label": label} for label in options], "other": True}
+        codex.emit(FactKind.REQUEST_OPENED, meta, {"detail": title, "questions": [asked]})
+
+    question("q1", "Which board?", ["Board A", "Board B"])
+    card = page.locator(".question-card.is-live", has_text="Which board?")
+    card.wait_for(timeout=5000)
+    radios = card.locator(".answer-option input[type=radio]")
+    check("a question offers its options and another answer, the first chosen",
+          radios.count() == 3 and radios.first.is_checked())
+    if shots:
+        page.screenshot(path=str(shots / "question.png"))
+    card.locator(".answer-option", has_text="Board B").click()
+    card.locator(".question-actions .button.primary").click()
+    answer = codex.take(EffectKind.ANSWER)
+    check("an answer names its question", (answer["provider_ref"], answer["answers"]) == ("q1", {"0": ["Board B"]}))
+    answered = page.locator(".question-card", has_text="Which board?")
+    answered.locator(".approval-state", has_text="已回答").wait_for(timeout=5000)
+    check("an answered question shows its answer", "Board B" in answered.locator(".question-answer").text_content())
+
+    question("q2", "Anything else?", [])
+    field = page.locator(".question-card.is-live", has_text="Anything else?").locator(".answer-input")
+    field.wait_for(timeout=5000)
+    field.click()
+    page.keyboard.type("keep the ")
+    # The session view changes while the user types.
+    codex.emit(FactKind.CATALOG, content={"catalog": CATALOG})
+    page.wait_for_timeout(500)
+    page.keyboard.type("old one")
+    check("a half-typed answer survives the agent's other activity", field.input_value() == "keep the old one")
+    page.keyboard.press("Enter")
+    answer = codex.take(EffectKind.ANSWER)
+    check("Enter sends a free-text answer", answer["answers"] == {"0": ["keep the old one"]})
+
+    question("q3", "Which port?", ["8080", "9090"])
+    page.locator(".question-card.is-live", has_text="Which port?").wait_for(timeout=5000)
+    codex.emit(FactKind.REQUEST_RESOLVED, {"provider_ref": "q3", "by": "native"}, {"answers": {"0": ["9090"]}})
+    native = page.locator(".question-card", has_text="Which port?")
+    native.locator(".approval-state", has_text="已在 Agent 里回答").wait_for(timeout=5000)
+    check("a question answered in the agent's own interface shows that answer",
+          "9090" in native.locator(".question-answer").text_content())
+
     # Focus, details, and switching.
     page.click("#topbar .button.ghost")
     page.locator("#topbar .button.ghost.is-on").wait_for(timeout=5000)
@@ -343,8 +389,10 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     grok.emit(FactKind.TURN_STARTED, {"turn_ref": "g1"})
     grok.emit(FactKind.TURN_TERMINAL, {"status": "failed", "failure": "usage_limit", "reusable": True, "turn_ref": "g1"}, {})
     page.locator("#topbar .pill", has_text="失败：用量已到上限").wait_for(timeout=5000)
-    check("a session whose last turn failed says so and why",
-          page.locator("#session-list .session", has_text="Grok").locator(".state").text_content() == "失败")
+    # The session list redraws on the next animation frame.
+    row_state = page.locator("#session-list .session", has_text="Grok").locator(".state")
+    row_state.filter(has_text="失败").wait_for(timeout=5000)
+    check("a session whose last turn failed says so and why", row_state.text_content() == "失败")
     claude.emit(FactKind.MESSAGE, {"message_ref": "c-stream", "role": "assistant", "phase": "complete"}, {"text": "streamed"})
     page.locator("#session-list .session", has_text="Claude").click()
     page.locator(".msg.user", has_text="Summarize the pricing page").wait_for(timeout=5000)
@@ -411,7 +459,8 @@ def main() -> int:
 
         drivers = {
             "codex": ScriptedDriver(capabilities(configure=frozenset({"model", "effort"}),
-                                                 catalog=frozenset({"models", "mcp", "skills"}))),
+                                                 catalog=frozenset({"models", "mcp", "skills"}),
+                                                 user_input=InputSupport.ANSWERABLE)),
             "claude": ScriptedDriver(capabilities()),
             "grok": ScriptedDriver(capabilities()),
         }

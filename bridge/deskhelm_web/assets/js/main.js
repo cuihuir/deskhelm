@@ -46,6 +46,15 @@ const actions = {
     await run(kind, session, { approval_id: approvalId });
     store.setDeciding(approvalId, false);
   },
+  // Answers by question id; true once the agent has them.
+  async answer(approvalId, answers) {
+    const session = store.selected();
+    if (!session || store.state.deciding.has(approvalId)) return false;
+    store.setDeciding(approvalId, true);
+    const result = await run("answer", session, { approval_id: approvalId, answers });
+    store.setDeciding(approvalId, false);
+    return result.ok && result.payload.code === "dispatched";
+  },
   async loadCatalog(session) {
     const rev = session.catalog_rev;
     store.setCatalog(session.key, { status: "loading", data: null, rev });
@@ -143,11 +152,11 @@ setInterval(() => {
   for (const node of transcriptRoot.querySelectorAll("[data-expires]")) {
     const expires = Number(node.dataset.expires);
     node.textContent = countdown(expires, now);
-    const card = expires <= now && node.closest(".approval");
+    const card = expires <= now && node.closest(".approval, .question-card");
     if (card) {
-      // The Bridge refuses an expired decision; do not offer one.
+      // The Bridge refuses an expired decision or answer; do not offer one.
       card.classList.remove("is-live");
-      for (const button of card.querySelectorAll("button")) button.disabled = true;
+      for (const control of card.querySelectorAll("button, input")) control.disabled = true;
     }
   }
   ticks += 1;

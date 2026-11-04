@@ -23,7 +23,7 @@ export function mountComposer(store, root, actions) {
       h("div", { class: "composer-row" }, h("div", { class: "composer-left" }, chip), h("div", { class: "composer-right" }, stop, send)),
       menu,
     ),
-    h("p", { class: "composer-hint", text: "Enter 发送，Shift+Enter 换行。Agent 在自己界面里的提问仍要在那里回答。" }),
+    h("p", { class: "composer-hint", text: "Enter 发送，Shift+Enter 换行。" }),
   );
 
   root.addEventListener("submit", (event) => {

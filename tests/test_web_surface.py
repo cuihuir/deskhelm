@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import json
 from pathlib import Path
+from dataclasses import replace
 import queue
 import sys
 import tempfile
@@ -25,7 +26,7 @@ from deskhelm_client.texts import (  # noqa: E402
 )
 from deskhelm_core.server import BridgeServer  # noqa: E402
 from deskhelm_host import BridgeLink  # noqa: E402
-from deskhelm_protocol import EffectKind, EffectOutcome, FactKind, SessionKey  # noqa: E402
+from deskhelm_protocol import EffectKind, EffectOutcome, FactKind, InputSupport, SessionKey  # noqa: E402
 from deskhelm_web import WebSurface  # noqa: E402
 from deskhelm_web.http import load_web_token  # noqa: E402
 from helpers.v2 import FakeDriver  # noqa: E402
@@ -188,6 +189,36 @@ class WebSurfaceTests(unittest.TestCase):
         self.assertEqual((item["type"], item["approval_id"]), ("approval", ticket["approval_id"]))
         self.assertEqual((status, result["code"], result["message"]), (200, "dispatched", "已交给 Agent"))
         self.assertEqual((kind, payload["provider_ref"], payload["decision"]), (EffectKind.RESPOND, "rpc-1", "approve"))
+
+    def test_a_question_is_answered_from_the_page_by_question_id(self) -> None:
+        answerable = replace(self.driver.capabilities, user_input=InputSupport.ANSWERABLE)
+        self.driver.emit(FactKind.CAPABILITIES, {"capabilities": answerable.to_dict()})
+        question = {"id": "0", "title": "Which board?", "options": [{"label": "A"}, {"label": "B"}], "other": True}
+        self.driver.emit(
+            FactKind.REQUEST_OPENED,
+            {"provider_ref": "call-1", "kind": "input", "summary": "Codex requested user input",
+             "expires_at": int(time.time() * 1000) + 60_000, "answerable": True, "blocking": False},
+            {"detail": "Which board?", "questions": [question]},
+        )
+        web = self._web()
+        _wait(lambda: bool(self._session(web)["approvals"]))
+        ticket = self._session(web)["approvals"][0]
+        asked = self._get(web, "/api/snapshot")[1]["transcripts"][PAGE_KEY][0]
+
+        empty = self._post(web, {"kind": "answer", **KEY.to_dict(), "approval_id": ticket["approval_id"], "answers": {"0": []}})
+        status, result = self._post(web, {"kind": "answer", **KEY.to_dict(), "approval_id": ticket["approval_id"],
+                                          "answers": {"0": ["B"]}})
+        kind, payload = self.driver.performed.get(timeout=2)
+        _wait(lambda: self._get(web, "/api/snapshot")[1]["transcripts"][PAGE_KEY][0]["resolution"] == "deskhelm")
+        answered = self._get(web, "/api/snapshot")[1]["transcripts"][PAGE_KEY][0]
+
+        self.assertEqual((ticket["kind"], ticket["answerable"], "questions" in ticket), ("input", True, False))
+        self.assertEqual((asked["type"], asked["approval_id"], asked["blocking"]), ("input", ticket["approval_id"], False))
+        self.assertEqual([option["label"] for option in asked["questions"][0]["options"]], ["A", "B"])
+        self.assertEqual(empty[0], 400)
+        self.assertEqual((status, result["code"]), (200, "dispatched"))
+        self.assertEqual((kind, payload["provider_ref"], payload["answers"]), (EffectKind.ANSWER, "call-1", {"0": ["B"]}))
+        self.assertEqual(answered["answers"], {"0": ["B"]})
 
     def test_recent_activity_reaches_a_page_opened_later(self) -> None:
         self.driver.emit(FactKind.MESSAGE, {"message_ref": "m1", "role": "assistant", "phase": "complete"}, {"text": "hello"})
