@@ -257,7 +257,7 @@ class ClaudeDriverTests(_DriverCase):
         outcome = self.driver.perform(EffectKind.SUBMIT, {"command_id": "c1", "text": "hello"})
         self.assertIs(outcome, EffectOutcome.UNDELIVERED)
 
-    def test_permission_request_publishes_only_the_tool_name(self) -> None:
+    def test_a_permission_request_names_its_tool_and_details_its_input_as_content(self) -> None:
         # The field set Claude Code 2.1.312 sends; every value is synthetic.
         tool_input = {"file_path": "/workspace/private/notes.txt", "content": "draft"}
         self.feed(
@@ -284,8 +284,12 @@ class ClaudeDriverTests(_DriverCase):
         outcome = self.driver.perform(EffectKind.RESPOND, {"command_id": "a", "provider_ref": "req-9", "decision": "approve"})
 
         self.assertIs(outcome, EffectOutcome.ACCEPTED)
-        self.assertEqual(self.facts.of(FactKind.REQUEST_OPENED)[0][0]["summary"], "请求使用工具 Write")
-        self.assertNotIn("/workspace", json.dumps(self.facts.facts))
+        meta, content = self.facts.of(FactKind.REQUEST_OPENED)[0]
+        self.assertEqual(meta["summary"], "请求使用工具 Write")
+        self.assertEqual(content, {"detail": "/workspace/private/notes.txt"})
+        self.assertNotIn("/workspace", json.dumps([meta for _, meta, _ in self.facts.facts]))
+        for private in ("acceptEdits", "outside allowed", "draft"):
+            self.assertNotIn(private, json.dumps(self.facts.facts))
         self.assertEqual(
             self.vendor.written.get(timeout=2)["response"],
             {"subtype": "success", "request_id": "req-9", "response": {"behavior": "allow", "updatedInput": tool_input}},
@@ -368,11 +372,11 @@ class AcpDriverTests(_DriverCase):
         self.assertEqual([meta["label"] for meta, _ in tools], ["read", "run_terminal_command"])
         # A descriptive vendor title is content; a bare name is only the label.
         self.assertEqual([content for _, content in tools], [{"text": "Read package.json"}, {}])
+        self.assertEqual([content for _, content in self.facts.of(FactKind.REQUEST_OPENED)],
+                         [{"detail": "Execute `rm -rf ~/example-probe`"}, {"detail": "Write `<workspace>/notes.txt`"}])
         metas = json.dumps([meta for _, meta, _ in self.facts.facts])
         for private in ("rm -rf", "example-probe", "package.json", "<workspace>", "notes.txt"):
             self.assertNotIn(private, metas)
-        for unpublished in ("rm -rf", "<workspace>", "notes.txt"):
-            self.assertNotIn(unpublished, json.dumps(self.facts.facts))
 
     def test_a_tool_takes_its_command_from_raw_input_and_a_refused_one_is_declined(self) -> None:
         # The tool_call shape Grok 1.0.60 sent in a local check; every value is synthetic.

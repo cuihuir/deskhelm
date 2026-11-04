@@ -128,14 +128,19 @@ class ApprovalRequestPayload:
     request_id: str
     summary: str
     expires_at: int
+    # What the request would do, such as the command line; it is content.
+    detail: str = ""
 
     def __post_init__(self) -> None:
         _validate_non_empty_string(self.request_id, "request_id")
         _validate_non_empty_string(self.summary, "approval summary")
         _validate_positive_integer(self.expires_at, "expires_at")
+        if not isinstance(self.detail, str):
+            raise ValueError("approval detail must be a string")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"request_id": self.request_id, "summary": self.summary, "expires_at": self.expires_at}
+        return {"request_id": self.request_id, "summary": self.summary, "expires_at": self.expires_at,
+                "detail": self.detail}
 
 
 @dataclass(frozen=True, slots=True)

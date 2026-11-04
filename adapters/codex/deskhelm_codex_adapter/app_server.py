@@ -82,6 +82,8 @@ MAX_PROMPT_CHARS = 64 * 1024
 MAX_ITEM_TEXT_CHARS = 16_384
 _MAX_SUBMITTED_PROMPTS = 8
 MAX_COMMAND_CHARS = 2_000
+MAX_APPROVAL_DETAIL_CHARS = 8 * 1024
+MAX_ITEM_TITLES = 64
 MAX_FILE_CHANGES = 12
 _ITEM_TEXT_MARKER = "\n…[truncated]"
 
@@ -233,6 +235,12 @@ class CodexAppServerAdapter:
         repr=False,
     )
     _approvals_by_rpc: dict[tuple[str, str], str] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    # Recent items' command lines or paths, for the approvals that name them.
+    _item_titles: dict[str, str] = field(
         default_factory=dict,
         init=False,
         repr=False,
@@ -1350,6 +1358,10 @@ class CodexAppServerAdapter:
             _PERMISSIONS_APPROVAL_METHOD: _PERMISSIONS_APPROVAL_SUMMARY,
         }
         summary = summaries[method]
+        item_id = params.get("itemId")
+        with self._lock:
+            title = self._item_titles.get(item_id, "") if isinstance(item_id, str) else ""
+        detail = _approval_detail(method, params, title)
         requested_permissions = None
         if method == _PERMISSIONS_APPROVAL_METHOD:
             permissions = params.get("permissions")
@@ -1395,6 +1407,7 @@ class CodexAppServerAdapter:
                     request_id=request_id,
                     summary=summary,
                     expires_at=pending.expires_at,
+                    detail=detail,
                 ),
             )
         )
@@ -1703,6 +1716,11 @@ class CodexAppServerAdapter:
         except (TypeError, ValueError):
             return
         for kind, correlation_id, payload in drafts:
+            if isinstance(payload, ToolPayload) and payload.phase is ToolPhase.START:
+                with self._lock:
+                    self._item_titles[payload.tool_call_id] = payload.name
+                    while len(self._item_titles) > MAX_ITEM_TITLES:
+                        self._item_titles.pop(next(iter(self._item_titles)))
             if (
                 kind is InteractionKind.MESSAGE
                 and isinstance(payload, MessagePayload)
@@ -2275,6 +2293,26 @@ def _shell_script(command: str | list[Any]) -> str:
     if len(parts) == 3 and parts[1] in ("-lc", "-c") and os.path.basename(parts[0]) in _SHELLS and parts[2].strip():
         return parts[2]
     return command if isinstance(command, str) else " ".join(parts)
+
+
+def _approval_detail(method: str, params: dict[str, Any], title: str) -> str:
+    """What an approval would allow: its command, the item's command or paths,
+    or else Codex's reason and the permissions it asks for."""
+    command = params.get("command")
+    if method == _COMMAND_APPROVAL_METHOD and isinstance(command, (str, list)):
+        command = _shell_script(command)
+        if isinstance(command, str) and command.strip():
+            return _clip_text(command.strip(), MAX_APPROVAL_DETAIL_CHARS)
+    if title.strip() and method != _PERMISSIONS_APPROVAL_METHOD:
+        return _clip_text(title.strip(), MAX_APPROVAL_DETAIL_CHARS)
+    parts = []
+    reason = params.get("reason")
+    if isinstance(reason, str) and reason.strip():
+        parts.append(reason.strip())
+    permissions = params.get("permissions")
+    if method == _PERMISSIONS_APPROVAL_METHOD and isinstance(permissions, dict) and permissions:
+        parts.append(", ".join(sorted(str(name) for name in permissions)))
+    return _clip_text("\n".join(parts), MAX_APPROVAL_DETAIL_CHARS)
 
 
 def _command_drafts(

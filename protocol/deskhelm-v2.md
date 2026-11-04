@@ -41,13 +41,15 @@ A host connection opens exactly one session. The connection is its lease.
  "session": {"agent_id": "grok", "session_id": "local-…", "project_id": "demo"},
  "runtime": {"adapter_id": "…", "adapter_version": "…", "runtime_name": "…", "runtime_version": "…"},
  "capabilities": {…},
- "open_requests": [{"provider_ref": "…", "kind": "approval", "summary": "…", "expires_at": 0, "answerable": true}]}
+ "open_requests": [{"provider_ref": "…", "kind": "approval", "summary": "…", "expires_at": 0, "answerable": true, "detail": "…"}]}
 ```
 
 The answer is `session_open_result` with `status` `opened` or `rejected`. A
 session that is still active on another connection is rejected with
 `already_active`. A disconnected session may be reopened; its approvals are
-rebuilt from `open_requests` with new approval ids.
+rebuilt from `open_requests` with new approval ids and announced to the
+operator again. An entry's optional `detail` is content, as in
+`request_opened`.
 
 `capabilities` describes what the vendor really does, and the Bridge enforces
 it:
@@ -77,7 +79,7 @@ interaction stream.
 | `turn_started` | `turn_ref`, optional `command_id` | — |
 | `message` | `message_ref`, `role` (`user`, `assistant`, `system`), `phase` (`delta`, `complete`), optional `command_id` | `text` |
 | `tool` | `tool_ref`, `label`, `phase` (`start`, `output`, `complete`), on `complete` a `status` (`completed`, `failed`, `declined`), optional `exit_code`, `stream`, `replace` | `text` |
-| `request_opened` | `provider_ref`, `kind` (`approval`, `input`), `summary`, `expires_at`, `answerable` | — |
+| `request_opened` | `provider_ref`, `kind` (`approval`, `input`), `summary`, `expires_at`, `answerable` | optional `detail`, at most 8 KiB |
 | `request_resolved` | `provider_ref`, `by` (`native`, `deskhelm`, `cancelled`, `expired`) | — |
 | `turn_terminal` | `status` (`completed`, `interrupted`, `failed`), optional `failure`, `reusable`, `turn_ref` | optional `message` |
 | `status` | `attention` (boolean) | — |
@@ -96,7 +98,9 @@ A `capabilities` fact replaces the matrix once the driver knows what its
 vendor allows, for example after the vendor handshake.
 
 `summary` and `label` must be content-free: a tool kind or a bare tool name,
-never a command line or a path. `failure` is one of `provider`,
+never a command line or a path. A request's `detail` says what it would do,
+such as the command line, paths, or URL it would allow, so it is content and
+never part of `meta`. `failure` is one of `provider`,
 `usage_limit`, `auth`, `protocol`, `transport_lost`, `process_exit`, or
 `timeout`.
 
@@ -160,8 +164,10 @@ written to disk, and dropped when the session ends. A message's `complete`
 fact carries its whole text, even after deltas, so the window drops that
 message's deltas once it completes and a long streamed reply cannot push
 earlier activity out. Interaction events keep
-the v1 `InteractionEvent` shape; a tool event carries its fact's `status`,
-and approval events name the Bridge approval id as `request_id`. When an
+the v1 `InteractionEvent` shape; a tool event carries its fact's `status`.
+`approval_request` and `user_input_required` events carry the request's
+`detail`, and approval events name the Bridge approval id as `request_id`.
+Console tickets never carry a detail. When an
 approval ends, an `approval_resolved` event names its
 `request_id` and `by` (`deskhelm`, `native`, `cancelled` when its turn ended,
 or `expired`); a DeskHelm decision adds `decision` and, if its delivery is

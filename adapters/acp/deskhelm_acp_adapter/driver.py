@@ -19,6 +19,7 @@ import uuid
 
 from deskhelm_host.driver import FactSink, SessionState
 from deskhelm_host.vendor import VendorClosed, VendorProcess
+from deskhelm_protocol.model import MAX_DETAIL_CHARS
 from deskhelm_protocol.model import MAX_TEXT_CHARS as MAX_REPLY_CHARS
 from deskhelm_protocol import (
     ApprovalOverflow,
@@ -75,8 +76,8 @@ class AcpFlavor:
         return None
 
 
-def _clip(text: str) -> str:
-    return text if len(text) <= MAX_TEXT_CHARS else text[: MAX_TEXT_CHARS - 1] + "…"
+def _clip(text: str, limit: int = MAX_TEXT_CHARS) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def tool_label(tool: object) -> str:
@@ -90,7 +91,7 @@ def tool_label(tool: object) -> str:
     return ""
 
 
-def tool_title(tool: object) -> str:
+def tool_title(tool: object, limit: int = MAX_TITLE_CHARS) -> str:
     """The command or path from a tool's raw input, else a descriptive title."""
     if not isinstance(tool, dict):
         return ""
@@ -99,10 +100,10 @@ def tool_title(tool: object) -> str:
         for key in _TITLE_FIELDS:
             value = raw.get(key)
             if isinstance(value, str) and value.strip():
-                return value.strip()[:MAX_TITLE_CHARS]
+                return _clip(value.strip(), limit)
     title = tool.get("title")
     if isinstance(title, str) and title.strip() and not _LABEL.fullmatch(title):
-        return title.strip()[:MAX_TITLE_CHARS]
+        return _clip(title.strip(), limit)
     return ""
 
 
@@ -478,6 +479,8 @@ class AcpSession:
             summary=f"请求使用工具 {tool_label(params.get('toolCall')) or 'tool'}",
             expires_at=self._clock() + APPROVAL_WINDOW_MS,
             answerable=bool(select_option(options, True) or select_option(options, False)),
+            # What the tool would do, so the operator sees what they allow.
+            detail=tool_title(tool, MAX_DETAIL_CHARS),
         )
         self._pending[provider_ref] = request
         self._pending_rpc[provider_ref] = (rpc_id, options)
@@ -491,6 +494,7 @@ class AcpSession:
                 "expires_at": request.expires_at,
                 "answerable": request.answerable,
             },
+            {"detail": request.detail} if request.detail else None,
         )
 
     # Helpers (called with the lock held) -------------------------------

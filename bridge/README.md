@@ -88,10 +88,12 @@ it.
 The page lists sessions by project with their state, a preview, pending
 approvals, and a mark for activity you have not looked at; the tab title
 counts the approvals waiting anywhere. A reply renders Markdown; a tool row
-shows its command or path and opens to its output; an approval waits inline
-with a countdown and then says how it ended; the stop button interrupts a
-working turn; and a details panel shows the runtime, capabilities, model,
-MCP servers, and skills. Enter sends and Shift+Enter adds a line. The server
+shows its command or path, opens to its output, and says whether it
+completed, failed, or was declined; an approval waits inline with the
+command or paths it would allow and a countdown, then says how it ended; the
+stop button interrupts a working turn; and a details panel shows the
+runtime, capabilities, model, MCP servers, and skills. Enter sends and
+Shift+Enter adds a line. The server
 builds each transcript with `deskhelm_client.transcript` and sends a
 snapshot, then revisioned patches (ADR 0044); the page is plain ES modules in
 `deskhelm_web/assets/js/` with no build step. `tools/check-web-page.py`

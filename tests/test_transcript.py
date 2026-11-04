@@ -180,8 +180,16 @@ class TranscriptTests(unittest.TestCase):
         self.assertEqual(repeat, [])
         self.assertEqual((items[0]["type"], items[0]["approval_id"], items[0]["expires_at"]), ("approval", "a-1", 9000))
         self.assertEqual((items[1]["type"], items[1]["prompt"]), ("input", "Which branch?"))
+        self.assertEqual((items[0]["detail"], items[1]["detail"]), ("", ""))
         self.assertEqual([(item["status"], item["code"]) for item in items[2:]],
                          [("completed", ""), ("interrupted", ""), ("failed", "usage_limit")])
+
+    def test_an_approval_keeps_what_it_asks(self) -> None:
+        transcript = Transcript()
+        transcript.apply(_event("approval_request", {"request_id": "a-1", "summary": "请求使用工具 Bash", "expires_at": 9,
+                                                     "detail": "git push --force"}, correlation="a-1"))
+
+        self.assertEqual(transcript.items()[0]["detail"], "git push --force")
 
     def test_an_approval_records_how_it_ended(self) -> None:
         transcript = Transcript()

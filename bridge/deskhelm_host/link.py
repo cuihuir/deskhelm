@@ -155,6 +155,7 @@ class BridgeLink:
                             "summary": request.summary,
                             "expires_at": request.expires_at,
                             "answerable": request.answerable,
+                            **({"detail": request.detail} if request.detail else {}),
                         }
                         for request in state.open_requests
                     ],

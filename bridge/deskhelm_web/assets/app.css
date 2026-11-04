@@ -324,6 +324,11 @@ pre.output.stderr { color: var(--danger); }
 .approval-head strong, .notice-head strong { color: var(--text); font-weight: 600; }
 .approval-time { margin-left: auto; color: var(--text-3); font-size: 12px; }
 .approval-summary { margin: 6px 0 0; }
+.approval-detail {
+  max-height: 240px; margin: 8px 0 0; padding: 8px 10px; overflow: auto;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--code-bg);
+  color: var(--text); font: 12.5px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
 .approval-actions { display: flex; gap: 8px; margin-top: 12px; }
 .approval-state { margin: 6px 0 0; color: var(--text-3); font-size: 12.5px; }
 .notice-card { background: var(--accent-soft); }

@@ -283,10 +283,14 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
 
     # Approval.
     codex.emit(FactKind.REQUEST_OPENED, {"provider_ref": "r1", "kind": "approval", "summary": "Run git push",
-                                         "expires_at": int(time.time() * 1000) + 120_000, "answerable": True})
+                                         "expires_at": int(time.time() * 1000) + 120_000, "answerable": True},
+               {"detail": "git push origin main <b>"})
     approve = page.locator(".approval.is-live .button.primary")
     approve.wait_for(timeout=5000)
     check("a pending approval shows a countdown", "有效" in page.locator(".approval-time").text_content())
+    check("an approval shows what it would allow, as text",
+          page.locator(".approval.is-live .approval-detail").text_content() == "git push origin main <b>"
+          and page.locator(".approval.is-live .approval-detail b").count() == 0)
     check("the session list counts the approval", page.locator(".session .badge").first.text_content() == "1")
     check("the tab title counts the approval", page.title() == "(1) DeskHelm")
     if shots:
@@ -362,20 +366,27 @@ def run(page: Page, drivers: dict[str, ScriptedDriver], check: Check, shots: Pat
     page.locator("#topbar h1", has_text="Claude").wait_for(timeout=5000)
     check("the theme choice persists", page.locator("html").get_attribute("data-theme") != before)
 
-    # A Bridge restart rebuilds an open approval without its transcript item.
+    # A Bridge restart rebuilds an open approval, which the Bridge announces again.
     page.locator("#session-list .session", has_text="Codex").click()
     request = {"provider_ref": "r2", "kind": "approval", "summary": "Edit config",
                "expires_at": int(time.time() * 1000) + 120_000, "answerable": True}
-    codex.emit(FactKind.REQUEST_OPENED, request)
+    codex.emit(FactKind.REQUEST_OPENED, request, {"detail": "config.toml"})
     page.locator(".items .approval.is-live", has_text="Edit config").wait_for(timeout=5000)
-    codex.open_requests = (OpenRequest.from_dict(request),)
+    codex.open_requests = (OpenRequest.from_dict({**request, "detail": "config.toml"}),)
     restart_bridge()
-    rebuilt = page.locator(".tail .approval.is-live", has_text="Edit config")
-    rebuilt.wait_for(timeout=15_000)
+    # The old card stays until the page learns of the new Bridge; then the
+    # rebuilt approval arrives as a new card, answerable once the web process
+    # is connected again.
+    page.locator("#banner", has_text="Bridge 已重启").wait_for(timeout=15_000)
+    rebuilt = page.locator(".items .approval.is-live", has_text="Edit config")
+    answer = rebuilt.locator(".button.primary:not([disabled])")
+    answer.wait_for(timeout=15_000)
+    check("an approval rebuilt after a Bridge restart keeps its detail",
+          rebuilt.locator(".approval-detail").text_content() == "config.toml")
     check("the chosen session is shown again after the restart", page.locator("#topbar h1").text_content() == "Codex")
     check("a restart marks no session as having new activity", page.locator("#session-list .unseen:not([hidden])").count() == 0)
-    check("an approval rebuilt after a Bridge restart can still be answered", rebuilt.locator(".button.primary").is_enabled())
-    rebuilt.locator(".button.primary").click()
+    check("an approval rebuilt after a Bridge restart can still be answered", rebuilt.count() == 1)
+    answer.click()
     decision = codex.take(EffectKind.RESPOND)
     check("the rebuilt approval reaches the vendor request", (decision["provider_ref"], decision["decision"]) == ("r2", "approve"))
 

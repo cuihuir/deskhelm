@@ -162,6 +162,8 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
         ticket ? h("span", { class: "approval-time", dataset: { expires: String(ticket.expires_at) }, text: countdown(ticket.expires_at) }) : null,
       ),
       h("p", { class: "approval-summary", text: item.summary || "Agent 请求执行一个操作" }),
+      // What the request would do, in the agent's own terms, never parsed.
+      item.detail ? h("pre", { class: "approval-detail", text: item.detail }) : null,
     );
     if (ticket && ticket.answerable) {
       const busy = store.state.deciding.has(item.approval_id) || !store.state.connected;
@@ -194,6 +196,7 @@ export function mountTranscript(store, { scroller, root, jump }, actions) {
       { class: "notice-card" },
       h("div", { class: "notice-head" }, icon("question"), h("strong", { text: "Agent 在提问" })),
       item.prompt ? h("p", { text: item.prompt }) : null,
+      item.detail ? h("pre", { class: "approval-detail", text: item.detail }) : null,
       h("p", { class: "hint", text: "这个提问要在 Agent 自己的界面里回答。" }),
     );
   }

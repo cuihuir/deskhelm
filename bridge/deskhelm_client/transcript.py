@@ -31,6 +31,7 @@ MAX_MESSAGE_CHARS = 64 * 1024
 MAX_TITLE_CHARS = 2 * 1024
 MAX_OUTPUT_CHARS = 32 * 1024
 MAX_SUMMARY_CHARS = 512
+MAX_DETAIL_CHARS = 8 * 1024
 MAX_PREVIEW_CHARS = 160
 
 _ROLES = frozenset({"user", "assistant", "system"})
@@ -204,6 +205,7 @@ class Transcript:
         item = self._create(
             item_id, "approval", event, approval_id=approval_id,
             summary=_text(payload.get("summary"))[:MAX_SUMMARY_CHARS],
+            detail=_text(payload.get("detail"))[:MAX_DETAIL_CHARS],
             expires_at=expires_at if isinstance(expires_at, int) and not isinstance(expires_at, bool) else 0,
             resolution="", decision="", uncertain=False,
         )
@@ -223,7 +225,10 @@ class Transcript:
         item_id = "i:" + _reference(event)
         if item_id in self._items:
             return []
-        item = self._create(item_id, "input", event, prompt=_text(payload.get("prompt"))[:MAX_SUMMARY_CHARS])
+        item = self._create(
+            item_id, "input", event, prompt=_text(payload.get("prompt"))[:MAX_SUMMARY_CHARS],
+            detail=_text(payload.get("detail"))[:MAX_DETAIL_CHARS],
+        )
         return [self._upsert(item)]
 
     def _turn(self, event: dict[str, Any], payload: dict[str, Any], *, failed: bool) -> list[dict[str, Any]]:

@@ -39,6 +39,11 @@ from deskhelm_codex_adapter.events import (  # noqa: E402
 from helpers.control_host import ControlResultCode, FakeControlHost  # noqa: E402
 
 
+def _without_detail(event: InteractionEvent) -> str:
+    """The event's JSON without its detail, which only the operator receives."""
+    return event.to_json().replace(json.dumps(event.payload.detail, ensure_ascii=False)[1:-1], "")
+
+
 class _FakeAppServerTransport:
     def __init__(self) -> None:
         self.incoming: Queue[object] = Queue()
@@ -639,7 +644,9 @@ class CodexAppServerAdapterTests(unittest.TestCase):
             approval.payload.summary,
             "Codex command execution approval",
         )
-        self.assertNotIn("private", approval.to_json())
+        # Only the detail, which reaches the operator alone, carries the command.
+        self.assertEqual(approval.payload.detail, "private command must not escape")
+        self.assertNotIn("private", _without_detail(approval))
 
         now_ms = int(time.time() * 1000)
         command = ControlCommand(
@@ -704,7 +711,8 @@ class CodexAppServerAdapterTests(unittest.TestCase):
         approval = self.events.get(timeout=1)
         self.assertIs(approval.kind, InteractionKind.APPROVAL_REQUEST)
         self.assertEqual(approval.payload.summary, "Codex permissions approval")
-        self.assertNotIn("private", approval.to_json())
+        self.assertEqual(approval.payload.detail, "private permission reason\nfileSystem, network")
+        self.assertNotIn("private", _without_detail(approval))
         now_ms = int(time.time() * 1000)
         command = ControlCommand(
             kind=ControlKind.APPROVE,
@@ -789,7 +797,8 @@ class CodexAppServerAdapterTests(unittest.TestCase):
         proxy.inject(request)
         approval = self.events.get(timeout=1)
         self.assertIs(approval.kind, InteractionKind.APPROVAL_REQUEST)
-        self.assertNotIn("private", approval.to_json())
+        self.assertEqual(approval.payload.detail, "private command must not escape")
+        self.assertNotIn("private", _without_detail(approval))
         now_ms = int(time.time() * 1000)
         command = ControlCommand(
             kind=ControlKind.APPROVE,
@@ -1003,6 +1012,17 @@ class CodexAppServerAdapterTests(unittest.TestCase):
         self.assertEqual(result.code, ControlResultCode.DISPATCHED)
         self.assertEqual(self.adapter.pending_user_input_count(), 0)
 
+    def test_a_file_approval_details_the_paths_its_item_changes(self) -> None:
+        change = {"path": "src/app.py", "kind": "update", "diff": "+x\n"}
+        self.transport.inject({"method": "item/started", "params": {
+            "threadId": "thread-1", "item": {"id": "file-2", "type": "fileChange", "changes": [change]}}})
+        self._take(InteractionKind.TOOL)
+        self.transport.inject({"method": "item/fileChange/requestApproval", "id": 92, "params": {
+            "threadId": "thread-1", "turnId": "turn-manual", "itemId": "file-2", "startedAtMs": 1, "reason": "write it"}})
+
+        approval = self._take(InteractionKind.APPROVAL_REQUEST)
+        self.assertEqual((approval.payload.summary, approval.payload.detail), ("Codex file change approval", "src/app.py"))
+
     def test_file_rejection_uses_decline_without_private_summary(self) -> None:
         self.transport.inject(
             {
@@ -1020,7 +1040,8 @@ class CodexAppServerAdapterTests(unittest.TestCase):
         )
         approval = self.events.get(timeout=1)
         self.assertEqual(approval.payload.summary, "Codex file change approval")
-        self.assertNotIn("private", approval.to_json())
+        self.assertEqual(approval.payload.detail, "private file reason")
+        self.assertNotIn("private", _without_detail(approval))
         now_ms = int(time.time() * 1000)
         command = ControlCommand(
             kind=ControlKind.REJECT,

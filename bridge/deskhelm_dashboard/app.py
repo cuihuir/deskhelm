@@ -68,7 +68,8 @@ def item_line(item: dict[str, Any], speaker: str) -> str:
         return " ".join(part for part in (tool_text(item["kind"]), " ".join(item["title"].split()), "·", state) if part)
     if kind == "approval":
         ended = resolution_text(item)
-        return f"批准请求：{item['summary']}" + (f" · {ended}" if ended else "")
+        detail = " ".join(item.get("detail", "").split())
+        return f"批准请求：{item['summary']}" + (f"：{detail}" if detail else "") + (f" · {ended}" if ended else "")
     if kind == "input":
         return f"提问：{item['prompt']}"
     return outcome_text({"status": item["status"], "failure": item["code"] or None})

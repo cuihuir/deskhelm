@@ -38,6 +38,7 @@ from .link import BridgeLink
 
 APPROVAL_WINDOW_MS = 5 * 60 * 1000
 APPROVAL_WORDS = ("approve", "批准")
+DEMO_COMMAND = "echo demo"
 _OPEN_TIMEOUT_SECONDS = 10.0
 
 
@@ -128,7 +129,7 @@ class DemoSession:
             self._emit(FactKind.MESSAGE, {"message_ref": command_id, "role": "user", "phase": "complete", "command_id": command_id}, {"text": text})
             self._emit(FactKind.TURN_STARTED, {"turn_ref": command_id, "command_id": command_id})
             self._step()
-            self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": "command", "phase": "start"}, {"text": "echo demo"})
+            self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": "command", "phase": "start"}, {"text": DEMO_COMMAND})
             self._step()
             if any(word in text.lower() for word in APPROVAL_WORDS) and not self._approved(number):
                 self._emit(FactKind.TOOL, {"tool_ref": tool_ref, "label": "command", "phase": "complete", "status": "declined"})
@@ -151,7 +152,7 @@ class DemoSession:
 
     def _approved(self, number: int) -> bool:
         request = OpenRequest(f"demo-approval-{number}", RequestKind.APPROVAL, "请求使用工具 command",
-                              self._clock() + APPROVAL_WINDOW_MS, True)
+                              self._clock() + APPROVAL_WINDOW_MS, True, DEMO_COMMAND)
         with self._lock:
             # An interrupt sets both events under this lock, so none is lost.
             if self._interrupt.is_set():
@@ -160,7 +161,7 @@ class DemoSession:
             self._decided.clear()
         self._emit(FactKind.REQUEST_OPENED, {"provider_ref": request.provider_ref, "kind": "approval",
                                              "summary": request.summary, "expires_at": request.expires_at,
-                                             "answerable": True})
+                                             "answerable": True}, {"detail": request.detail})
         decided = self._decided.wait(APPROVAL_WINDOW_MS / 1000)
         if self._interrupt.is_set():
             raise _Interrupted()

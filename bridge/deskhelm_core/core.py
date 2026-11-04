@@ -387,8 +387,10 @@ class Core:
             record.tickets.clear()
             record.attention = False
         state.session = key
+        # A rebuilt request is announced again, with its detail, so an operator
+        # who meets it after a Bridge restart sees what it asks.
         for request in requests:
-            self._open_ticket(record, request, now, announce=False)
+            self._open_ticket(record, request, now, announce=True)
         self._recompute(record)
         self._send(state.connection_id, _open_result("opened", ""))
 
@@ -421,7 +423,8 @@ class Core:
                 payload["replace"] = True
             self._interaction(record, "tool", payload, meta["tool_ref"], now)
         elif fact.kind is FactKind.REQUEST_OPENED:
-            self._open_ticket(record, OpenRequest.from_dict(meta), now, announce=True)
+            request = OpenRequest.from_dict({**meta, "detail": content.get("detail", "")})
+            self._open_ticket(record, request, now, announce=True)
         elif fact.kind is FactKind.REQUEST_RESOLVED:
             ticket = record.ticket_for(meta["provider_ref"])
             if ticket is not None:
@@ -467,15 +470,17 @@ class Core:
         record.tickets[ticket.approval_id] = ticket
         if not announce:
             return
+        # The ticket stays content-free; the detail reaches only the operator.
         if request.kind is RequestKind.APPROVAL:
             payload = {
                 "request_id": ticket.approval_id,
                 "summary": ticket.summary,
                 "expires_at": ticket.expires_at,
+                "detail": request.detail,
             }
             self._interaction(record, "approval_request", payload, ticket.approval_id, now)
         else:
-            payload = {"prompt": ticket.summary}
+            payload = {"prompt": ticket.summary, "detail": request.detail}
             self._interaction(record, "user_input_required", payload, ticket.approval_id, now)
 
     def _turn_terminal(

@@ -16,6 +16,7 @@ MAX_IDENTITY_CHARS = 256
 MAX_LABEL_CHARS = 128
 MAX_SUMMARY_CHARS = 512
 MAX_TEXT_CHARS = 64 * 1024
+MAX_DETAIL_CHARS = 8 * 1024
 MAX_OPEN_REQUESTS = 16
 MAX_CATALOG_BYTES = 256 * 1024
 
@@ -240,13 +241,18 @@ class RequestKind(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class OpenRequest:
-    """A vendor request waiting for a person, as the host reports it."""
+    """A vendor request waiting for a person, as the host reports it.
+
+    ``summary`` is content-free. ``detail`` says what the request would do,
+    such as a command line, so it is content and reaches only the operator.
+    """
 
     provider_ref: str
     kind: RequestKind
     summary: str
     expires_at: int
     answerable: bool
+    detail: str = ""
 
     @classmethod
     def from_dict(cls, value: Any) -> OpenRequest:
@@ -257,6 +263,7 @@ class OpenRequest:
             summary=text_field(value.get("summary"), "summary", MAX_SUMMARY_CHARS),
             expires_at=int_field(value.get("expires_at"), "expires_at", minimum=1),
             answerable=bool_field(value.get("answerable"), "answerable"),
+            detail=text_field(value.get("detail", ""), "detail", MAX_DETAIL_CHARS, allow_empty=True),
         )
 
 
@@ -387,8 +394,11 @@ def _validate_tool(meta: dict[str, Any], content: dict[str, Any]) -> None:
 
 
 def _validate_request_opened(meta: dict[str, Any], content: dict[str, Any]) -> None:
-    OpenRequest.from_dict(meta)
-    _no_content(content)
+    if "detail" in meta:
+        raise ProtocolViolation("a request's detail is content")
+    if set(content) - {"detail"}:
+        raise ProtocolViolation("a request carries only its detail as content")
+    OpenRequest.from_dict({**meta, "detail": content.get("detail", "")})
 
 
 def _validate_request_resolved(meta: dict[str, Any], content: dict[str, Any]) -> None:

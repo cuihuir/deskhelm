@@ -119,6 +119,12 @@ class DashboardTests(unittest.TestCase):
                               "decision": "approve", "uncertain": True}, "Codex")
         self.assertEqual(approved, "批准请求：Run git push · 已批准，结果未知")
         self.assertEqual(item_line({"type": "approval", "summary": "Edit", "resolution": ""}, "Codex"), "批准请求：Edit")
+        declined = item_line({"type": "tool", "kind": "command", "title": "rm -rf build", "status": "declined",
+                              "exit_code": None}, "Codex")
+        self.assertEqual(declined, "命令 rm -rf build · 已拒绝")
+        detailed = item_line({"type": "approval", "summary": "请求使用工具 Bash", "detail": "git push\n  --force",
+                              "resolution": "deskhelm", "decision": "reject"}, "Claude")
+        self.assertEqual(detailed, "批准请求：请求使用工具 Bash：git push --force · 已拒绝")
 
     def test_a_lost_bridge_is_a_notice_and_q_quits(self) -> None:
         self.dashboard.on_connection(False)

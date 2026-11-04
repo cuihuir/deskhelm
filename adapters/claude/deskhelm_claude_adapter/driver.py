@@ -17,6 +17,7 @@ import uuid
 
 from deskhelm_host.driver import FactSink, SessionState
 from deskhelm_host.vendor import VendorClosed, VendorProcess
+from deskhelm_protocol.model import MAX_DETAIL_CHARS
 from deskhelm_protocol.model import MAX_TEXT_CHARS as MAX_REPLY_CHARS
 from deskhelm_protocol import (
     ApprovalOverflow,
@@ -53,17 +54,17 @@ def _label(value: object) -> str:
     return value if isinstance(value, str) and _LABEL.fullmatch(value) else "tool"
 
 
-def _tool_title(tool_input: object) -> str:
+def _tool_title(tool_input: object, limit: int = MAX_TITLE_CHARS) -> str:
     if isinstance(tool_input, dict):
         for field in _TITLE_FIELDS:
             value = tool_input.get(field)
             if isinstance(value, str) and value.strip():
-                return value.strip()[:MAX_TITLE_CHARS]
+                return _clip(value.strip(), limit)
     return ""
 
 
-def _clip(text: str) -> str:
-    return text if len(text) <= MAX_TEXT_CHARS else text[: MAX_TEXT_CHARS - 1] + "…"
+def _clip(text: str, limit: int = MAX_TEXT_CHARS) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _tool_result_text(value: object) -> str:
@@ -403,12 +404,15 @@ class ClaudeSession:
             self._decline_tool(tool_use_id)
             self._vendor_write_decision(provider_ref, tool_input, "too many pending approvals")
             return
+        description = request.get("description") if isinstance(request.get("description"), str) else ""
         open_request = OpenRequest(
             provider_ref=provider_ref,
             kind=RequestKind.APPROVAL,
             summary=f"请求使用工具 {_label(request.get('tool_name'))}",
             expires_at=self._clock() + APPROVAL_WINDOW_MS,
             answerable=True,
+            # What the tool would do, so the operator sees what they allow.
+            detail=_tool_title(tool_input, MAX_DETAIL_CHARS) or _clip(description.strip(), MAX_DETAIL_CHARS),
         )
         self._pending[provider_ref] = open_request
         self._pending_input[provider_ref] = tool_input
@@ -422,6 +426,7 @@ class ClaudeSession:
                 "expires_at": open_request.expires_at,
                 "answerable": True,
             },
+            {"detail": open_request.detail} if open_request.detail else None,
         )
 
     # Helpers (called with the lock held) -------------------------------

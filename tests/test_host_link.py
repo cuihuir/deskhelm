@@ -72,7 +72,8 @@ class BridgeLinkTests(unittest.TestCase):
     def test_session_survives_a_bridge_restart(self) -> None:
         self.driver.turn_ref = "turn-7"
         self.driver.open_requests = (
-            OpenRequest("rpc-1", RequestKind.APPROVAL, "请求使用工具 execute", int(time.time() * 1000) + 60_000, True),
+            OpenRequest("rpc-1", RequestKind.APPROVAL, "请求使用工具 execute", int(time.time() * 1000) + 60_000, True,
+                        "make deploy"),
         )
         self.server.close()
         self.link.opened.clear()
@@ -86,6 +87,10 @@ class BridgeLinkTests(unittest.TestCase):
             view = session_view(client.next("delta", where=lambda frame: session_view(frame, KEY)), KEY)
         self.assertEqual(view["activity"], "waiting_approval")
         self.assertEqual(view["approvals"][0]["summary"], "请求使用工具 execute")
+        # The rebuilt approval reaches the operator again with its detail.
+        client.send({"type": "subscribe", "stream": "interaction"})
+        announced = client.next("interaction")["event"]
+        self.assertEqual((announced["kind"], announced["payload"]["detail"]), ("approval_request", "make deploy"))
 
     def test_unknown_driver_outcome_is_left_to_the_bridge_deadline(self) -> None:
         self.server.close()

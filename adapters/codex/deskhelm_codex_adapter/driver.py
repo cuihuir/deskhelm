@@ -35,7 +35,7 @@ from deskhelm_protocol import (
     RuntimeIdentity,
     SessionKey,
 )
-from deskhelm_protocol.model import MAX_CATALOG_BYTES, MAX_IDENTITY_CHARS, MAX_OPEN_REQUESTS, MAX_TEXT_CHARS
+from deskhelm_protocol.model import MAX_CATALOG_BYTES, MAX_DETAIL_CHARS, MAX_IDENTITY_CHARS, MAX_OPEN_REQUESTS, MAX_TEXT_CHARS
 
 from .app_server import CodexAppServerAdapter
 from .controls import (
@@ -91,8 +91,8 @@ def _ref(value: object) -> str:
     return "h-" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:32]
 
 
-def _clip(text: str) -> str:
-    return text if len(text) <= MAX_TEXT_CHARS else text[: MAX_TEXT_CHARS - 1] + "…"
+def _clip(text: str, limit: int = MAX_TEXT_CHARS) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _noop() -> None:
@@ -360,7 +360,9 @@ class CodexSession:
                 self._tool_locked(event)
             elif kind is InteractionKind.APPROVAL_REQUEST:
                 payload = event.payload
-                self._request_locked(payload.request_id, RequestKind.APPROVAL, payload.summary, payload.expires_at, True)
+                self._request_locked(
+                    payload.request_id, RequestKind.APPROVAL, payload.summary, payload.expires_at, True, payload.detail
+                )
             elif kind is InteractionKind.USER_INPUT_REQUIRED:
                 self._request_locked(
                     event.correlation_id, RequestKind.INPUT, event.payload.prompt, self._clock() + INPUT_WINDOW_MS, False
@@ -409,12 +411,15 @@ class CodexSession:
         self._ensure_turn_locked()
         self._emit(FactKind.TOOL, meta, {"text": _clip(text)})
 
-    def _request_locked(self, ref: str, kind: RequestKind, summary: str, expires_at: int, answerable: bool) -> None:
+    def _request_locked(
+        self, ref: str, kind: RequestKind, summary: str, expires_at: int, answerable: bool, detail: str = ""
+    ) -> None:
         ref = _ref(ref)
         if ref in self._requests or len(self._requests) >= MAX_OPEN_REQUESTS:
             return
         self._ensure_turn_locked()
-        request = OpenRequest(ref, kind, summary, expires_at, answerable)
+        detail = _clip(detail, MAX_DETAIL_CHARS)
+        request = OpenRequest(ref, kind, summary, expires_at, answerable, detail)
         self._requests[ref] = request
         self._emit(
             FactKind.REQUEST_OPENED,
@@ -425,6 +430,7 @@ class CodexSession:
                 "expires_at": expires_at,
                 "answerable": answerable,
             },
+            {"detail": detail} if detail else None,
         )
 
     def _attention_locked(self, active: bool) -> None:

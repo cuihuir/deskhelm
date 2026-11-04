@@ -204,6 +204,10 @@ access ADRs) has not started.
   ended, so every surface says the same; a surface never infers it.
 - The voice tier may only submit prompts and answer approvals. The device and
   voice tiers and logs never receive command lines, command output, or diffs.
+- A request's `detail`, such as the command line or paths an approval would
+  allow, is content: only the operator's interaction stream carries it, and
+  console tickets stay content-free. Requests a host reopens are announced
+  again with their detail (ADR 0045).
 
 ### Session Hosts and Drivers
 

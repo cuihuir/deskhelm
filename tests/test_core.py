@@ -190,7 +190,9 @@ class HandshakeAndSessionTests(unittest.TestCase):
     def test_replacement_host_reopens_a_disconnected_session(self) -> None:
         harness = _Harness()
         harness.host("host")
+        harness.client("web", streams=("console", "interaction"))
         harness.drop("host")
+        harness.take("web")
         harness.host(
             "replacement",
             open_requests=[
@@ -200,14 +202,20 @@ class HandshakeAndSessionTests(unittest.TestCase):
                     "summary": "请求使用工具 edit",
                     "expires_at": harness.now + 10_000,
                     "answerable": True,
+                    "detail": "notes.txt",
                 }
             ],
         )
 
         view = harness.core.session(KEY)
+        announced = harness.take("web", "interaction")[0]["event"]
         self.assertEqual(view["lifecycle"], "active")
         self.assertEqual(view["activity"], "waiting_approval")
         self.assertEqual(len(view["approvals"]), 1)
+        # The rebuilt approval is announced with its detail; its ticket stays content-free.
+        self.assertEqual((announced["kind"], announced["payload"]["request_id"], announced["payload"]["detail"]),
+                         ("approval_request", view["approvals"][0]["approval_id"], "notes.txt"))
+        self.assertNotIn("detail", view["approvals"][0])
 
     def test_disconnected_session_expires_after_its_ttl(self) -> None:
         harness = _Harness(disconnected_ttl_ms=1_000)
@@ -474,6 +482,41 @@ class ProjectionTests(unittest.TestCase):
         replaced, extended = (frame["event"]["payload"] for frame in harness.take("web", "interaction"))
 
         self.assertEqual((replaced["replace"], "replace" in extended), (True, False))
+
+    def test_a_request_detail_reaches_only_the_operator_interaction(self) -> None:
+        harness = _Harness()
+        harness.host("host")
+        harness.client("web", streams=("console", "interaction"))
+        harness.client("voice", tier="voice")
+        harness.take("web")
+        harness.take("voice")
+        request = {"provider_ref": "rpc-1", "kind": "approval", "summary": "请求使用工具 Bash",
+                   "expires_at": harness.now + 30_000, "answerable": True}
+        harness.fact("host", "request_opened", request, {"detail": "rm -rf build"})
+        harness.fact("host", "request_opened", {**request, "provider_ref": "rpc-2", "kind": "input"})
+
+        web = harness.take("web")
+        events = [frame["event"]["payload"] for frame in web if frame["type"] == "interaction"]
+        self.assertEqual([(payload.get("detail"), payload.get("prompt")) for payload in events],
+                         [("rm -rf build", None), ("", "请求使用工具 Bash")])
+        self.assertNotIn("rm -rf build", repr([frame for frame in web if frame["type"] != "interaction"]))
+        self.assertNotIn("rm -rf build", repr(harness.take("voice")))
+
+    def test_a_request_detail_is_content_only(self) -> None:
+        request = {"provider_ref": "rpc-1", "kind": "approval", "summary": "请求使用工具 Bash",
+                   "expires_at": 2_000_000, "answerable": True}
+        in_meta = _Harness()
+        in_meta.host("host")
+        in_meta.fact("host", "request_opened", {**request, "detail": "rm -rf build"})
+        other_content = _Harness()
+        other_content.host("host")
+        other_content.fact("host", "request_opened", request, {"text": "rm -rf build"})
+        too_long = _Harness()
+        too_long.host("host")
+        too_long.fact("host", "request_opened", request, {"detail": "x" * (8 * 1024 + 1)})
+
+        self.assertEqual([harness.closed["host"] for harness in (in_meta, other_content, too_long)],
+                         ["protocol_violation"] * 3)
 
     def test_a_tool_completion_states_its_outcome(self) -> None:
         harness = _Harness()

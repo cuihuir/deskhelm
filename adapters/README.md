@@ -22,7 +22,9 @@ tool output, or the whole output marked `replace` when the vendor replaced it
 its command or path as content, for the operator only, and its complete fact
 says whether it completed, failed, or was declined (ADR 0045). An exit code
 comes only from the vendor. Claude and ACP report none, so their drivers call
-a failed tool declined when they refused its permission request. Claude needs
+a failed tool declined when they refused its permission request. An approval
+request carries what it would allow, such as the command line or paths, as
+its operator-only detail. Claude needs
 `--permission-prompt-tool stdio`; without it, Claude Code 2.1.312 denies a
 tool that needs permission without asking. Its driver declines
 `AskUserQuestion` at once because the session takes no input, and it sends
