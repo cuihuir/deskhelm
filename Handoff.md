@@ -47,6 +47,24 @@ What 0.2.0 changed since 0.1.0:
   architecture, and a three-step quick start. The screenshots come from
   synthetic sessions, not a real project.
 
+Since 0.2.0, branch `next` (not pushed, not released) adds answering agent
+questions on the page (ADR 0046), after the user saw a Codex question as a
+plain list and its TUI answer as raw `<send_user_message_question_reply>`
+JSON:
+
+- An input request carries its questions and options as operator-only
+  content; a non-blocking request outlives its turn; an operator-only
+  `answer` command answers by question id; `input_resolved` says how a
+  question ended and with which answers.
+- Codex 0.166.0's `request_user_input_async` questions (an `agentMessage`
+  with `questions`, which Codex does not wait on) and `requestUserInput`
+  requests become answerable cards. DeskHelm answers an async question with
+  the TUI's own reply message, recognizes the TUI's answers, and never shows
+  the wrapper.
+- The page's question card offers the options (the first chosen, as in the
+  TUI), a free-text answer, and one submit, and keeps a half-typed answer
+  while the agent works. The dashboard shows questions and their answers.
+
 `voice/runtime` installs the checkout as an editable path dependency, so no
 command, test, or tool needs `PYTHONPATH`. The two uv projects stay separate
 so model dependencies never enter the root package.
@@ -69,6 +87,13 @@ so model dependencies never enter the root package.
   user's shell configuration at their request.
 
 ## Validation
+
+- On `next`: 351 tests and all 51 browser checks pass, including a replay
+  transcript of both async-question paths. Live with Codex CLI 0.166.0 on a
+  private Bridge: a question answered on the page reached Codex, which
+  replied with the answer, and the TUI took it off its queue; a question
+  answered in the TUI (`shift+←`, Enter) showed on the page with its answer;
+  no raw reply appeared in either case.
 
 - Full suite in the voice runtime without `PYTHONPATH`: 340 tests pass (289 at
   0.1.0). The root environment passes every test except the ASR provider
@@ -93,6 +118,11 @@ so model dependencies never enter the root package.
 - Choose a repository license. The repository is public and has no license
   file.
 - Phase 5: hardware and remote-access ADRs.
+- Push `next` and release it (a protocol change, so 0.3.0) once the user has
+  tried answering questions on the page; the running stack needs a restart.
+- Codex `requestUserInput` questions (used in Plan mode) and secret
+  questions were not seen live; only fixtures and unit tests cover them.
+  Claude Code's `AskUserQuestion` is still declined, so Claude never asks.
 - Not verified live: Grok approvals (the user's Grok config is
   `always-approve`, and a `GROK_CONFIG` overlay did not change it), so
   whether Grok reports a rejected tool as `failed` is unconfirmed; the Codex
