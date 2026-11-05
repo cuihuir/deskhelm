@@ -2,7 +2,8 @@
 
 Date: 2026-11-04
 
-Status: Accepted. Amends ADR 0043 and ADR 0044.
+Status: Accepted. Amends ADR 0043 and ADR 0044. ADR 0046 lets a request also
+carry its questions, and a resolution its answers.
 
 ## Context
 

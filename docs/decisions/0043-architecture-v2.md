@@ -4,7 +4,7 @@ Date: 2026-11-03
 
 Status: Accepted. Phases 0 to 4 are implemented and released in DeskHelm
 0.1.0; phase 5 remains. ADR 0045 adds tool outcomes and request details to
-protocol v2.
+protocol v2, and ADR 0046 questions and answers.
 
 ## Context
 

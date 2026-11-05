@@ -84,8 +84,9 @@ the agent CLIs you use: `codex`, `claude`, or `grok`.
    ```
 
 On the page you read replies and tool output, approve or reject what an
-agent asks after seeing the command or files it would touch, send the next
-prompt, stop a turn, and choose a Codex model.
+agent asks after seeing the command or files it would touch, answer a Codex
+question by picking an option or writing your own, send the next prompt,
+stop a turn, and choose a Codex model.
 
 | Command | What it does |
 |---|---|
