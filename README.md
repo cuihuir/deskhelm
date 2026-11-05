@@ -101,7 +101,7 @@ and audio settings described in [`bridge/README.md`](bridge/README.md#voice-host
 
 ## Status
 
-DeskHelm 0.2.0 runs from a source checkout on Linux and needs no hardware.
+DeskHelm 0.3.0 runs from a source checkout on Linux and needs no hardware.
 It was checked live with Codex CLI 0.166.0, Claude Code 2.1.312, and Grok
 1.0.60. The Codex integration uses Codex's experimental app-server and is
 alpha. Hardware, firmware, and the device transport stay exploratory until

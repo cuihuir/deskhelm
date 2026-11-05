@@ -47,7 +47,7 @@ class _Interrupted(Exception):
 
 
 class DemoSession:
-    runtime = RuntimeIdentity("deskhelm-simulate", "0.2.0", "simulate", "1")
+    runtime = RuntimeIdentity("deskhelm-simulate", "0.3.0", "simulate", "1")
     capabilities = CapabilityMatrix(
         version=1,
         prompt_while_busy=PromptWhileBusy.REJECT,

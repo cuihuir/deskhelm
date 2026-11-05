@@ -154,7 +154,7 @@ class CodexSession:
         *,
         socket_path: Path,
         runtime_version: str,
-        adapter_version: str = "0.2.0",
+        adapter_version: str = "0.3.0",
         tui_proxy_socket_path: Path | None = None,
         approvals: ApprovalSupport = ApprovalSupport.ANSWERABLE,
         refresh_catalog: bool = True,

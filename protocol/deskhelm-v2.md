@@ -2,11 +2,11 @@
 
 Status: the only DeskHelm protocol since 0.1.0 (ADR 0043), implemented by
 `bridge/deskhelm_protocol` and `bridge/deskhelm_core`. DeskHelm 0.2.0 changed
-it without compatibility with 0.1.0 (ADR 0044, ADR 0045), and ADR 0046 adds
-questions and answers. The user Bridge
-listens on `$XDG_RUNTIME_DIR/deskhelm/bridge.sock`, or
-`/tmp/deskhelm-<uid>/bridge.sock` without `XDG_RUNTIME_DIR`. Hosts start it
-on demand, and `deskhelm bridge [--socket PATH]` runs it in the foreground.
+it without compatibility with 0.1.0 (ADR 0044, ADR 0045), and 0.3.0 adds
+questions and answers (ADR 0046). The user Bridge listens on
+`$XDG_RUNTIME_DIR/deskhelm/bridge.sock`, or `/tmp/deskhelm-<uid>/bridge.sock`
+without `XDG_RUNTIME_DIR`. Hosts start it on demand, and
+`deskhelm bridge [--socket PATH]` runs it in the foreground.
 
 ## Framing
 

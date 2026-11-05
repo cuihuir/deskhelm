@@ -167,7 +167,7 @@ class CodexAppServerAdapter:
     socket_path: Path
     session: SessionKey
     source_version: str
-    client_version: str = "0.2.0"
+    client_version: str = "0.3.0"
     thread_id: str = ""
     approval_timeout_ms: int = 300_000
     user_input_timeout_ms: int = 300_000
