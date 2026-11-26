@@ -8,6 +8,10 @@ Repository: <https://github.com/cuihuir/deskhelm>
 
 ## Current State
 
+Active development has ended at v0.3.0. The root README records the closeout
+and gives a demo walkthrough. Phase 5 hardware and mobile remote access stayed
+at the research stage. The open items below record the release's limitations.
+
 DeskHelm 0.3.0 is released from `main` as tag `v0.3.0`. It keeps the protocol
 v2 architecture of 0.1.0 (ADR 0043, phases 0 to 4) and changes the protocol
 without compatibility with earlier releases, which the user accepted on
